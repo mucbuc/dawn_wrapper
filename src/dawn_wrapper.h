@@ -16,22 +16,26 @@ private:                                     \
     friend class bindgroup_wrapper;          \
     friend class buffer_wrapper;             \
     friend class bindgroup_layout_wrapper;   \
+    friend class encoder_wrapper;            \
     struct pimpl;                            \
     using ptr_type = std::shared_ptr<pimpl>; \
     class_name(ptr_type);                    \
     ptr_type m_pimpl;
 
-struct encoder_wrapper {
-    encoder_wrapper() = default;
-    void submit_command_buffer();
-    WRAPPER_PIMPL_DEC(encoder_wrapper);
-};
-
 struct buffer_wrapper {
     buffer_wrapper() = default;
     void write(const std::vector<uint8_t>& colors);
     void write(void*, size_t);
+    void print_output();
+    bool done();
     WRAPPER_PIMPL_DEC(buffer_wrapper);
+};
+
+struct encoder_wrapper {
+    encoder_wrapper() = default;
+    void submit_command_buffer();
+    void copy_buffer_to_buffer(buffer_wrapper, buffer_wrapper);
+    WRAPPER_PIMPL_DEC(encoder_wrapper);
 };
 
 struct texture_wrapper {
@@ -87,6 +91,7 @@ enum class BufferType {
     Uniform,
     Index,
     Vertex,
+    MapRead,
 };
 
 struct dawn_plugin {

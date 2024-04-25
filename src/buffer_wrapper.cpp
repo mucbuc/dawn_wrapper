@@ -22,4 +22,14 @@ void buffer_wrapper::write(void* p, size_t size)
     m_pimpl->write(p, size);
 }
 
+void buffer_wrapper::print_output()
+{
+    m_pimpl->print_output();
+}
+
+bool buffer_wrapper::done()
+{
+    return m_pimpl->done();
+}
+
 } // dawn_wrapper

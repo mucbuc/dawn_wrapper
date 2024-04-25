@@ -3,6 +3,8 @@
 #include "dawn_utils.hpp"
 #include "dawn_wrapper.h"
 
+#include "buffer_wrapper_impl.h"
+
 #include <dawn/webgpu_cpp.h>
 
 namespace dawn_wrapper {
@@ -20,6 +22,11 @@ struct encoder_wrapper::pimpl {
         CommandBuffer commands = m_encoder.Finish();
         m_encoder = m_device.CreateCommandEncoder();
         m_device.GetQueue().Submit(1, &commands);
+    }
+
+    void copy_buffer_to_buffer(buffer_wrapper lhs, buffer_wrapper rhs)
+    {
+        m_encoder.CopyBufferToBuffer(lhs.m_pimpl->m_buffer, 0, rhs.m_pimpl->m_buffer, 0, lhs.m_pimpl->m_buffer.GetSize());
     }
 
     Device m_device;

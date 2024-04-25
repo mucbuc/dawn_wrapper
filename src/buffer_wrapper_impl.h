@@ -16,6 +16,7 @@ struct buffer_wrapper::pimpl {
         , m_isDest(isDest)
         , m_usage(getBufferUsageFromType(flags, m_isDest))
         , m_buffer(dawn_utils::make_buffer(m_device, size, m_usage))
+        , m_done(true)
     {
     }
 
@@ -24,6 +25,7 @@ struct buffer_wrapper::pimpl {
         , m_isDest(isDest)
         , m_usage(getBufferUsageFromType(flags, m_isDest))
         , m_buffer()
+        , m_done(true)
     {
     }
 
@@ -33,12 +35,41 @@ struct buffer_wrapper::pimpl {
             m_buffer = dawn_utils::make_buffer(m_device, size, m_usage);
         }
 
-        m_device.GetQueue().WriteBuffer(m_buffer, 0, data, size);
+        if (m_isDest) {
+            m_device.GetQueue().WriteBuffer(m_buffer, 0, data, size);
+        }
     }
 
     void write(const std::vector<uint8_t>& colors)
     {
         write((void*)colors.data(), colors.size());
+    }
+
+    static void callback(auto status, auto userData)
+    {
+        if (status == WGPUBufferMapAsyncStatus_Success) {
+            pimpl* instance = (pimpl*)userData;
+            const auto size = instance->m_buffer.GetSize();
+            const int8_t* output = (const int8_t*)instance->m_buffer.GetConstMappedRange(0, size);
+            for (auto i = 0; i < size; ++i) {
+                std::cout << unsigned(output[i]) << ", ";
+            }
+            std::cout << std::endl;
+            instance->m_buffer.Unmap();
+            instance->m_done = true;
+        }
+    }
+
+    void print_output()
+    {
+        auto buffer_size = m_buffer.GetSize();
+        m_done = false;
+        m_buffer.MapAsync(MapMode::Read, 0, buffer_size, &callback, this);
+    }
+
+    bool done()
+    {
+        return m_done;
     }
 
     // private:
@@ -63,6 +94,10 @@ struct buffer_wrapper::pimpl {
             flags |= BufferUsage::Vertex;
             break;
 
+        case BufferType::MapRead:
+            flags |= BufferUsage::MapRead;
+            break;
+
         default:
             ASSERT(false);
         }
@@ -74,5 +109,6 @@ struct buffer_wrapper::pimpl {
     bool m_isDest;
     BufferUsage m_usage;
     Buffer m_buffer;
+    std::atomic<bool> m_done;
 };
 }

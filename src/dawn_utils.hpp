@@ -303,7 +303,7 @@ static BindGroupEntry make_bindGroupBufferEntry(uint32_t binding, Buffer buffer)
     return make_bindGroupBufferEntry(binding, buffer, buffer.GetSize());
 }
 
-Sampler make_sampler(Device& device, AddressMode mode = AddressMode::Repeat)
+static Sampler make_sampler(Device& device, AddressMode mode = AddressMode::Repeat)
 {
     SamplerDescriptor samplerDesc = dawn_utils::make_samplerDesc(mode);
     return device.CreateSampler(&samplerDesc);

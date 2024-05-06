@@ -56,7 +56,7 @@ struct bindgroup_layout_wrapper {
 };
 
 struct bindgroup_wrapper {
-    bindgroup_wrapper() = delete;
+    bindgroup_wrapper() = default;
     void addBuffer(unsigned binding, buffer_wrapper);
     void addTexture(unsigned binding, texture_wrapper);
     void addSampler(unsigned binding, texture_wrapper);

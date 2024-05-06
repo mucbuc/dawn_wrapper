@@ -73,6 +73,7 @@ struct dawn_plugin::dawn_pimpl {
     bool run()
     {
         m_instance.ProcessEvents();
+        return false;
     }
 
     void log_error(const char* error)

@@ -72,6 +72,22 @@ struct render_wrapper::pimpl {
         m_swapChain.Present();
     }
 
+    void render(encoder_wrapper encoder)
+    {
+        ASSERT(m_swapChain);
+
+        auto pass = dawn_utils::begin_render_pass(encoder.m_pimpl->m_encoder, m_swapChain.GetCurrentTextureView());
+        pass.SetPipeline(get_pipeline());
+        pass.SetVertexBuffer(0, get_bufferVertex(), 0, get_bufferVertex().GetSize());
+        pass.SetIndexBuffer(get_bufferIndex(), IndexFormat::Uint16, 0, get_bufferIndex().GetSize());
+        pass.DrawIndexed(3, 1, 0, 0, 0);
+        pass.End();
+
+        encoder.submit_command_buffer();
+
+        m_swapChain.Present();
+    }
+
     bindgroup_layout_wrapper make_bindgroup_layout()
     {
         return std::make_shared<bindgroup_layout_wrapper::pimpl>(ShaderStage::Fragment);
@@ -94,6 +110,13 @@ struct render_wrapper::pimpl {
 
         m_bindGroupLayout = dawn_utils::make_bindGroupLayout(m_device, layout.m_pimpl->m_layoutEntries);
         m_pipeline = dawn_utils::make_render_pipeline(m_device, m_bindGroupLayout, m_shader, m_vertexShader, m_entryPoint.c_str());
+    }
+
+    void make_pipeline()
+    {
+        ASSERT(m_shader);
+
+        m_pipeline = dawn_utils::make_render_pipeline(m_device, m_shader, m_vertexShader, m_entryPoint.c_str());
     }
 
     RenderPipeline get_pipeline()

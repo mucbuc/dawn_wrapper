@@ -38,9 +38,19 @@ void render_wrapper::make_pipeline(bindgroup_layout_wrapper layout)
     m_pimpl->make_pipeline(layout);
 }
 
+void render_wrapper::make_pipeline()
+{
+    m_pimpl->make_pipeline();
+}
+
 void render_wrapper::render(bindgroup_wrapper bindGroup, encoder_wrapper encoder)
 {
     m_pimpl->render(bindGroup, encoder);
+}
+
+void render_wrapper::render(encoder_wrapper encoder)
+{
+    m_pimpl->render(encoder);
 }
 
 } // dawn_wrapper

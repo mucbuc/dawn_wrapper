@@ -252,6 +252,45 @@ static RenderPipeline make_render_pipeline(Device& device, BindGroupLayout& bind
     return device.CreateRenderPipeline(&descriptor);
 }
 
+static RenderPipeline make_render_pipeline(Device& device, ShaderModule& fragmentModule, ShaderModule& vertexModule, const char* entryPoint)
+{
+    ColorTargetState colorTargetState {};
+    colorTargetState.format = TextureFormat::BGRA8Unorm;
+
+    FragmentState fragmentState {};
+    fragmentState.module = fragmentModule;
+    fragmentState.entryPoint = entryPoint;
+    fragmentState.targetCount = 1;
+    fragmentState.targets = &colorTargetState;
+
+    VertexAttribute vertexAttrib = {};
+    vertexAttrib.shaderLocation = 0;
+    vertexAttrib.format = VertexFormat::Float32x2;
+    vertexAttrib.offset = 0;
+
+    VertexBufferLayout vertexBufferLayout = {};
+    vertexBufferLayout.attributeCount = 1;
+    vertexBufferLayout.attributes = &vertexAttrib;
+    vertexBufferLayout.arrayStride = 2 * sizeof(float);
+    vertexBufferLayout.stepMode = VertexStepMode::Vertex;
+
+    VertexState vertexState {};
+    vertexState.module = vertexModule;
+    vertexState.entryPoint = "vertexMain";
+
+    PipelineLayoutDescriptor pipelineLayoutDesc = {};
+    pipelineLayoutDesc.bindGroupLayoutCount = 0;
+
+    RenderPipelineDescriptor descriptor {};
+    descriptor.vertex = vertexState;
+    descriptor.fragment = &fragmentState;
+    descriptor.vertex.bufferCount = 1;
+    descriptor.vertex.buffers = &vertexBufferLayout;
+    descriptor.layout = device.CreatePipelineLayout(&pipelineLayoutDesc);
+
+    return device.CreateRenderPipeline(&descriptor);
+}
+
 static SwapChain make_swap_chain(Device& device, wgpu::Surface surface, unsigned width, unsigned height)
 {
     // ASSERT(surface);

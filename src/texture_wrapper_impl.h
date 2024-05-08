@@ -28,6 +28,14 @@ struct texture_wrapper::pimpl {
     {
     }
 
+    pimpl(Device device, unsigned width, unsigned height)
+        : m_device(device)
+        , m_desc(dawn_utils::make_texture_descriptor_2d(m_device, width, height))
+        , m_texture(m_device.CreateTexture(&m_desc))
+        , m_view(m_texture.CreateView())
+    {
+    }
+
     void write(const std::vector<uint8_t>& colors)
     {
 

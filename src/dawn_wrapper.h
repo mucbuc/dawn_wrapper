@@ -46,11 +46,12 @@ struct texture_wrapper {
 };
 
 struct bindgroup_layout_wrapper {
-    bindgroup_layout_wrapper() = delete;
+    bindgroup_layout_wrapper() = default;
     void addBuffer(unsigned binding);
     void addReadOnlyBuffer(unsigned binding);
     void addUniformBuffer(unsigned binding);
-    void addTexture(unsigned binding);
+    void addTexture_1d(unsigned binding);
+    void addTexture_2d(unsigned binding);
     void addSampler(unsigned binding);
     WRAPPER_PIMPL_DEC(bindgroup_layout_wrapper);
 };
@@ -104,6 +105,7 @@ struct dawn_plugin {
     buffer_wrapper make_buffer(unsigned size, BufferType type, bool isDest = true);
     buffer_wrapper make_buffer(BufferType type, bool isDest = true);
     texture_wrapper make_texture(unsigned);
+    texture_wrapper make_texture(unsigned, unsigned);
     texture_wrapper make_texture(std::vector<uint8_t> data);
     encoder_wrapper make_encoder();
     bool run();

@@ -1,6 +1,9 @@
 
 set(CMAKE_CXX_STANDARD 20)
 set(DAWN_FETCH_DEPENDENCIES ON)
+set(CMAKE_XCODE_ATTRIBUTE_ARCHS "$(ARCHS_STANDARD)")
+set(CMAKE_OSX_ARCHITECTURES "$(ARCHS_STANDARD)")
+
 project(dawn_wrapper_lib)
 add_subdirectory("lib/dawn" EXCLUDE_FROM_ALL)
 
@@ -25,5 +28,4 @@ target_link_libraries(dawn_wrapper PUBLIC
     dawn_native
     dawn_wire
     dawn_utils
-    glfw
 )

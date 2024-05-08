@@ -117,6 +117,11 @@ struct dawn_plugin::dawn_pimpl {
         return std::make_shared<texture_wrapper::pimpl>(m_device, size);
     }
 
+    texture_wrapper make_texture(unsigned width, unsigned height)
+    {
+        return std::make_shared<texture_wrapper::pimpl>(m_device, width, height);
+    }
+
     texture_wrapper make_texture(std::vector<uint8_t> data)
     {
         return std::make_shared<texture_wrapper::pimpl>(m_device, data);
@@ -162,6 +167,11 @@ buffer_wrapper dawn_plugin::make_buffer(BufferType flags, bool isDest)
 texture_wrapper dawn_plugin::make_texture(unsigned size)
 {
     return m_pimpl->make_texture(size);
+}
+
+texture_wrapper dawn_plugin::make_texture(unsigned width, unsigned height)
+{
+    return m_pimpl->make_texture(width, height);
 }
 
 texture_wrapper dawn_plugin::make_texture(std::vector<uint8_t> data)

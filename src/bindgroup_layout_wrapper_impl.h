@@ -27,9 +27,14 @@ struct bindgroup_layout_wrapper::pimpl {
         m_layoutEntries.push_back(dawn_utils::make_bindGroupLayoutBufferEntry(binding, BufferBindingType::Uniform, m_stage));
     }
 
-    void addTexture(unsigned binding)
+    void addTexture_1d(unsigned binding)
     {
-        m_layoutEntries.push_back(make_texture_layout_entry(binding));
+        m_layoutEntries.push_back(make_texture_layout_entry(binding, TextureSampleType::Float, TextureViewDimension::e1D));
+    }
+
+    void addTexture_2d(unsigned binding)
+    {
+        m_layoutEntries.push_back(make_texture_layout_entry(binding, TextureSampleType::Float, TextureViewDimension::e2D));
     }
 
     void addSampler(unsigned binding)

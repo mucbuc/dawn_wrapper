@@ -27,9 +27,14 @@ void bindgroup_layout_wrapper::addUniformBuffer(unsigned binding)
     m_pimpl->addUniformBuffer(binding);
 }
 
-void bindgroup_layout_wrapper::addTexture(unsigned binding)
+void bindgroup_layout_wrapper::addTexture_1d(unsigned binding)
 {
-    m_pimpl->addTexture(binding);
+    m_pimpl->addTexture_1d(binding);
+}
+
+void bindgroup_layout_wrapper::addTexture_2d(unsigned binding)
+{
+    m_pimpl->addTexture_2d(binding);
 }
 
 void bindgroup_layout_wrapper::addSampler(unsigned binding)

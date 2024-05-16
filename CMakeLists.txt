@@ -17,6 +17,7 @@ target_sources(dawn_wrapper PRIVATE
     src/encoder_wrapper.cpp
     src/render_wrapper.cpp
     src/texture_wrapper.cpp
+    src/texture_output_wrapper.cpp
 )
 
 target_link_libraries(dawn_wrapper PUBLIC

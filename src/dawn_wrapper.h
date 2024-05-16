@@ -13,6 +13,7 @@ private:                                     \
     friend class compute_wrapper;            \
     friend class dawn_plugin;                \
     friend class texture_wrapper;            \
+    friend class texture_output_wrapper;     \
     friend class bindgroup_wrapper;          \
     friend class buffer_wrapper;             \
     friend class bindgroup_layout_wrapper;   \
@@ -45,6 +46,12 @@ struct texture_wrapper {
     WRAPPER_PIMPL_DEC(texture_wrapper);
 };
 
+struct texture_output_wrapper {
+    texture_output_wrapper() = default;
+    void make_sampler(bool clamp_to_edge);
+    WRAPPER_PIMPL_DEC(texture_output_wrapper);
+};
+
 struct bindgroup_layout_wrapper {
     bindgroup_layout_wrapper() = default;
     void addBuffer(unsigned binding);
@@ -52,6 +59,7 @@ struct bindgroup_layout_wrapper {
     void addUniformBuffer(unsigned binding);
     void addTexture_1d(unsigned binding);
     void addTexture_2d(unsigned binding);
+    void addStorageTexture_2d(unsigned binding);
     void addSampler(unsigned binding);
     WRAPPER_PIMPL_DEC(bindgroup_layout_wrapper);
 };
@@ -60,7 +68,9 @@ struct bindgroup_wrapper {
     bindgroup_wrapper() = default;
     void addBuffer(unsigned binding, buffer_wrapper);
     void addTexture(unsigned binding, texture_wrapper);
+    void addTexture(unsigned binding, texture_output_wrapper);
     void addSampler(unsigned binding, texture_wrapper);
+    void addSampler(unsigned binding, texture_output_wrapper);
     WRAPPER_PIMPL_DEC(bindgroup_wrapper);
 };
 
@@ -107,6 +117,7 @@ struct dawn_plugin {
     texture_wrapper make_texture(unsigned);
     texture_wrapper make_texture(unsigned, unsigned);
     texture_wrapper make_texture(std::vector<uint8_t> data);
+    texture_output_wrapper make_texture_output(unsigned, unsigned);
     encoder_wrapper make_encoder();
     bool run();
 

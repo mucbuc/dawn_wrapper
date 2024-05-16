@@ -144,7 +144,7 @@ static TextureDescriptor make_texture_descriptor_2d(Device& device, uint32_t wid
 static TextureDescriptor make_output_texture_descriptor(Device& device, uint32_t width, uint32_t height)
 {
     TextureDescriptor textureDesc = {};
-    textureDesc.dimension = TextureDimension::e1D;
+    textureDesc.dimension = TextureDimension::e2D;
     textureDesc.size = { width, height, 1 };
     textureDesc.mipLevelCount = 1;
     textureDesc.sampleCount = 1;

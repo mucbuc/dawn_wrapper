@@ -22,7 +22,19 @@ void bindgroup_wrapper::addTexture(unsigned binding, texture_wrapper texture)
     m_pimpl->addTexture(binding, texture);
 }
 
+void bindgroup_wrapper::addTexture(unsigned binding, texture_output_wrapper texture)
+{
+    ASSERT(texture.m_pimpl);
+    m_pimpl->addTexture(binding, texture);
+}
+
 void bindgroup_wrapper::addSampler(unsigned binding, texture_wrapper texture)
+{
+    ASSERT(texture.m_pimpl);
+    m_pimpl->addSampler(binding, texture);
+}
+
+void bindgroup_wrapper::addSampler(unsigned binding, texture_output_wrapper texture)
 {
     ASSERT(texture.m_pimpl);
     m_pimpl->addSampler(binding, texture);

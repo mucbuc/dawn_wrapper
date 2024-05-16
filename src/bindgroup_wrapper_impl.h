@@ -5,6 +5,7 @@
 
 #include "buffer_wrapper_impl.h"
 #include "texture_wrapper_impl.h"
+#include "texture_output_wrapper_impl.h"
 
 #include <dawn/webgpu_cpp.h>
 
@@ -21,7 +22,17 @@ struct bindgroup_wrapper::pimpl {
         m_bindgroup_entries.push_back(dawn_utils::make_bind_group_entry(binding, texture.m_pimpl->get_view()));
     }
 
+    void addTexture(unsigned binding, texture_output_wrapper texture)
+    {
+        m_bindgroup_entries.push_back(dawn_utils::make_bind_group_entry(binding, texture.m_pimpl->get_view()));
+    }
+
     void addSampler(unsigned binding, texture_wrapper texture)
+    {
+        m_bindgroup_entries.push_back(dawn_utils::make_bind_group_entry(binding, texture.m_pimpl->get_sampler()));
+    }
+
+    void addSampler(unsigned binding, texture_output_wrapper texture)
     {
         m_bindgroup_entries.push_back(dawn_utils::make_bind_group_entry(binding, texture.m_pimpl->get_sampler()));
     }

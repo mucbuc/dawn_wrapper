@@ -37,6 +37,11 @@ void bindgroup_layout_wrapper::addTexture_2d(unsigned binding)
     m_pimpl->addTexture_2d(binding);
 }
 
+void bindgroup_layout_wrapper::addStorageTexture_2d(unsigned binding)
+{
+    m_pimpl->addStorageTexture_2d(binding);
+}
+
 void bindgroup_layout_wrapper::addSampler(unsigned binding)
 {
     m_pimpl->addSampler(binding);

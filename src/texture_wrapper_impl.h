@@ -13,7 +13,9 @@ struct texture_wrapper::pimpl {
 
     pimpl(Device device, const std::vector<uint8_t>& colors)
         : m_device(device)
-        , m_desc(dawn_utils::make_texture_descriptor(m_device, colors.size() / 4))
+        , m_width(colors.size() / 4)
+        , m_height(1)
+        , m_desc(dawn_utils::make_texture_descriptor(m_device, m_width))
         , m_texture(m_device.CreateTexture(&m_desc))
         , m_view(m_texture.CreateView())
     {
@@ -22,7 +24,9 @@ struct texture_wrapper::pimpl {
 
     pimpl(Device device, unsigned size)
         : m_device(device)
-        , m_desc(dawn_utils::make_texture_descriptor(m_device, size))
+        , m_width(size)
+        , m_height(1)
+        , m_desc(dawn_utils::make_texture_descriptor(m_device, m_width))
         , m_texture(m_device.CreateTexture(&m_desc))
         , m_view(m_texture.CreateView())
     {
@@ -30,7 +34,9 @@ struct texture_wrapper::pimpl {
 
     pimpl(Device device, unsigned width, unsigned height)
         : m_device(device)
-        , m_desc(dawn_utils::make_texture_descriptor_2d(m_device, width, height))
+        , m_width(width)
+        , m_height(height)
+        , m_desc(dawn_utils::make_texture_descriptor_2d(m_device, m_width, m_height))
         , m_texture(m_device.CreateTexture(&m_desc))
         , m_view(m_texture.CreateView())
     {
@@ -38,8 +44,7 @@ struct texture_wrapper::pimpl {
 
     void write(const std::vector<uint8_t>& colors)
     {
-
-        ASSERT(colors.size() == 4 * m_desc.size.width);
+        ASSERT(colors.size() == 4 * m_desc.size.width * m_desc.size.height);
 
         write_texture(m_device, m_texture, m_desc, colors);
     }
@@ -62,6 +67,8 @@ struct texture_wrapper::pimpl {
 
 private:
     Device m_device;
+    unsigned m_width;
+    unsigned m_height;
     TextureDescriptor m_desc;
     Texture m_texture;
     TextureView m_view;

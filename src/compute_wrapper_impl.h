@@ -25,6 +25,7 @@ struct compute_wrapper::pimpl {
     void make_shader(std::string script, std::string entryPoint)
     {
         m_shader = dawn_utils::make_compute_shader(m_device, script);
+        m_shader.GetCompilationInfo(& compilation_callback, this);
         m_entryPoint = entryPoint;
     }
 
@@ -66,6 +67,37 @@ struct compute_wrapper::pimpl {
     }
 
 private:
+
+
+    static void compilation_callback(WGPUCompilationInfoRequestStatus status, struct WGPUCompilationInfo const * compilationInfo, void * userdata)
+    {
+        pimpl * instance( reinterpret_cast<pimpl *>(userdata) );
+        std::stringstream messages;
+        size_t errorCount = 0;
+        for (auto i = 0; i < compilationInfo->messageCount; ++i) {
+            const auto message = compilationInfo->messages[i];
+            if (message.type == WGPUCompilationMessageType_Error) {
+                messages << "Error(" << i << "): ";
+            ++errorCount;
+            }
+            else if (message.type == WGPUCompilationMessageType_Warning) {
+                messages << "Warning(" << i << "): ";
+            }
+            else if (message.type == WGPUCompilationMessageType_Info) {
+                messages << "Info(" << i << "): ";
+            }
+
+            messages << message.message << std::endl;
+        }
+    
+        std::cout << messages.str() << std::endl;
+  //      instance->m_shaderCompileCallback(messages.str());
+
+//        if (!errorCount) {
+//            instance->setFragmentShaderUser();
+//        }
+    }
+
     Device m_device;
     BindGroupLayout m_bindGroupLayout;
     ShaderModule m_shader;

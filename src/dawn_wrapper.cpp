@@ -7,6 +7,7 @@
 #include "dawn_utils.hpp"
 #include "render_wrapper_impl.h"
 #include "texture_wrapper_impl.h"
+#include "texture_output_wrapper_impl.h"
 
 using namespace std;
 using namespace wgpu;
@@ -40,12 +41,26 @@ struct dawn_plugin::dawn_pimpl {
 
     void request_device(Adapter adapter)
     {
+    
+#if 0
+        size_t featureCount = adapter.EnumerateFeatures(nullptr);
+        std::vector<FeatureName> supportedFeatures(featureCount);
+        adapter.EnumerateFeatures(supportedFeatures.data());
+        for (auto f : supportedFeatures) {
+            std::cout << (int) f << std::endl;
+        }
+#endif
+    
         DeviceDescriptor deviceDesc = {};
         RequiredLimits requiredLimits = {};
         requiredLimits.limits.maxStorageBuffersPerShaderStage = 2;
         requiredLimits.limits.maxSamplersPerShaderStage = 1;
         deviceDesc.requiredLimits = &requiredLimits;
-
+#if 0
+        std::vector<FeatureName> features = { FeatureName::ShaderF16 };
+        deviceDesc.requiredFeatureCount = features.size();
+        deviceDesc.requiredFeatures = features.data();
+#endif 
         adapter.RequestDevice(
             &deviceDesc, [](auto status, auto device, const char* message, void* userdata) {
                 auto pimpl = reinterpret_cast<dawn_pimpl*>(userdata);
@@ -127,6 +142,11 @@ struct dawn_plugin::dawn_pimpl {
         return std::make_shared<texture_wrapper::pimpl>(m_device, data);
     }
 
+    texture_output_wrapper make_texture_output(unsigned width, unsigned height)
+    {
+        return std::make_shared<texture_output_wrapper::pimpl>(m_device, width, height);
+    }
+
     Device m_device;
     Adapter m_adapter;
     Instance m_instance;
@@ -177,6 +197,11 @@ texture_wrapper dawn_plugin::make_texture(unsigned width, unsigned height)
 texture_wrapper dawn_plugin::make_texture(std::vector<uint8_t> data)
 {
     return m_pimpl->make_texture(data);
+}
+
+texture_output_wrapper dawn_plugin::make_texture_output(unsigned width, unsigned height)
+{
+    return m_pimpl->make_texture_output(width, height);
 }
 
 encoder_wrapper dawn_plugin::make_encoder()

@@ -29,6 +29,9 @@ struct buffer_wrapper {
     void write(void*, size_t);
     void print_output();
     bool done();
+    void get_output(std::function<void(unsigned, const void*)>);
+    
+    operator bool() const;
     WRAPPER_PIMPL_DEC(buffer_wrapper);
 };
 
@@ -43,6 +46,8 @@ struct texture_wrapper {
     texture_wrapper() = default;
     void write(const std::vector<uint8_t>& colors);
     void make_sampler(bool clamp_to_edge);
+    
+    operator bool() const;
     WRAPPER_PIMPL_DEC(texture_wrapper);
 };
 
@@ -88,6 +93,7 @@ struct compute_wrapper {
 struct render_wrapper {
     render_wrapper() = default;
     void make_shader(std::string script, std::string entryPoint);
+    void make_shader(std::string script, std::string entryPoint, std::map<std::string, std::string> variables);
     void setup_surface(GLFWwindow*, unsigned width, unsigned height, bool opaque);
     void render(bindgroup_wrapper, encoder_wrapper);
     void render(encoder_wrapper);

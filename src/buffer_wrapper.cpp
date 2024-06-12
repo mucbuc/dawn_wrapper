@@ -14,22 +14,40 @@ buffer_wrapper::buffer_wrapper(ptr_type ptr)
 
 void buffer_wrapper::write(const std::vector<uint8_t>& colors)
 {
-    m_pimpl->write(colors);
+    if (m_pimpl) {
+        m_pimpl->write(colors);
+    }
 }
 
 void buffer_wrapper::write(void* p, size_t size)
 {
-    m_pimpl->write(p, size);
+    if (m_pimpl) {
+        m_pimpl->write(p, size);
+    }
 }
 
 void buffer_wrapper::print_output()
 {
-    m_pimpl->print_output();
+    if (m_pimpl) {
+        m_pimpl->print_output();
+    }
+}
+
+void buffer_wrapper::get_output(std::function<void(unsigned, const void*)> cb)
+{
+    if (m_pimpl) {
+        m_pimpl->get_output(cb);
+    }
 }
 
 bool buffer_wrapper::done()
 {
-    return m_pimpl->done();
+    return m_pimpl && m_pimpl->done();
+}
+
+buffer_wrapper::operator bool() const
+{
+    return m_pimpl ? true : false;
 }
 
 } // dawn_wrapper

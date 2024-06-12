@@ -47,8 +47,10 @@ struct render_wrapper::pimpl {
         using namespace dawn_utils;
         ASSERT(m_wgpuInstance && window);
 
+#ifndef TARGET_HEADLESS
         m_surface = glfw::CreateSurfaceForWindow(m_wgpuInstance, window, opaque);
         m_swapChain = make_swap_chain(m_device, m_surface, width, height);
+#endif
     }
 
     void render(bindgroup_wrapper bindGroup, encoder_wrapper encoder)

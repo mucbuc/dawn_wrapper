@@ -60,11 +60,36 @@ struct buffer_wrapper::pimpl {
         }
     }
 
+    static void callback2(auto status, auto userData)
+    {
+        pimpl* instance = (pimpl*)userData;
+        if (status == WGPUBufferMapAsyncStatus_Success) {
+            const auto size = instance->m_buffer.GetSize();
+            instance->m_dataCallback(size, instance->m_buffer.GetConstMappedRange(0, size));
+        
+            instance->m_buffer.Unmap();
+            instance->m_done = true;
+        }
+        else
+        {
+            instance->m_dataCallback(0, nullptr);
+        }
+    }
+
     void print_output()
     {
         auto buffer_size = m_buffer.GetSize();
         m_done = false;
         m_buffer.MapAsync(MapMode::Read, 0, buffer_size, &callback, this);
+    }
+    
+    void get_output(std::function<void(unsigned, const void*)> cb)
+    {
+        m_dataCallback = cb;
+        
+        auto buffer_size = m_buffer.GetSize();
+        m_done = false;
+        m_buffer.MapAsync(MapMode::Read, 0, buffer_size, &callback2, this);
     }
 
     bool done()
@@ -110,5 +135,6 @@ struct buffer_wrapper::pimpl {
     BufferUsage m_usage;
     Buffer m_buffer;
     std::atomic<bool> m_done;
+    std::function<void(unsigned, const void*)> m_dataCallback;
 };
 }

@@ -6,7 +6,9 @@
 #include <dawn/webgpu_cpp.h>
 
 namespace dawn_wrapper {
-struct buffer_wrapper::pimpl {
+struct buffer_wrapper::pimpl
+: public std::enable_shared_from_this<pimpl>
+{
     friend class compute_wrapper::pimpl;
 
     pimpl() = default;
@@ -45,50 +47,30 @@ struct buffer_wrapper::pimpl {
         write((void*)colors.data(), colors.size());
     }
 
-    static void callback(auto status, auto userData)
-    {
-        if (status == WGPUBufferMapAsyncStatus_Success) {
-            pimpl* instance = (pimpl*)userData;
-            const auto size = instance->m_buffer.GetSize();
-            const int8_t* output = (const int8_t*)instance->m_buffer.GetConstMappedRange(0, size);
-            for (auto i = 0; i < size; ++i) {
-                std::cout << unsigned(output[i]) << ", ";
-            }
-            std::cout << std::endl;
-            instance->m_buffer.Unmap();
-            instance->m_done = true;
-        }
-    }
-
     static void callback2(auto status, auto userData)
     {
         pimpl* instance = (pimpl*)userData;
         if (status == WGPUBufferMapAsyncStatus_Success) {
             const auto size = instance->m_buffer.GetSize();
             instance->m_dataCallback(size, instance->m_buffer.GetConstMappedRange(0, size));
-        
             instance->m_buffer.Unmap();
-            instance->m_done = true;
         }
         else
         {
             instance->m_dataCallback(0, nullptr);
         }
+        instance->m_self_ref.reset();
+        instance->m_done = true;
     }
 
-    void print_output()
-    {
-        auto buffer_size = m_buffer.GetSize();
-        m_done = false;
-        m_buffer.MapAsync(MapMode::Read, 0, buffer_size, &callback, this);
-    }
-    
     void get_output(std::function<void(unsigned, const void*)> cb)
     {
         m_dataCallback = cb;
         
         auto buffer_size = m_buffer.GetSize();
         m_done = false;
+        
+        m_self_ref = shared_from_this();
         m_buffer.MapAsync(MapMode::Read, 0, buffer_size, &callback2, this);
     }
 
@@ -136,5 +118,6 @@ struct buffer_wrapper::pimpl {
     Buffer m_buffer;
     std::atomic<bool> m_done;
     std::function<void(unsigned, const void*)> m_dataCallback;
+    std::shared_ptr<pimpl> m_self_ref;
 };
 }

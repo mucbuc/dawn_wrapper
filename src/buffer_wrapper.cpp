@@ -26,13 +26,6 @@ void buffer_wrapper::write(void* p, size_t size)
     }
 }
 
-void buffer_wrapper::print_output()
-{
-    if (m_pimpl) {
-        m_pimpl->print_output();
-    }
-}
-
 void buffer_wrapper::get_output(std::function<void(unsigned, const void*)> cb)
 {
     if (m_pimpl) {

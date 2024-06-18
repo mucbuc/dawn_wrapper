@@ -49,17 +49,29 @@ struct render_wrapper::pimpl {
 
 #ifndef TARGET_HEADLESS
         m_surface = glfw::CreateSurfaceForWindow(m_wgpuInstance, window, opaque);
-        m_swapChain = make_swap_chain(m_device, m_surface, width, height);
+        
+        SurfaceConfiguration config;
+        config.device = m_device;
+        config.format = TextureFormat::BGRA8Unorm;
+        config.width = width;
+        config.height = height;
+        
+        m_surface.Configure(& config);
 #endif
+    }
+
+    TextureView getCurrentTextureView()
+    {
+        SurfaceTexture st;
+        m_surface.GetCurrentTexture(& st);
+        return st.texture.CreateView();
     }
 
     void render(bindgroup_wrapper bindGroup, encoder_wrapper encoder)
     {
-        ASSERT(m_swapChain);
         ASSERT(m_bindGroupLayout);
-        
-        auto textureView = m_swapChain.GetCurrentTextureView();
-        
+
+        auto textureView = getCurrentTextureView();
         ASSERT(textureView);
 
         auto pass = dawn_utils::begin_render_pass(encoder.m_pimpl->m_encoder, textureView);
@@ -75,14 +87,12 @@ struct render_wrapper::pimpl {
 
         encoder.submit_command_buffer();
 
-        m_swapChain.Present();
+        m_surface.Present();
     }
 
     void render(encoder_wrapper encoder)
     {
-        ASSERT(m_swapChain);
-
-        auto pass = dawn_utils::begin_render_pass(encoder.m_pimpl->m_encoder, m_swapChain.GetCurrentTextureView());
+        auto pass = dawn_utils::begin_render_pass(encoder.m_pimpl->m_encoder, getCurrentTextureView());
         pass.SetPipeline(get_pipeline());
         pass.SetVertexBuffer(0, get_bufferVertex(), 0, get_bufferVertex().GetSize());
         pass.SetIndexBuffer(get_bufferIndex(), IndexFormat::Uint16, 0, get_bufferIndex().GetSize());
@@ -91,7 +101,7 @@ struct render_wrapper::pimpl {
 
         encoder.submit_command_buffer();
 
-        m_swapChain.Present();
+        m_surface.Present();
     }
 
     bindgroup_layout_wrapper make_bindgroup_layout()
@@ -185,7 +195,6 @@ private:
     Buffer m_bufferVertex;
     Buffer m_bufferIndex;
     std::string m_entryPoint;
-    SwapChain m_swapChain;
     Surface m_surface;
     Instance m_wgpuInstance;
 };

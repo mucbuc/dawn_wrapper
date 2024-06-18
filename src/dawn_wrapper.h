@@ -27,7 +27,6 @@ struct buffer_wrapper {
     buffer_wrapper() = default;
     void write(const std::vector<uint8_t>& colors);
     void write(void*, size_t);
-    void print_output();
     bool done();
     void get_output(std::function<void(unsigned, const void*)>);
     

@@ -323,21 +323,6 @@ static RenderPipeline make_render_pipeline(Device& device, ShaderModule& fragmen
     return device.CreateRenderPipeline(&descriptor);
 }
 
-static SwapChain make_swap_chain(Device& device, wgpu::Surface surface, unsigned width, unsigned height, const char * label = "")
-{
-    ASSERT(surface);
-
-    SwapChainDescriptor swapChainDesc {};
-    swapChainDesc.usage = TextureUsage::RenderAttachment;
-    swapChainDesc.format = TextureFormat::BGRA8Unorm;
-    swapChainDesc.width = (unsigned int)width;
-    swapChainDesc.height = (unsigned int)height;
-    swapChainDesc.presentMode = PresentMode::Fifo;
-    swapChainDesc.label = label;
-
-    return device.CreateSwapChain(surface, &swapChainDesc);
-}
-
 static BindGroupLayoutEntry make_bindGroupLayoutBufferEntry(uint32_t binding, BufferBindingType type, ShaderStage stage, const char * label = "")
 {
     BindGroupLayoutEntry entry {};

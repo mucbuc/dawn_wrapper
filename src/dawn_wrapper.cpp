@@ -68,6 +68,8 @@ struct dawn_plugin::dawn_pimpl {
         deviceDesc.uncapturedErrorCallbackInfo.callback = [](auto type, auto message, auto userdata) {
             auto pimpl = reinterpret_cast<dawn_pimpl*>(userdata);
             pimpl->log_error("error: ", message);
+            
+            ASSERT(false);
         };
         deviceDesc.uncapturedErrorCallbackInfo.userdata = this;
 #if 1

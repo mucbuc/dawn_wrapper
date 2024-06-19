@@ -7,8 +7,7 @@
 
 namespace dawn_wrapper {
 struct buffer_wrapper::pimpl
-: public std::enable_shared_from_this<pimpl>
-{
+    : public std::enable_shared_from_this<pimpl> {
     friend class compute_wrapper::pimpl;
 
     pimpl() = default;
@@ -54,9 +53,7 @@ struct buffer_wrapper::pimpl
             const auto size = instance->m_buffer.GetSize();
             instance->m_dataCallback(size, instance->m_buffer.GetConstMappedRange(0, size));
             instance->m_buffer.Unmap();
-        }
-        else
-        {
+        } else {
             instance->m_dataCallback(0, nullptr);
         }
         instance->m_self_ref.reset();
@@ -66,10 +63,10 @@ struct buffer_wrapper::pimpl
     void get_output(std::function<void(unsigned, const void*)> cb)
     {
         m_dataCallback = cb;
-        
+
         auto buffer_size = m_buffer.GetSize();
         m_done = false;
-        
+
         m_self_ref = shared_from_this();
         m_buffer.MapAsync(MapMode::Read, 0, buffer_size, &callback2, this);
     }

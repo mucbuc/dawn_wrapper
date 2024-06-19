@@ -36,10 +36,10 @@ struct bindgroup_layout_wrapper::pimpl {
     {
         m_layoutEntries.push_back(make_texture_layout_entry(binding, TextureSampleType::Float, TextureViewDimension::e2D));
     }
-    
+
     void addStorageTexture_2d(unsigned binding)
     {
-       m_layoutEntries.push_back( make_texture_output_layout_entry(binding));
+        m_layoutEntries.push_back(make_texture_output_layout_entry(binding));
     }
 
     void addSampler(unsigned binding)
@@ -57,7 +57,7 @@ struct bindgroup_layout_wrapper::pimpl {
         entry.texture.viewDimension = dimension;
         return entry;
     }
-    
+
     BindGroupLayoutEntry make_texture_output_layout_entry(unsigned binding, TextureSampleType type = TextureSampleType::Float, TextureViewDimension dimension = TextureViewDimension::e2D)
     {
         BindGroupLayoutEntry entry = {};
@@ -66,7 +66,7 @@ struct bindgroup_layout_wrapper::pimpl {
         entry.storageTexture.format = TextureFormat::RGBA8Unorm;
         entry.storageTexture.viewDimension = dimension;
         entry.visibility = m_stage;
-        return entry; 
+        return entry;
     }
 
     BindGroupLayoutEntry make_sampler_layout_entry(unsigned binding, TextureSampleType type = TextureSampleType::Float, TextureViewDimension dimension = TextureViewDimension::e1D)

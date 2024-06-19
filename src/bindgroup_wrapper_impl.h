@@ -4,8 +4,8 @@
 #include "dawn_wrapper.h"
 
 #include "buffer_wrapper_impl.h"
-#include "texture_wrapper_impl.h"
 #include "texture_output_wrapper_impl.h"
+#include "texture_wrapper_impl.h"
 
 #include <dawn/webgpu_cpp.h>
 

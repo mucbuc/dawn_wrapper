@@ -6,8 +6,8 @@
 #include "compute_wrapper_impl.h"
 #include "dawn_utils.hpp"
 #include "render_wrapper_impl.h"
-#include "texture_wrapper_impl.h"
 #include "texture_output_wrapper_impl.h"
+#include "texture_wrapper_impl.h"
 
 using namespace std;
 using namespace wgpu;
@@ -16,11 +16,11 @@ using namespace literals;
 
 namespace dawn_wrapper {
 struct dawn_plugin::dawn_pimpl {
-    dawn_pimpl(/*ostream& out*/const char * label = "")
-    : m_device()
-    , m_adapter()
-    , m_instance(CreateInstance())
-    , m_label(label)
+    dawn_pimpl(/*ostream& out*/ const char* label = "")
+        : m_device()
+        , m_adapter()
+        , m_instance(CreateInstance())
+        , m_label(label)
     {
         request_adapter(m_instance);
     }
@@ -42,9 +42,9 @@ struct dawn_plugin::dawn_pimpl {
             this);
     }
 
-    void request_device(Adapter adapter, const char * label = "")
+    void request_device(Adapter adapter, const char* label = "")
     {
-    
+
 #if 0
         size_t featureCount = adapter.EnumerateFeatures(nullptr);
         vector<FeatureName> supportedFeatures(featureCount);
@@ -53,7 +53,7 @@ struct dawn_plugin::dawn_pimpl {
             cout << (int) f << endl;
         }
 #endif
-    
+
         DeviceDescriptor deviceDesc = {};
         RequiredLimits requiredLimits = {};
         requiredLimits.limits.maxStorageBuffersPerShaderStage = 2;
@@ -64,11 +64,11 @@ struct dawn_plugin::dawn_pimpl {
             pimpl->log_error("device lost: ", message);
         };
         deviceDesc.deviceLostCallbackInfo.userdata = this;
-        
+
         deviceDesc.uncapturedErrorCallbackInfo.callback = [](auto type, auto message, auto userdata) {
             auto pimpl = reinterpret_cast<dawn_pimpl*>(userdata);
             pimpl->log_error("error: ", message);
-            
+
             ASSERT(false);
         };
         deviceDesc.uncapturedErrorCallbackInfo.userdata = this;
@@ -88,10 +88,11 @@ struct dawn_plugin::dawn_pimpl {
                 }
 
                 pimpl->m_device = Device::Acquire(device);
-                pimpl->m_device.SetLoggingCallback([](auto type, auto message, auto userdata){
+                pimpl->m_device.SetLoggingCallback([](auto type, auto message, auto userdata) {
                     auto pimpl = reinterpret_cast<dawn_pimpl*>(userdata);
                     pimpl->log_error("error requesting webgpu device");
-                }, pimpl);
+                },
+                    pimpl);
             },
             this);
     }

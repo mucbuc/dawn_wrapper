@@ -29,7 +29,7 @@ struct buffer_wrapper {
     void write(void*, size_t);
     bool done();
     void get_output(std::function<void(unsigned, const void*)>);
-    
+
     operator bool() const;
     WRAPPER_PIMPL_DEC(buffer_wrapper);
 };
@@ -45,7 +45,7 @@ struct texture_wrapper {
     texture_wrapper() = default;
     void write(const std::vector<uint8_t>& colors);
     void make_sampler(bool clamp_to_edge);
-    
+
     operator bool() const;
     WRAPPER_PIMPL_DEC(texture_wrapper);
 };

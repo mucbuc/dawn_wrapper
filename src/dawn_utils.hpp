@@ -37,7 +37,7 @@ static void write_texture(Device& device, Texture& texture, TextureDescriptor& d
     device.GetQueue().WriteTexture(&destination, colorTexture.data(), colorTexture.size(), &source, &desc.size);
 }
 
-static BindGroup make_bindGroup(Device& device, BindGroupLayout& layout, const std::vector<BindGroupEntry>& entries, const char * label = "")
+static BindGroup make_bindGroup(Device& device, BindGroupLayout& layout, const std::vector<BindGroupEntry>& entries, const char* label = "")
 {
     BindGroupDescriptor bindGroupDesc;
     bindGroupDesc.entryCount = entries.size();
@@ -54,7 +54,7 @@ static BindGroup make_bindGroup(Device& device, BindGroupLayout& layout, T... en
     return make_bindGroup(device, layout, entries);
 }
 
-static BindGroupLayout make_bindGroupLayout(Device& device, const std::vector<BindGroupLayoutEntry>& entries, const char * label = "")
+static BindGroupLayout make_bindGroupLayout(Device& device, const std::vector<BindGroupLayoutEntry>& entries, const char* label = "")
 {
     ASSERT(!entries.empty());
 
@@ -72,7 +72,7 @@ static BindGroupLayout make_bindGroupLayout(Device& device, T... entriesIntializ
     return make_bindGroupLayout(device, entries);
 }
 
-static SamplerDescriptor make_samplerDesc(AddressMode mode, const char * label) // = AddressMode::Repeat)
+static SamplerDescriptor make_samplerDesc(AddressMode mode, const char* label) // = AddressMode::Repeat)
 {
     SamplerDescriptor samplerDesc = {};
     samplerDesc.addressModeU = mode;
@@ -89,7 +89,7 @@ static SamplerDescriptor make_samplerDesc(AddressMode mode, const char * label) 
     return samplerDesc;
 }
 
-static TextureViewDescriptor make_textureViewDesc(const char * label = "")
+static TextureViewDescriptor make_textureViewDesc(const char* label = "")
 {
     TextureViewDescriptor textureViewDesc = {};
     textureViewDesc.aspect = TextureAspect::All;
@@ -103,7 +103,7 @@ static TextureViewDescriptor make_textureViewDesc(const char * label = "")
     return textureViewDesc;
 }
 
-static TextureDescriptor make_texture_descriptor(Device& device, uint32_t width, uint32_t height, const char * label = "")
+static TextureDescriptor make_texture_descriptor(Device& device, uint32_t width, uint32_t height, const char* label = "")
 {
     TextureDescriptor textureDesc = {};
     textureDesc.dimension = TextureDimension::e1D;
@@ -118,7 +118,7 @@ static TextureDescriptor make_texture_descriptor(Device& device, uint32_t width,
     return textureDesc;
 }
 
-static TextureDescriptor make_texture_descriptor(Device& device, uint32_t length, const char * label = "")
+static TextureDescriptor make_texture_descriptor(Device& device, uint32_t length, const char* label = "")
 {
     TextureDescriptor textureDesc = {};
     textureDesc.dimension = TextureDimension::e1D;
@@ -133,7 +133,7 @@ static TextureDescriptor make_texture_descriptor(Device& device, uint32_t length
     return textureDesc;
 }
 
-static TextureDescriptor make_texture_descriptor_2d(Device& device, uint32_t width, uint32_t height, const char * label = "")
+static TextureDescriptor make_texture_descriptor_2d(Device& device, uint32_t width, uint32_t height, const char* label = "")
 {
     TextureDescriptor textureDesc = {};
     textureDesc.dimension = TextureDimension::e2D;
@@ -148,7 +148,7 @@ static TextureDescriptor make_texture_descriptor_2d(Device& device, uint32_t wid
     return textureDesc;
 }
 
-static TextureDescriptor make_output_texture_descriptor(Device& device, uint32_t width, uint32_t height, const char * label = "")
+static TextureDescriptor make_output_texture_descriptor(Device& device, uint32_t width, uint32_t height, const char* label = "")
 {
     TextureDescriptor textureDesc = {};
     textureDesc.dimension = TextureDimension::e2D;
@@ -163,7 +163,7 @@ static TextureDescriptor make_output_texture_descriptor(Device& device, uint32_t
     return textureDesc;
 }
 
-static SamplerDescriptor make_sampler_desc(Device& device, const char * label = "")
+static SamplerDescriptor make_sampler_desc(Device& device, const char* label = "")
 {
     SamplerDescriptor samplerDesc = {};
     samplerDesc.addressModeU = AddressMode::ClampToEdge;
@@ -181,7 +181,7 @@ static SamplerDescriptor make_sampler_desc(Device& device, const char * label = 
 }
 
 template <class T>
-static Buffer make_buffer(Device& device, size_t size, T usage, const char * label = "")
+static Buffer make_buffer(Device& device, size_t size, T usage, const char* label = "")
 {
     BufferDescriptor bufferDesc = {};
     bufferDesc.mappedAtCreation = false;
@@ -200,7 +200,7 @@ static CommandEncoder make_encoder(Device& device)
     return device.CreateCommandEncoder(&encoderDesc);
 }
 
-static ComputePassEncoder begin_compute_pass(CommandEncoder& encoder, const char * label = "")
+static ComputePassEncoder begin_compute_pass(CommandEncoder& encoder, const char* label = "")
 {
     ComputePassDescriptor computePassDesc = {};
     computePassDesc.timestampWrites = nullptr;
@@ -209,7 +209,7 @@ static ComputePassEncoder begin_compute_pass(CommandEncoder& encoder, const char
     return encoder.BeginComputePass(&computePassDesc);
 }
 
-static RenderPassEncoder begin_render_pass(CommandEncoder& encoder, TextureView textureView, const char * label = "")
+static RenderPassEncoder begin_render_pass(CommandEncoder& encoder, TextureView textureView, const char* label = "")
 {
     RenderPassColorAttachment attachment {};
     attachment.view = textureView;
@@ -223,7 +223,7 @@ static RenderPassEncoder begin_render_pass(CommandEncoder& encoder, TextureView 
     return encoder.BeginRenderPass(&renderpass);
 }
 
-static ComputePipeline make_compute_pipeline(Device& device, ShaderModule& shaderMod, BindGroupLayout& bindGroupLayout, const char* entryPoint, const char * label = "")
+static ComputePipeline make_compute_pipeline(Device& device, ShaderModule& shaderMod, BindGroupLayout& bindGroupLayout, const char* entryPoint, const char* label = "")
 {
     ComputePipelineDescriptor computePipelineDesc = {};
     computePipelineDesc.compute.entryPoint = entryPoint;
@@ -239,7 +239,7 @@ static ComputePipeline make_compute_pipeline(Device& device, ShaderModule& shade
     return device.CreateComputePipeline(&computePipelineDesc);
 }
 
-static RenderPipeline make_render_pipeline(Device& device, BindGroupLayout& bindGroupLayout, ShaderModule& fragmentModule, ShaderModule& vertexModule, const char* entryPoint, const char * label = "")
+static RenderPipeline make_render_pipeline(Device& device, BindGroupLayout& bindGroupLayout, ShaderModule& fragmentModule, ShaderModule& vertexModule, const char* entryPoint, const char* label = "")
 {
     ColorTargetState colorTargetState {};
     colorTargetState.format = TextureFormat::BGRA8Unorm;
@@ -282,7 +282,7 @@ static RenderPipeline make_render_pipeline(Device& device, BindGroupLayout& bind
     return device.CreateRenderPipeline(&descriptor);
 }
 
-static RenderPipeline make_render_pipeline(Device& device, ShaderModule& fragmentModule, ShaderModule& vertexModule, const char* entryPoint, const char * label = "")
+static RenderPipeline make_render_pipeline(Device& device, ShaderModule& fragmentModule, ShaderModule& vertexModule, const char* entryPoint, const char* label = "")
 {
     ColorTargetState colorTargetState {};
     colorTargetState.format = TextureFormat::BGRA8Unorm;
@@ -323,7 +323,7 @@ static RenderPipeline make_render_pipeline(Device& device, ShaderModule& fragmen
     return device.CreateRenderPipeline(&descriptor);
 }
 
-static BindGroupLayoutEntry make_bindGroupLayoutBufferEntry(uint32_t binding, BufferBindingType type, ShaderStage stage, const char * label = "")
+static BindGroupLayoutEntry make_bindGroupLayoutBufferEntry(uint32_t binding, BufferBindingType type, ShaderStage stage, const char* label = "")
 {
     BindGroupLayoutEntry entry {};
     entry.binding = binding;
@@ -332,7 +332,7 @@ static BindGroupLayoutEntry make_bindGroupLayoutBufferEntry(uint32_t binding, Bu
     return entry;
 }
 
-static ShaderModule make_compute_shader(Device& device, std::string shaderCode, const char * label = "")
+static ShaderModule make_compute_shader(Device& device, std::string shaderCode, const char* label = "")
 {
     ShaderModuleWGSLDescriptor wgsl_shaderModuleDesc = {};
     wgsl_shaderModuleDesc.code = shaderCode.c_str();
@@ -344,7 +344,7 @@ static ShaderModule make_compute_shader(Device& device, std::string shaderCode, 
     return device.CreateShaderModule(&shaderModuleDesc);
 }
 
-static BindGroupEntry make_bindGroupBufferEntry(uint32_t binding, Buffer buffer, uint32_t size, const char * label = "")
+static BindGroupEntry make_bindGroupBufferEntry(uint32_t binding, Buffer buffer, uint32_t size, const char* label = "")
 {
     BindGroupEntry entry {};
     entry.binding = binding;
@@ -354,18 +354,18 @@ static BindGroupEntry make_bindGroupBufferEntry(uint32_t binding, Buffer buffer,
     return entry;
 }
 
-static BindGroupEntry make_bindGroupBufferEntry(uint32_t binding, Buffer buffer, const char * label = "")
+static BindGroupEntry make_bindGroupBufferEntry(uint32_t binding, Buffer buffer, const char* label = "")
 {
     return make_bindGroupBufferEntry(binding, buffer, buffer.GetSize(), label);
 }
 
-static Sampler make_sampler(Device& device, AddressMode mode, const char * label = "") // = AddressMode::Repeat)
+static Sampler make_sampler(Device& device, AddressMode mode, const char* label = "") // = AddressMode::Repeat)
 {
     SamplerDescriptor samplerDesc = dawn_utils::make_samplerDesc(mode, label);
     return device.CreateSampler(&samplerDesc);
 }
 
-static BindGroupEntry make_bind_group_entry(unsigned binding, Sampler sampler, const char * label = "")
+static BindGroupEntry make_bind_group_entry(unsigned binding, Sampler sampler, const char* label = "")
 {
     BindGroupEntry entry = {};
     entry.binding = binding;
@@ -373,7 +373,7 @@ static BindGroupEntry make_bind_group_entry(unsigned binding, Sampler sampler, c
     return entry;
 }
 
-static BindGroupEntry make_bind_group_entry(unsigned binding, TextureView view, const char * label = "")
+static BindGroupEntry make_bind_group_entry(unsigned binding, TextureView view, const char* label = "")
 {
     BindGroupEntry entry = {};
     entry.binding = binding;
@@ -381,7 +381,7 @@ static BindGroupEntry make_bind_group_entry(unsigned binding, TextureView view, 
     return entry;
 }
 
-static ShaderModule make_shader(Device& device, std::string shaderCode, const char * label = "")
+static ShaderModule make_shader(Device& device, std::string shaderCode, const char* label = "")
 {
     ShaderModuleWGSLDescriptor wgslDesc {};
     wgslDesc.code = shaderCode.c_str();

@@ -56,8 +56,8 @@ struct dawn_plugin::dawn_pimpl {
 
         DeviceDescriptor deviceDesc = {};
         RequiredLimits requiredLimits = {};
-        requiredLimits.limits.maxStorageBuffersPerShaderStage = 2;
-        requiredLimits.limits.maxSamplersPerShaderStage = 1;
+        requiredLimits.limits.maxStorageBuffersPerShaderStage = 10;
+//        requiredLimits.limits.maxSamplersPerShaderStage = 1;
         deviceDesc.requiredLimits = &requiredLimits;
         deviceDesc.deviceLostCallbackInfo.callback = [](auto device, auto reason, auto message, auto userdata) {
             auto pimpl = reinterpret_cast<dawn_pimpl*>(userdata);
@@ -187,7 +187,7 @@ compute_wrapper dawn_plugin::make_compute()
     return m_pimpl->make_compute();
 }
 
-buffer_wrapper dawn_plugin::make_buffer(unsigned size, BufferType flags, bool isDest)
+buffer_wrapper dawn_plugin::make_buffer(size_t size, BufferType flags, bool isDest)
 {
     return m_pimpl->make_buffer(size, flags, isDest);
 }
@@ -197,12 +197,12 @@ buffer_wrapper dawn_plugin::make_buffer(BufferType flags, bool isDest)
     return m_pimpl->make_buffer(flags, isDest);
 }
 
-texture_wrapper dawn_plugin::make_texture(unsigned size)
+texture_wrapper dawn_plugin::make_texture(size_t size)
 {
     return m_pimpl->make_texture(size);
 }
 
-texture_wrapper dawn_plugin::make_texture(unsigned width, unsigned height)
+texture_wrapper dawn_plugin::make_texture(size_t width, size_t height)
 {
     return m_pimpl->make_texture(width, height);
 }
@@ -212,7 +212,7 @@ texture_wrapper dawn_plugin::make_texture(vector<uint8_t> data)
     return m_pimpl->make_texture(data);
 }
 
-texture_output_wrapper dawn_plugin::make_texture_output(unsigned width, unsigned height)
+texture_output_wrapper dawn_plugin::make_texture_output(size_t width, size_t height)
 {
     return m_pimpl->make_texture_output(width, height);
 }

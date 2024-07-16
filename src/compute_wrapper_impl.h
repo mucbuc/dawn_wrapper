@@ -24,7 +24,7 @@ struct compute_wrapper::pimpl {
 
     void make_shader(std::string script, std::string entryPoint)
     {
-        m_shader = dawn_utils::make_compute_shader(m_device, script);
+        m_shader = dawn_utils::make_compute_shader(m_device, script, entryPoint.c_str());
         m_shader.GetCompilationInfo(&compilation_callback, this);
         m_entryPoint = entryPoint;
     }
@@ -37,6 +37,9 @@ struct compute_wrapper::pimpl {
 
     bool compute(bindgroup_wrapper bindGroup, unsigned width, unsigned height, encoder_wrapper encoder)
     {
+        ASSERT(get_pipeline());
+    
+    
         auto computePass = dawn_utils::begin_compute_pass(encoder.m_pimpl->m_encoder);
         computePass.SetPipeline(get_pipeline());
         computePass.SetBindGroup(0, bindGroup.m_pimpl->make_bindgroup(m_device, m_bindGroupLayout), 0, nullptr);

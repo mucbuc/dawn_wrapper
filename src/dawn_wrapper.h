@@ -117,12 +117,12 @@ struct dawn_plugin {
     ~dawn_plugin();
     render_wrapper make_render();
     compute_wrapper make_compute();
-    buffer_wrapper make_buffer(unsigned size, BufferType type, bool isDest = true);
+    buffer_wrapper make_buffer(size_t size, BufferType type, bool isDest = true);
     buffer_wrapper make_buffer(BufferType type, bool isDest = true);
-    texture_wrapper make_texture(unsigned);
-    texture_wrapper make_texture(unsigned, unsigned);
+    texture_wrapper make_texture(size_t);
+    texture_wrapper make_texture(size_t, size_t);
     texture_wrapper make_texture(std::vector<uint8_t> data);
-    texture_output_wrapper make_texture_output(unsigned, unsigned);
+    texture_output_wrapper make_texture_output(size_t, size_t);
     encoder_wrapper make_encoder();
     bool run();
 

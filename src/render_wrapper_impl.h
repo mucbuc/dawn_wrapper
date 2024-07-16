@@ -116,7 +116,7 @@ struct render_wrapper::pimpl {
 
     void make_fragmentShader(std::string script, std::string entryPoint)
     {
-        m_shader = dawn_utils::make_shader(m_device, script);
+        m_shader = dawn_utils::make_shader(m_device, script, entryPoint.c_str());
         m_shader.GetCompilationInfo(&compilation_callback, this);
         m_entryPoint = entryPoint;
     }

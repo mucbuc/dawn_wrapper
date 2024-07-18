@@ -111,7 +111,7 @@ struct render_wrapper::pimpl {
 
     bindgroup_wrapper make_bindgroup()
     {
-        return std::make_shared<bindgroup_wrapper::pimpl>();
+        return std::make_shared<bindgroup_wrapper::pimpl>(m_entryPoint);
     }
 
     void make_fragmentShader(std::string script, std::string entryPoint)

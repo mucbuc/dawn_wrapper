@@ -39,12 +39,17 @@ struct bindgroup_wrapper::pimpl {
 
     BindGroup make_bindgroup(Device device, BindGroupLayout layout)
     {
-        return dawn_utils::make_bindGroup(device, layout, m_bindgroup_entries);
+        return dawn_utils::make_bindGroup(device, layout, m_bindgroup_entries, m_context_name.c_str());
     }
 
-    pimpl() = default;
+    pimpl(std::string context_name)
+    : m_bindgroup_entries()
+    , m_context_name(context_name)
+    {}
 
+private:
     std::vector<BindGroupEntry> m_bindgroup_entries;
+    std::string m_context_name;
 };
 
 }

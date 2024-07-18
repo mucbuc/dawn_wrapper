@@ -66,7 +66,7 @@ struct compute_wrapper::pimpl {
 
     bindgroup_wrapper make_bindgroup()
     {
-        return std::make_shared<bindgroup_wrapper::pimpl>();
+        return std::make_shared<bindgroup_wrapper::pimpl>(m_entryPoint);
     }
 
 private:

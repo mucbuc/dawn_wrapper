@@ -75,6 +75,8 @@ struct bindgroup_wrapper {
     void addTexture(unsigned binding, texture_output_wrapper);
     void addSampler(unsigned binding, texture_wrapper);
     void addSampler(unsigned binding, texture_output_wrapper);
+    
+    operator bool() const;
     WRAPPER_PIMPL_DEC(bindgroup_wrapper);
 };
 
@@ -100,6 +102,7 @@ struct render_wrapper {
     bindgroup_wrapper make_bindgroup();
     void make_pipeline(bindgroup_layout_wrapper);
     void make_pipeline();
+    operator bool() const;
     WRAPPER_PIMPL_DEC(render_wrapper);
 };
 #undef WRAPPER_PIMPL_DEC

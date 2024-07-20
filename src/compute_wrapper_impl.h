@@ -31,7 +31,7 @@ struct compute_wrapper::pimpl {
 
     void make_pipeline(bindgroup_layout_wrapper layout)
     {
-        m_bindGroupLayout = dawn_utils::make_bindGroupLayout(m_device, layout.m_pimpl->m_layoutEntries);
+        m_bindGroupLayout = dawn_utils::make_bindGroupLayout(m_device, layout.m_pimpl->m_layoutEntries, m_entryPoint.c_str());
         m_pipeline = dawn_utils::make_compute_pipeline(m_device, m_shader, m_bindGroupLayout, m_entryPoint.c_str());
     }
 

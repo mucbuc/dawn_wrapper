@@ -70,6 +70,7 @@ struct render_wrapper::pimpl {
     void render(bindgroup_wrapper bindGroup, encoder_wrapper encoder)
     {
         ASSERT(m_bindGroupLayout);
+        ASSERT(bindGroup);
 
         auto textureView = getCurrentTextureView();
         ASSERT(textureView);
@@ -125,7 +126,7 @@ struct render_wrapper::pimpl {
     {
         ASSERT(m_shader);
 
-        m_bindGroupLayout = dawn_utils::make_bindGroupLayout(m_device, layout.m_pimpl->m_layoutEntries);
+        m_bindGroupLayout = dawn_utils::make_bindGroupLayout(m_device, layout.m_pimpl->m_layoutEntries, m_entryPoint.c_str());
         m_pipeline = dawn_utils::make_render_pipeline(m_device, m_bindGroupLayout, m_shader, m_vertexShader, m_entryPoint.c_str());
     }
 

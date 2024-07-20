@@ -40,4 +40,9 @@ void bindgroup_wrapper::addSampler(unsigned binding, texture_output_wrapper text
     m_pimpl->addSampler(binding, texture);
 }
 
+bindgroup_wrapper::operator bool() const
+{
+    return m_pimpl ? true : false;
+}
+
 } // dawn_wrapper

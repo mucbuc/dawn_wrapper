@@ -38,7 +38,7 @@ struct buffer_wrapper {
 struct encoder_wrapper {
     encoder_wrapper() = default;
     void submit_command_buffer();
-    void copy_buffer_to_buffer(buffer_wrapper, buffer_wrapper);
+    void copy_buffer_to_buffer(buffer_wrapper, buffer_wrapper, size_t offset = 0);
     WRAPPER_PIMPL_DEC(encoder_wrapper);
 };
 

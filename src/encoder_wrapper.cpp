@@ -15,9 +15,9 @@ void encoder_wrapper::submit_command_buffer()
     m_pimpl->submit_command_buffer();
 }
 
-void encoder_wrapper::copy_buffer_to_buffer(buffer_wrapper lhs, buffer_wrapper rhs)
+void encoder_wrapper::copy_buffer_to_buffer(buffer_wrapper source, buffer_wrapper dest, size_t offset)
 {
-    m_pimpl->copy_buffer_to_buffer(lhs, rhs);
+    m_pimpl->copy_buffer_to_buffer(source, dest, offset);
 }
 
 } // dawn_wrapper

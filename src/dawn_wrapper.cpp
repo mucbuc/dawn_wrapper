@@ -56,7 +56,7 @@ struct dawn_plugin::dawn_pimpl {
 
         DeviceDescriptor deviceDesc = {};
         RequiredLimits requiredLimits = {};
-        requiredLimits.limits.maxStorageBuffersPerShaderStage = 10;
+//        requiredLimits.limits.maxStorageBuffersPerShaderStage = 10;
 //        requiredLimits.limits.maxSamplersPerShaderStage = 1;
         deviceDesc.requiredLimits = &requiredLimits;
         deviceDesc.deviceLostCallbackInfo.callback = [](auto device, auto reason, auto message, auto userdata) {

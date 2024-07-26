@@ -29,6 +29,7 @@ struct buffer_wrapper {
     void write(void*, size_t);
     bool done();
     void get_output(std::function<void(unsigned, const void*)>);
+    size_t get_size();
 
     operator bool() const;
     WRAPPER_PIMPL_DEC(buffer_wrapper);
@@ -88,6 +89,7 @@ struct compute_wrapper {
     void setup_compute(unsigned width, unsigned height);
     bindgroup_layout_wrapper make_bindgroup_layout();
     bindgroup_wrapper make_bindgroup();
+    operator bool() const;
     WRAPPER_PIMPL_DEC(compute_wrapper);
 };
 

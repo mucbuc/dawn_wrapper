@@ -76,6 +76,11 @@ struct buffer_wrapper::pimpl
         return m_done;
     }
 
+    size_t get_size()
+    {
+        return m_buffer.GetSize();
+    }
+
     // private:
 
     static BufferUsage getBufferUsageFromType(BufferType type, bool isDest)

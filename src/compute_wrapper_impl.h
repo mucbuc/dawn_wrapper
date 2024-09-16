@@ -38,7 +38,8 @@ struct compute_wrapper::pimpl {
     bool compute(bindgroup_wrapper bindGroup, unsigned width, unsigned height, encoder_wrapper encoder)
     {
         ASSERT(get_pipeline());
-    
+        ASSERT(width < 65535);
+        ASSERT(height < 65535);
     
         auto computePass = dawn_utils::begin_compute_pass(encoder.m_pimpl->m_encoder);
         computePass.SetPipeline(get_pipeline());

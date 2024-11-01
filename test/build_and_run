@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+
+cmake -B build -GXcode
+cd build
+xcodebuild -scheme Example
+./Debug/Example

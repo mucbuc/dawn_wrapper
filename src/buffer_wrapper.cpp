@@ -26,13 +26,6 @@ void buffer_wrapper::write(void* p, size_t size)
     }
 }
 
-void buffer_wrapper::print_output()
-{
-    if (m_pimpl) {
-        m_pimpl->print_output();
-    }
-}
-
 void buffer_wrapper::get_output(std::function<void(unsigned, const void*)> cb)
 {
     if (m_pimpl) {
@@ -48,6 +41,11 @@ bool buffer_wrapper::done()
 buffer_wrapper::operator bool() const
 {
     return m_pimpl ? true : false;
+}
+
+size_t buffer_wrapper::get_size()
+{
+    return m_pimpl ? m_pimpl->get_size() : 0;
 }
 
 } // dawn_wrapper

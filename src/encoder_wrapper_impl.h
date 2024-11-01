@@ -24,9 +24,9 @@ struct encoder_wrapper::pimpl {
         m_device.GetQueue().Submit(1, &commands);
     }
 
-    void copy_buffer_to_buffer(buffer_wrapper lhs, buffer_wrapper rhs)
+    void copy_buffer_to_buffer(buffer_wrapper source, buffer_wrapper destination, size_t offset)
     {
-        m_encoder.CopyBufferToBuffer(lhs.m_pimpl->m_buffer, 0, rhs.m_pimpl->m_buffer, 0, lhs.m_pimpl->m_buffer.GetSize());
+        m_encoder.CopyBufferToBuffer(source.m_pimpl->m_buffer, 0, destination.m_pimpl->m_buffer, offset, source.m_pimpl->m_buffer.GetSize());
     }
 
     Device m_device;

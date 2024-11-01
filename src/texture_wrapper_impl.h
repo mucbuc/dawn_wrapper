@@ -57,7 +57,7 @@ struct texture_wrapper::pimpl {
 
     void make_sampler(bool clamp_to_edge)
     {
-        m_sampler = clamp_to_edge ? dawn_utils::make_sampler(m_device, AddressMode::ClampToEdge) : dawn_utils::make_sampler(m_device);
+        m_sampler = clamp_to_edge ? dawn_utils::make_sampler(m_device, AddressMode::ClampToEdge) : dawn_utils::make_sampler(m_device, AddressMode::Repeat);
     }
 
     Sampler get_sampler()

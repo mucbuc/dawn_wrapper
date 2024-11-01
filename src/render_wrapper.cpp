@@ -53,4 +53,9 @@ void render_wrapper::render(encoder_wrapper encoder)
     m_pimpl->render(encoder);
 }
 
+render_wrapper::operator bool() const
+{
+    return m_pimpl ? true : false;
+}
+
 } // dawn_wrapper

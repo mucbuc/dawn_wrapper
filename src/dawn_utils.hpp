@@ -37,12 +37,13 @@ static void write_texture(Device& device, Texture& texture, TextureDescriptor& d
     device.GetQueue().WriteTexture(&destination, colorTexture.data(), colorTexture.size(), &source, &desc.size);
 }
 
-static BindGroup make_bindGroup(Device& device, BindGroupLayout& layout, const std::vector<BindGroupEntry>& entries)
+static BindGroup make_bindGroup(Device& device, BindGroupLayout& layout, const std::vector<BindGroupEntry>& entries, const char* label = "")
 {
     BindGroupDescriptor bindGroupDesc;
     bindGroupDesc.entryCount = entries.size();
     bindGroupDesc.entries = entries.data();
     bindGroupDesc.layout = layout;
+    bindGroupDesc.label = label;
     return device.CreateBindGroup(&bindGroupDesc);
 }
 
@@ -53,13 +54,14 @@ static BindGroup make_bindGroup(Device& device, BindGroupLayout& layout, T... en
     return make_bindGroup(device, layout, entries);
 }
 
-static BindGroupLayout make_bindGroupLayout(Device& device, const std::vector<BindGroupLayoutEntry>& entries)
+static BindGroupLayout make_bindGroupLayout(Device& device, const std::vector<BindGroupLayoutEntry>& entries, const char* label = "")
 {
     ASSERT(!entries.empty());
 
     BindGroupLayoutDescriptor bindGroupLayoutDesc = {};
     bindGroupLayoutDesc.entryCount = entries.size();
     bindGroupLayoutDesc.entries = entries.data();
+    bindGroupLayoutDesc.label = label;
     return device.CreateBindGroupLayout(&bindGroupLayoutDesc);
 }
 
@@ -70,7 +72,7 @@ static BindGroupLayout make_bindGroupLayout(Device& device, T... entriesIntializ
     return make_bindGroupLayout(device, entries);
 }
 
-static SamplerDescriptor make_samplerDesc(AddressMode mode = AddressMode::Repeat)
+static SamplerDescriptor make_samplerDesc(AddressMode mode, const char* label) // = AddressMode::Repeat)
 {
     SamplerDescriptor samplerDesc = {};
     samplerDesc.addressModeU = mode;
@@ -83,10 +85,11 @@ static SamplerDescriptor make_samplerDesc(AddressMode mode = AddressMode::Repeat
     samplerDesc.lodMaxClamp = 1.0f;
     samplerDesc.compare = CompareFunction::Undefined;
     samplerDesc.maxAnisotropy = 1;
+    samplerDesc.label = label;
     return samplerDesc;
 }
 
-static TextureViewDescriptor make_textureViewDesc()
+static TextureViewDescriptor make_textureViewDesc(const char* label = "")
 {
     TextureViewDescriptor textureViewDesc = {};
     textureViewDesc.aspect = TextureAspect::All;
@@ -96,10 +99,11 @@ static TextureViewDescriptor make_textureViewDesc()
     textureViewDesc.mipLevelCount = 1;
     textureViewDesc.dimension = TextureViewDimension::e1D;
     textureViewDesc.format = TextureFormat::RGBA8Unorm;
+    textureViewDesc.label = label;
     return textureViewDesc;
 }
 
-static TextureDescriptor make_texture_descriptor(Device& device, uint32_t width, uint32_t height)
+static TextureDescriptor make_texture_descriptor(Device& device, uint32_t width, uint32_t height, const char* label = "")
 {
     TextureDescriptor textureDesc = {};
     textureDesc.dimension = TextureDimension::e1D;
@@ -110,10 +114,11 @@ static TextureDescriptor make_texture_descriptor(Device& device, uint32_t width,
     textureDesc.usage = TextureUsage::TextureBinding | TextureUsage::CopyDst;
     textureDesc.viewFormats = nullptr;
     textureDesc.viewFormatCount = 0;
+    textureDesc.label = label;
     return textureDesc;
 }
 
-static TextureDescriptor make_texture_descriptor(Device& device, uint32_t length)
+static TextureDescriptor make_texture_descriptor(Device& device, uint32_t length, const char* label = "")
 {
     TextureDescriptor textureDesc = {};
     textureDesc.dimension = TextureDimension::e1D;
@@ -124,10 +129,11 @@ static TextureDescriptor make_texture_descriptor(Device& device, uint32_t length
     textureDesc.usage = TextureUsage::TextureBinding | TextureUsage::CopyDst;
     textureDesc.viewFormats = nullptr;
     textureDesc.viewFormatCount = 0;
+    textureDesc.label = label;
     return textureDesc;
 }
 
-static TextureDescriptor make_texture_descriptor_2d(Device& device, uint32_t width, uint32_t height)
+static TextureDescriptor make_texture_descriptor_2d(Device& device, uint32_t width, uint32_t height, const char* label = "")
 {
     TextureDescriptor textureDesc = {};
     textureDesc.dimension = TextureDimension::e2D;
@@ -138,10 +144,11 @@ static TextureDescriptor make_texture_descriptor_2d(Device& device, uint32_t wid
     textureDesc.usage = TextureUsage::TextureBinding | TextureUsage::CopyDst;
     textureDesc.viewFormats = nullptr;
     textureDesc.viewFormatCount = 0;
+    textureDesc.label = label;
     return textureDesc;
 }
 
-static TextureDescriptor make_output_texture_descriptor(Device& device, uint32_t width, uint32_t height)
+static TextureDescriptor make_output_texture_descriptor(Device& device, uint32_t width, uint32_t height, const char* label = "")
 {
     TextureDescriptor textureDesc = {};
     textureDesc.dimension = TextureDimension::e2D;
@@ -152,10 +159,11 @@ static TextureDescriptor make_output_texture_descriptor(Device& device, uint32_t
     textureDesc.usage = TextureUsage::TextureBinding | TextureUsage::StorageBinding | TextureUsage::CopySrc | TextureUsage::CopyDst;
     textureDesc.viewFormats = nullptr;
     textureDesc.viewFormatCount = 0;
+    textureDesc.label = label;
     return textureDesc;
 }
 
-static SamplerDescriptor make_sampler_desc(Device& device)
+static SamplerDescriptor make_sampler_desc(Device& device, const char* label = "")
 {
     SamplerDescriptor samplerDesc = {};
     samplerDesc.addressModeU = AddressMode::ClampToEdge;
@@ -168,16 +176,18 @@ static SamplerDescriptor make_sampler_desc(Device& device)
     samplerDesc.lodMaxClamp = 1.0f;
     samplerDesc.compare = CompareFunction::Undefined;
     samplerDesc.maxAnisotropy = 1;
+    samplerDesc.label = label;
     return samplerDesc;
 }
 
 template <class T>
-static Buffer make_buffer(Device& device, size_t size, T usage)
+static Buffer make_buffer(Device& device, size_t size, T usage, const char* label = "")
 {
     BufferDescriptor bufferDesc = {};
     bufferDesc.mappedAtCreation = false;
     bufferDesc.size = size;
     bufferDesc.usage = usage;
+    bufferDesc.label = label;
     return device.CreateBuffer(&bufferDesc);
 }
 
@@ -190,15 +200,16 @@ static CommandEncoder make_encoder(Device& device)
     return device.CreateCommandEncoder(&encoderDesc);
 }
 
-static ComputePassEncoder begin_compute_pass(CommandEncoder& encoder)
+static ComputePassEncoder begin_compute_pass(CommandEncoder& encoder, const char* label = "")
 {
     ComputePassDescriptor computePassDesc = {};
     computePassDesc.timestampWrites = nullptr;
+    computePassDesc.label = label;
 
     return encoder.BeginComputePass(&computePassDesc);
 }
 
-static RenderPassEncoder begin_render_pass(CommandEncoder& encoder, TextureView textureView)
+static RenderPassEncoder begin_render_pass(CommandEncoder& encoder, TextureView textureView, const char* label = "")
 {
     RenderPassColorAttachment attachment {};
     attachment.view = textureView;
@@ -208,24 +219,27 @@ static RenderPassEncoder begin_render_pass(CommandEncoder& encoder, TextureView 
     RenderPassDescriptor renderpass {};
     renderpass.colorAttachmentCount = 1,
     renderpass.colorAttachments = &attachment;
+    renderpass.label = label;
     return encoder.BeginRenderPass(&renderpass);
 }
 
-static ComputePipeline make_compute_pipeline(Device& device, ShaderModule& shaderMod, BindGroupLayout& bindGroupLayout, const char* entryPoint)
+static ComputePipeline make_compute_pipeline(Device& device, ShaderModule& shaderMod, BindGroupLayout& bindGroupLayout, const char* entryPoint, const char* label = "")
 {
     ComputePipelineDescriptor computePipelineDesc = {};
     computePipelineDesc.compute.entryPoint = entryPoint;
     computePipelineDesc.compute.module = shaderMod;
+    computePipelineDesc.label = label;
 
     PipelineLayoutDescriptor pipelineLayoutDesc = {};
     pipelineLayoutDesc.bindGroupLayoutCount = 1;
     pipelineLayoutDesc.bindGroupLayouts = &bindGroupLayout;
+    pipelineLayoutDesc.label = label;
     computePipelineDesc.layout = device.CreatePipelineLayout(&pipelineLayoutDesc);
 
     return device.CreateComputePipeline(&computePipelineDesc);
 }
 
-static RenderPipeline make_render_pipeline(Device& device, BindGroupLayout& bindGroupLayout, ShaderModule& fragmentModule, ShaderModule& vertexModule, const char* entryPoint)
+static RenderPipeline make_render_pipeline(Device& device, BindGroupLayout& bindGroupLayout, ShaderModule& fragmentModule, ShaderModule& vertexModule, const char* entryPoint, const char* label = "")
 {
     ColorTargetState colorTargetState {};
     colorTargetState.format = TextureFormat::BGRA8Unorm;
@@ -255,6 +269,7 @@ static RenderPipeline make_render_pipeline(Device& device, BindGroupLayout& bind
     pipelineLayoutDesc.bindGroupLayoutCount = 1;
     BindGroupLayout layouts[] = { bindGroupLayout };
     pipelineLayoutDesc.bindGroupLayouts = layouts;
+    pipelineLayoutDesc.label = label;
 
     RenderPipelineDescriptor descriptor {};
     descriptor.vertex = vertexState;
@@ -262,11 +277,12 @@ static RenderPipeline make_render_pipeline(Device& device, BindGroupLayout& bind
     descriptor.vertex.bufferCount = 1;
     descriptor.vertex.buffers = &vertexBufferLayout;
     descriptor.layout = device.CreatePipelineLayout(&pipelineLayoutDesc);
+    descriptor.label = label;
 
     return device.CreateRenderPipeline(&descriptor);
 }
 
-static RenderPipeline make_render_pipeline(Device& device, ShaderModule& fragmentModule, ShaderModule& vertexModule, const char* entryPoint)
+static RenderPipeline make_render_pipeline(Device& device, ShaderModule& fragmentModule, ShaderModule& vertexModule, const char* entryPoint, const char* label = "")
 {
     ColorTargetState colorTargetState {};
     colorTargetState.format = TextureFormat::BGRA8Unorm;
@@ -294,6 +310,7 @@ static RenderPipeline make_render_pipeline(Device& device, ShaderModule& fragmen
 
     PipelineLayoutDescriptor pipelineLayoutDesc = {};
     pipelineLayoutDesc.bindGroupLayoutCount = 0;
+    pipelineLayoutDesc.label = label;
 
     RenderPipelineDescriptor descriptor {};
     descriptor.vertex = vertexState;
@@ -301,27 +318,13 @@ static RenderPipeline make_render_pipeline(Device& device, ShaderModule& fragmen
     descriptor.vertex.bufferCount = 1;
     descriptor.vertex.buffers = &vertexBufferLayout;
     descriptor.layout = device.CreatePipelineLayout(&pipelineLayoutDesc);
+    descriptor.label = label;
 
     return device.CreateRenderPipeline(&descriptor);
 }
 
-static SwapChain make_swap_chain(Device& device, wgpu::Surface surface, unsigned width, unsigned height)
+static BindGroupLayoutEntry make_bindGroupLayoutBufferEntry(uint32_t binding, BufferBindingType type, ShaderStage stage, const char* label = "")
 {
-    // ASSERT(surface);
-
-    SwapChainDescriptor swapChainDesc {};
-    swapChainDesc.usage = TextureUsage::RenderAttachment;
-    swapChainDesc.format = TextureFormat::BGRA8Unorm;
-    swapChainDesc.width = (unsigned int)width;
-    swapChainDesc.height = (unsigned int)height;
-    swapChainDesc.presentMode = PresentMode::Fifo;
-
-    return device.CreateSwapChain(surface, &swapChainDesc);
-}
-
-static BindGroupLayoutEntry make_bindGroupLayoutBufferEntry(uint32_t binding, BufferBindingType type, ShaderStage stage)
-{
-
     BindGroupLayoutEntry entry {};
     entry.binding = binding;
     entry.buffer.type = type;
@@ -329,19 +332,19 @@ static BindGroupLayoutEntry make_bindGroupLayoutBufferEntry(uint32_t binding, Bu
     return entry;
 }
 
-static ShaderModule make_compute_shader(Device& device, std::string shaderCode)
+static ShaderModule make_compute_shader(Device& device, std::string shaderCode, const char* label = "")
 {
     ShaderModuleWGSLDescriptor wgsl_shaderModuleDesc = {};
-
     wgsl_shaderModuleDesc.code = shaderCode.c_str();
 
     ShaderModuleDescriptor shaderModuleDesc = {};
     shaderModuleDesc.nextInChain = &wgsl_shaderModuleDesc;
+    shaderModuleDesc.label = label;
 
     return device.CreateShaderModule(&shaderModuleDesc);
 }
 
-static BindGroupEntry make_bindGroupBufferEntry(uint32_t binding, Buffer buffer, uint32_t size)
+static BindGroupEntry make_bindGroupBufferEntry(uint32_t binding, Buffer buffer, uint32_t size, const char* label = "")
 {
     BindGroupEntry entry {};
     entry.binding = binding;
@@ -351,18 +354,18 @@ static BindGroupEntry make_bindGroupBufferEntry(uint32_t binding, Buffer buffer,
     return entry;
 }
 
-static BindGroupEntry make_bindGroupBufferEntry(uint32_t binding, Buffer buffer)
+static BindGroupEntry make_bindGroupBufferEntry(uint32_t binding, Buffer buffer, const char* label = "")
 {
-    return make_bindGroupBufferEntry(binding, buffer, buffer.GetSize());
+    return make_bindGroupBufferEntry(binding, buffer, buffer.GetSize(), label);
 }
 
-static Sampler make_sampler(Device& device, AddressMode mode = AddressMode::Repeat)
+static Sampler make_sampler(Device& device, AddressMode mode, const char* label = "") // = AddressMode::Repeat)
 {
-    SamplerDescriptor samplerDesc = dawn_utils::make_samplerDesc(mode);
+    SamplerDescriptor samplerDesc = dawn_utils::make_samplerDesc(mode, label);
     return device.CreateSampler(&samplerDesc);
 }
 
-static BindGroupEntry make_bind_group_entry(unsigned binding, Sampler sampler)
+static BindGroupEntry make_bind_group_entry(unsigned binding, Sampler sampler, const char* label = "")
 {
     BindGroupEntry entry = {};
     entry.binding = binding;
@@ -370,7 +373,7 @@ static BindGroupEntry make_bind_group_entry(unsigned binding, Sampler sampler)
     return entry;
 }
 
-static BindGroupEntry make_bind_group_entry(unsigned binding, TextureView view)
+static BindGroupEntry make_bind_group_entry(unsigned binding, TextureView view, const char* label = "")
 {
     BindGroupEntry entry = {};
     entry.binding = binding;
@@ -378,13 +381,14 @@ static BindGroupEntry make_bind_group_entry(unsigned binding, TextureView view)
     return entry;
 }
 
-static ShaderModule make_shader(Device& device, std::string shaderCode)
+static ShaderModule make_shader(Device& device, std::string shaderCode, const char* label = "")
 {
     ShaderModuleWGSLDescriptor wgslDesc {};
     wgslDesc.code = shaderCode.c_str();
 
     ShaderModuleDescriptor shaderModuleDescriptor {};
     shaderModuleDescriptor.nextInChain = &wgslDesc;
+    shaderModuleDescriptor.label = label;
     return device.CreateShaderModule(&shaderModuleDescriptor);
 }
 

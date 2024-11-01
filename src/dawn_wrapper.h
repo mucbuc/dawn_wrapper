@@ -27,10 +27,10 @@ struct buffer_wrapper {
     buffer_wrapper() = default;
     void write(const std::vector<uint8_t>& colors);
     void write(void*, size_t);
-    void print_output();
     bool done();
     void get_output(std::function<void(unsigned, const void*)>);
-    
+    size_t get_size();
+
     operator bool() const;
     WRAPPER_PIMPL_DEC(buffer_wrapper);
 };
@@ -38,7 +38,7 @@ struct buffer_wrapper {
 struct encoder_wrapper {
     encoder_wrapper() = default;
     void submit_command_buffer();
-    void copy_buffer_to_buffer(buffer_wrapper, buffer_wrapper);
+    void copy_buffer_to_buffer(buffer_wrapper, buffer_wrapper, size_t offset = 0);
     WRAPPER_PIMPL_DEC(encoder_wrapper);
 };
 
@@ -46,7 +46,7 @@ struct texture_wrapper {
     texture_wrapper() = default;
     void write(const std::vector<uint8_t>& colors);
     void make_sampler(bool clamp_to_edge);
-    
+
     operator bool() const;
     WRAPPER_PIMPL_DEC(texture_wrapper);
 };
@@ -76,6 +76,8 @@ struct bindgroup_wrapper {
     void addTexture(unsigned binding, texture_output_wrapper);
     void addSampler(unsigned binding, texture_wrapper);
     void addSampler(unsigned binding, texture_output_wrapper);
+    
+    operator bool() const;
     WRAPPER_PIMPL_DEC(bindgroup_wrapper);
 };
 
@@ -87,6 +89,7 @@ struct compute_wrapper {
     void setup_compute(unsigned width, unsigned height);
     bindgroup_layout_wrapper make_bindgroup_layout();
     bindgroup_wrapper make_bindgroup();
+    operator bool() const;
     WRAPPER_PIMPL_DEC(compute_wrapper);
 };
 
@@ -101,6 +104,7 @@ struct render_wrapper {
     bindgroup_wrapper make_bindgroup();
     void make_pipeline(bindgroup_layout_wrapper);
     void make_pipeline();
+    operator bool() const;
     WRAPPER_PIMPL_DEC(render_wrapper);
 };
 #undef WRAPPER_PIMPL_DEC
@@ -118,12 +122,12 @@ struct dawn_plugin {
     ~dawn_plugin();
     render_wrapper make_render();
     compute_wrapper make_compute();
-    buffer_wrapper make_buffer(unsigned size, BufferType type, bool isDest = true);
+    buffer_wrapper make_buffer(size_t size, BufferType type, bool isDest = true);
     buffer_wrapper make_buffer(BufferType type, bool isDest = true);
-    texture_wrapper make_texture(unsigned);
-    texture_wrapper make_texture(unsigned, unsigned);
+    texture_wrapper make_texture(size_t);
+    texture_wrapper make_texture(size_t, size_t);
     texture_wrapper make_texture(std::vector<uint8_t> data);
-    texture_output_wrapper make_texture_output(unsigned, unsigned);
+    texture_output_wrapper make_texture_output(size_t, size_t);
     encoder_wrapper make_encoder();
     bool run();
 

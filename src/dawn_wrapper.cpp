@@ -6,19 +6,22 @@
 #include "compute_wrapper_impl.h"
 #include "dawn_utils.hpp"
 #include "render_wrapper_impl.h"
-#include "texture_wrapper_impl.h"
 #include "texture_output_wrapper_impl.h"
+#include "texture_wrapper_impl.h"
 
 using namespace std;
 using namespace wgpu;
 using namespace dawn_utils;
-using namespace std::literals;
+using namespace literals;
 
 namespace dawn_wrapper {
 struct dawn_plugin::dawn_pimpl {
-    dawn_pimpl(/*std::ostream& out*/)
+    dawn_pimpl(/*ostream& out*/ const char* label = "")
+        : m_device()
+        , m_adapter()
+        , m_instance(CreateInstance())
+        , m_label(label)
     {
-        m_instance = CreateInstance();
         request_adapter(m_instance);
     }
 
@@ -26,7 +29,7 @@ struct dawn_plugin::dawn_pimpl {
     {
         instance.RequestAdapter(
             nullptr,
-            [](WGPURequestAdapterStatus status, WGPUAdapter adapter, const char* message, void* userdata) {
+            [](auto status, auto adapter, auto message, auto userdata) {
                 auto pimpl = reinterpret_cast<dawn_pimpl*>(userdata);
                 if (status != WGPURequestAdapterStatus_Success) {
                     pimpl->log_error("error requesting webgpu device adapter");
@@ -34,35 +37,50 @@ struct dawn_plugin::dawn_pimpl {
                 }
 
                 pimpl->m_adapter = Adapter::Acquire(adapter);
-                pimpl->request_device(pimpl->m_adapter);
+                pimpl->request_device(pimpl->m_adapter, pimpl->m_label.c_str());
             },
             this);
     }
 
-    void request_device(Adapter adapter)
+    void request_device(Adapter adapter, const char* label = "")
     {
-    
+
 #if 0
         size_t featureCount = adapter.EnumerateFeatures(nullptr);
-        std::vector<FeatureName> supportedFeatures(featureCount);
+        vector<FeatureName> supportedFeatures(featureCount);
         adapter.EnumerateFeatures(supportedFeatures.data());
         for (auto f : supportedFeatures) {
-            std::cout << (int) f << std::endl;
+            cout << (int) f << endl;
         }
 #endif
-    
+
         DeviceDescriptor deviceDesc = {};
         RequiredLimits requiredLimits = {};
-        requiredLimits.limits.maxStorageBuffersPerShaderStage = 2;
-        requiredLimits.limits.maxSamplersPerShaderStage = 1;
+//        requiredLimits.limits.maxStorageBuffersPerShaderStage = 10;
+//        requiredLimits.limits.maxSamplersPerShaderStage = 1;
         deviceDesc.requiredLimits = &requiredLimits;
-#if 0
-        std::vector<FeatureName> features = { FeatureName::ShaderF16 };
+        deviceDesc.deviceLostCallbackInfo.callback = [](auto device, auto reason, auto message, auto userdata) {
+            auto pimpl = reinterpret_cast<dawn_pimpl*>(userdata);
+            pimpl->log_error("device lost: ", message);
+        };
+        deviceDesc.deviceLostCallbackInfo.userdata = this;
+
+        deviceDesc.uncapturedErrorCallbackInfo.callback = [](auto type, auto message, auto userdata) {
+            auto pimpl = reinterpret_cast<dawn_pimpl*>(userdata);
+            pimpl->log_error("error: ", message);
+
+            ASSERT(false);
+        };
+        deviceDesc.uncapturedErrorCallbackInfo.userdata = this;
+#if 1
+        vector<FeatureName> features = { FeatureName::ShaderF16 };
         deviceDesc.requiredFeatureCount = features.size();
         deviceDesc.requiredFeatures = features.data();
-#endif 
+#endif
+
+        deviceDesc.label = label;
         adapter.RequestDevice(
-            &deviceDesc, [](auto status, auto device, const char* message, void* userdata) {
+            &deviceDesc, [](auto status, auto device, auto message, auto userdata) {
                 auto pimpl = reinterpret_cast<dawn_pimpl*>(userdata);
                 if (status != WGPURequestDeviceStatus_Success) {
                     pimpl->log_error("error requesting webgpu device");
@@ -70,15 +88,9 @@ struct dawn_plugin::dawn_pimpl {
                 }
 
                 pimpl->m_device = Device::Acquire(device);
-                pimpl->m_device.SetUncapturedErrorCallback([](WGPUErrorType type, char const* message, void* userdata) {
+                pimpl->m_device.SetLoggingCallback([](auto type, auto message, auto userdata) {
                     auto pimpl = reinterpret_cast<dawn_pimpl*>(userdata);
-                    pimpl->log_error("error: ", message);
-                },
-                    pimpl);
-
-                pimpl->m_device.SetDeviceLostCallback([](auto reason, auto message, auto userdata) {
-                    auto pimpl = reinterpret_cast<dawn_pimpl*>(userdata);
-                    pimpl->log_error("device lost: ", message);
+                    pimpl->log_error("error requesting webgpu device");
                 },
                     pimpl);
             },
@@ -93,67 +105,68 @@ struct dawn_plugin::dawn_pimpl {
 
     void log_error(const char* error)
     {
-        std::cout << error << std::endl;
+        cout << error << endl;
     }
 
     void log_error(const char* error, const char* message)
     {
-        std::cout << error << message << std::endl;
+        cout << error << message << endl;
     }
 
     render_wrapper make_render()
     {
         ASSERT(m_device.Get() && m_instance.Get());
-        return std::make_shared<render_wrapper::pimpl>(m_device, m_instance);
+        return make_shared<render_wrapper::pimpl>(m_device, m_instance);
     }
 
     compute_wrapper make_compute()
     {
-        return std::make_shared<compute_wrapper::pimpl>(m_device);
+        return make_shared<compute_wrapper::pimpl>(m_device);
     }
 
     encoder_wrapper make_encoder()
     {
-        return std::make_shared<encoder_wrapper::pimpl>(m_device);
+        return make_shared<encoder_wrapper::pimpl>(m_device);
     }
 
     buffer_wrapper make_buffer(unsigned size, BufferType flags, bool isDest)
     {
-        return std::make_shared<buffer_wrapper::pimpl>(m_device, size, flags, isDest);
+        return make_shared<buffer_wrapper::pimpl>(m_device, size, flags, isDest);
     }
 
     buffer_wrapper make_buffer(BufferType flags, bool isDest)
     {
-        return std::make_shared<buffer_wrapper::pimpl>(m_device, flags, isDest);
+        return make_shared<buffer_wrapper::pimpl>(m_device, flags, isDest);
     }
 
     texture_wrapper make_texture(unsigned size)
     {
-        return std::make_shared<texture_wrapper::pimpl>(m_device, size);
+        return make_shared<texture_wrapper::pimpl>(m_device, size);
     }
 
     texture_wrapper make_texture(unsigned width, unsigned height)
     {
-        return std::make_shared<texture_wrapper::pimpl>(m_device, width, height);
+        return make_shared<texture_wrapper::pimpl>(m_device, width, height);
     }
 
-    texture_wrapper make_texture(std::vector<uint8_t> data)
+    texture_wrapper make_texture(vector<uint8_t> data)
     {
-        return std::make_shared<texture_wrapper::pimpl>(m_device, data);
+        return make_shared<texture_wrapper::pimpl>(m_device, data);
     }
 
     texture_output_wrapper make_texture_output(unsigned width, unsigned height)
     {
-        return std::make_shared<texture_output_wrapper::pimpl>(m_device, width, height);
+        return make_shared<texture_output_wrapper::pimpl>(m_device, width, height);
     }
 
     Device m_device;
     Adapter m_adapter;
     Instance m_instance;
+    const string m_label;
 };
 
-dawn_plugin::dawn_plugin(/*std::ostream& o*/)
-    : m_pimpl(std::make_unique<dawn_pimpl>(/*o*/))
+dawn_plugin::dawn_plugin(/*ostream& o*/)
+    : m_pimpl(make_unique<dawn_pimpl>(/*o*/))
 {
 }
 
@@ -174,7 +187,7 @@ compute_wrapper dawn_plugin::make_compute()
     return m_pimpl->make_compute();
 }
 
-buffer_wrapper dawn_plugin::make_buffer(unsigned size, BufferType flags, bool isDest)
+buffer_wrapper dawn_plugin::make_buffer(size_t size, BufferType flags, bool isDest)
 {
     return m_pimpl->make_buffer(size, flags, isDest);
 }
@@ -184,22 +197,22 @@ buffer_wrapper dawn_plugin::make_buffer(BufferType flags, bool isDest)
     return m_pimpl->make_buffer(flags, isDest);
 }
 
-texture_wrapper dawn_plugin::make_texture(unsigned size)
+texture_wrapper dawn_plugin::make_texture(size_t size)
 {
     return m_pimpl->make_texture(size);
 }
 
-texture_wrapper dawn_plugin::make_texture(unsigned width, unsigned height)
+texture_wrapper dawn_plugin::make_texture(size_t width, size_t height)
 {
     return m_pimpl->make_texture(width, height);
 }
 
-texture_wrapper dawn_plugin::make_texture(std::vector<uint8_t> data)
+texture_wrapper dawn_plugin::make_texture(vector<uint8_t> data)
 {
     return m_pimpl->make_texture(data);
 }
 
-texture_output_wrapper dawn_plugin::make_texture_output(unsigned width, unsigned height)
+texture_output_wrapper dawn_plugin::make_texture_output(size_t width, size_t height)
 {
     return m_pimpl->make_texture_output(width, height);
 }

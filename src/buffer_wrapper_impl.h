@@ -30,7 +30,7 @@ struct buffer_wrapper::pimpl
     {
     }
 
-    void write(void* data, size_t size)
+    void write(const void* data, size_t size)
     {
         if (!m_buffer || m_buffer.GetSize() < size) {
             m_buffer = dawn_utils::make_buffer(m_device, size, m_usage);
@@ -43,7 +43,7 @@ struct buffer_wrapper::pimpl
 
     void write(const std::vector<uint8_t>& colors)
     {
-        write((void*)colors.data(), colors.size());
+        write(colors.data(), colors.size());
     }
 
     static void callback2(auto status, auto userData)

@@ -26,7 +26,7 @@ private:                                     \
 struct buffer_wrapper {
     buffer_wrapper() = default;
     buffer_wrapper & write(const std::vector<uint8_t>& colors);
-    buffer_wrapper & write(void*, size_t);
+    buffer_wrapper & write(const void*, size_t);
     bool done();
     buffer_wrapper & get_output(std::function<void(unsigned, const void*)>);
     size_t get_size();

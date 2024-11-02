@@ -12,46 +12,46 @@ bindgroup_layout_wrapper::bindgroup_layout_wrapper(ptr_type ptr)
 {
 }
 
-bindgroup_layout_wrapper & bindgroup_layout_wrapper::addBuffer(unsigned binding)
+bindgroup_layout_wrapper& bindgroup_layout_wrapper::addBuffer(unsigned binding)
 {
     m_pimpl->addBuffer(binding);
-    return * this;
+    return *this;
 }
 
-bindgroup_layout_wrapper & bindgroup_layout_wrapper::addReadOnlyBuffer(unsigned binding)
+bindgroup_layout_wrapper& bindgroup_layout_wrapper::addReadOnlyBuffer(unsigned binding)
 {
     m_pimpl->addReadOnlyBuffer(binding);
-    return * this;
+    return *this;
 }
 
-bindgroup_layout_wrapper & bindgroup_layout_wrapper::addUniformBuffer(unsigned binding)
+bindgroup_layout_wrapper& bindgroup_layout_wrapper::addUniformBuffer(unsigned binding)
 {
     m_pimpl->addUniformBuffer(binding);
-    return * this;
+    return *this;
 }
 
-bindgroup_layout_wrapper & bindgroup_layout_wrapper::addTexture_1d(unsigned binding)
+bindgroup_layout_wrapper& bindgroup_layout_wrapper::addTexture_1d(unsigned binding)
 {
     m_pimpl->addTexture_1d(binding);
-    return * this;
+    return *this;
 }
 
-bindgroup_layout_wrapper & bindgroup_layout_wrapper::addTexture_2d(unsigned binding)
+bindgroup_layout_wrapper& bindgroup_layout_wrapper::addTexture_2d(unsigned binding)
 {
     m_pimpl->addTexture_2d(binding);
-    return * this;
+    return *this;
 }
 
-bindgroup_layout_wrapper & bindgroup_layout_wrapper::addStorageTexture_2d(unsigned binding)
+bindgroup_layout_wrapper& bindgroup_layout_wrapper::addStorageTexture_2d(unsigned binding)
 {
     m_pimpl->addStorageTexture_2d(binding);
-    return * this;
+    return *this;
 }
 
-bindgroup_layout_wrapper & bindgroup_layout_wrapper::addSampler(unsigned binding)
+bindgroup_layout_wrapper& bindgroup_layout_wrapper::addSampler(unsigned binding)
 {
     m_pimpl->addSampler(binding);
-    return * this;
+    return *this;
 }
 
 } // dawn_wrapper

@@ -43,9 +43,10 @@ struct bindgroup_wrapper::pimpl {
     }
 
     pimpl(std::string context_name)
-    : m_bindgroup_entries()
-    , m_context_name(context_name)
-    {}
+        : m_bindgroup_entries()
+        , m_context_name(context_name)
+    {
+    }
 
 private:
     std::vector<BindGroupEntry> m_bindgroup_entries;

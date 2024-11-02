@@ -10,16 +10,16 @@ encoder_wrapper::encoder_wrapper(ptr_type ptr)
 {
 }
 
-encoder_wrapper & encoder_wrapper::submit_command_buffer()
+encoder_wrapper& encoder_wrapper::submit_command_buffer()
 {
     m_pimpl->submit_command_buffer();
-    return * this;
+    return *this;
 }
 
-encoder_wrapper & encoder_wrapper::copy_buffer_to_buffer(buffer_wrapper source, buffer_wrapper dest, size_t offset)
+encoder_wrapper& encoder_wrapper::copy_buffer_to_buffer(buffer_wrapper source, buffer_wrapper dest, size_t offset)
 {
     m_pimpl->copy_buffer_to_buffer(source, dest, offset);
-    return * this;
+    return *this;
 }
 
 } // dawn_wrapper

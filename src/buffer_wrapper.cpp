@@ -22,10 +22,10 @@ buffer_wrapper& buffer_wrapper::write(const std::vector<uint8_t>& colors)
     return *this;
 }
 
-buffer_wrapper& buffer_wrapper::write(const void* p, size_t size)
+buffer_wrapper& buffer_wrapper::write(const void* p)
 {
     if (m_pimpl) {
-        m_pimpl->write(p, size);
+        m_pimpl->write(p);
     }
     return *this;
 }

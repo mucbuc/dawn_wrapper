@@ -28,10 +28,12 @@ int main()
     comp.init_pipeline(layout);
 
     // io buffers
-    const vector<uint32_t> data = { 0, 1, 3, 5, 7, 11, 13, 17, 19 };
-    buffer_wrapper input = plugin.make_buffer(BufferType::Storage, true)
-                               .write(data.data(), data.size() * sizeof(uint32_t));
-    buffer_wrapper output = plugin.make_buffer(data.size() * sizeof(uint32_t), BufferType::Storage, false);
+    using vector_type = vector<uint32_t>;
+    const vector_type data = { 0, 1, 3, 5, 7, 11, 13, 17, 19 };
+    const auto size_bytes = data.size() * sizeof(vector_type::value_type);
+    buffer_wrapper input = plugin.make_buffer(size_bytes, BufferType::Storage, true)
+                               .write(data.data());
+    buffer_wrapper output = plugin.make_buffer(size_bytes, BufferType::Storage, false);
 
     // compute
     auto bindgroup = comp.make_bindgroup().addBuffer(1, input).addBuffer(2, output);
@@ -40,8 +42,8 @@ int main()
     plugin.run();
 
     // mapped buffer
-    buffer_wrapper mapped = plugin.make_buffer(BufferType::MapRead, true)
-                                .write(data.data(), data.size() * sizeof(uint32_t));
+    buffer_wrapper mapped = plugin.make_buffer(size_bytes, BufferType::MapRead, true)
+                                .write(data.data());
 
     encoder.copy_buffer_to_buffer(output, mapped).submit_command_buffer();
     mapped.get_output([](auto size, auto data) {

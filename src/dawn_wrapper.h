@@ -26,7 +26,7 @@ private:                                     \
 struct buffer_wrapper {
     buffer_wrapper() = default;
     buffer_wrapper& write(const std::vector<uint8_t>& colors);
-    buffer_wrapper& write(const void*, size_t);
+    buffer_wrapper& write(const void*);
     bool done();
     buffer_wrapper& get_output(std::function<void(unsigned, const void*)>);
     size_t get_size();
@@ -122,7 +122,6 @@ struct dawn_plugin {
     render_wrapper make_render();
     compute_wrapper make_compute();
     buffer_wrapper make_buffer(size_t size, BufferType type, bool isDest = true);
-    buffer_wrapper make_buffer(BufferType type, bool isDest = true);
     texture_wrapper make_texture(size_t);
     texture_wrapper make_texture(size_t, size_t);
     texture_wrapper make_texture(std::vector<uint8_t> data);

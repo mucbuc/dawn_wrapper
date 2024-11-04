@@ -129,14 +129,9 @@ struct dawn_plugin::dawn_pimpl {
         return make_shared<encoder_wrapper::pimpl>(m_device);
     }
 
-    buffer_wrapper make_buffer(unsigned size, BufferType flags, bool isDest)
+    buffer_wrapper make_buffer(size_t size, BufferType flags, bool isDest)
     {
         return make_shared<buffer_wrapper::pimpl>(m_device, size, flags, isDest);
-    }
-
-    buffer_wrapper make_buffer(BufferType flags, bool isDest)
-    {
-        return make_shared<buffer_wrapper::pimpl>(m_device, flags, isDest);
     }
 
     texture_wrapper make_texture(unsigned size)
@@ -190,11 +185,6 @@ compute_wrapper dawn_plugin::make_compute()
 buffer_wrapper dawn_plugin::make_buffer(size_t size, BufferType flags, bool isDest)
 {
     return m_pimpl->make_buffer(size, flags, isDest);
-}
-
-buffer_wrapper dawn_plugin::make_buffer(BufferType flags, bool isDest)
-{
-    return m_pimpl->make_buffer(flags, isDest);
 }
 
 texture_wrapper dawn_plugin::make_texture(size_t size)

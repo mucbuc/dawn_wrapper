@@ -12,38 +12,28 @@ struct buffer_wrapper::pimpl
 
     pimpl() = default;
 
-    pimpl(Device device, unsigned size, BufferType flags, bool isDest)
+    pimpl(Device device, size_t size, BufferType flags, bool isDest)
         : m_device(device)
+        , m_size(size)
         , m_isDest(isDest)
         , m_usage(getBufferUsageFromType(flags, m_isDest))
-        , m_buffer(dawn_utils::make_buffer(m_device, size, m_usage))
+        , m_buffer(dawn_utils::make_buffer(m_device, m_size, m_usage))
         , m_done(true)
     {
     }
 
-    pimpl(Device device, BufferType flags, bool isDest)
-        : m_device(device)
-        , m_isDest(isDest)
-        , m_usage(getBufferUsageFromType(flags, m_isDest))
-        , m_buffer()
-        , m_done(true)
+    void write(const void* data)
     {
-    }
+        ASSERT(m_buffer && m_isDest);
 
-    void write(const void* data, size_t size)
-    {
-        if (!m_buffer || m_buffer.GetSize() < size) {
-            m_buffer = dawn_utils::make_buffer(m_device, size, m_usage);
-        }
-
-        if (m_isDest) {
-            m_device.GetQueue().WriteBuffer(m_buffer, 0, data, size);
-        }
+        m_device.GetQueue().WriteBuffer(m_buffer, 0, data, m_size);
     }
 
     void write(const std::vector<uint8_t>& colors)
     {
-        write(colors.data(), colors.size());
+        ASSERT(colors.size() == m_size);
+
+        write(colors.data());
     }
 
     static void callback2(auto status, auto userData)
@@ -115,6 +105,7 @@ struct buffer_wrapper::pimpl
     }
 
     Device m_device;
+    size_t m_size;
     bool m_isDest;
     BufferUsage m_usage;
     Buffer m_buffer;

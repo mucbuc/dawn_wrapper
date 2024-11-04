@@ -83,7 +83,7 @@ struct bindgroup_wrapper {
 
 struct compute_wrapper {
     compute_wrapper() = default;
-    void make_pipeline(bindgroup_layout_wrapper layout);
+    void init_pipeline(bindgroup_layout_wrapper layout);
     void compile_shader(std::string script, std::string entryPoint);
     bool compute(bindgroup_wrapper, unsigned width, unsigned height, encoder_wrapper encoder);
     void setup_compute(unsigned width, unsigned height);
@@ -101,8 +101,8 @@ struct render_wrapper {
     void render(encoder_wrapper);
     bindgroup_layout_wrapper make_bindgroup_layout();
     bindgroup_wrapper make_bindgroup();
-    void make_pipeline(bindgroup_layout_wrapper);
-    void make_pipeline();
+    void init_pipeline(bindgroup_layout_wrapper);
+    void init_pipeline();
     operator bool() const;
     WRAPPER_PIMPL_DEC(render_wrapper);
 };

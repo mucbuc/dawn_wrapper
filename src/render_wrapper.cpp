@@ -33,14 +33,14 @@ bindgroup_wrapper render_wrapper::make_bindgroup()
     return m_pimpl->make_bindgroup();
 }
 
-void render_wrapper::make_pipeline(bindgroup_layout_wrapper layout)
+void render_wrapper::init_pipeline(bindgroup_layout_wrapper layout)
 {
-    m_pimpl->make_pipeline(layout);
+    m_pimpl->init_pipeline(layout);
 }
 
-void render_wrapper::make_pipeline()
+void render_wrapper::init_pipeline()
 {
-    m_pimpl->make_pipeline();
+    m_pimpl->init_pipeline();
 }
 
 void render_wrapper::render(bindgroup_wrapper bindGroup, encoder_wrapper encoder)

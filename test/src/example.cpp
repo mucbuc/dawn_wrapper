@@ -25,10 +25,10 @@ int main()
 
     // layout and pipeline
     auto layout = comp.make_bindgroup_layout().addReadOnlyBuffer(1).addBuffer(2);
-    comp.make_pipeline(layout);
+    comp.init_pipeline(layout);
 
     // io buffers
-    const vector<uint32_t> data = { 0, 1, 3, 5, 7, 11, 13, 17, 19, 0, 1, 3, 5, 7, 11, 13, 17, 19, 0, 1, 3, 5, 7, 11, 13, 17, 19, 0, 1, 3, 5, 7, 11, 13, 17, 19 };
+    const vector<uint32_t> data = { 0, 1, 3, 5, 7, 11, 13, 17, 19 };
     buffer_wrapper input = plugin.make_buffer(BufferType::Storage, true)
                                .write(data.data(), data.size() * sizeof(uint32_t));
     buffer_wrapper output = plugin.make_buffer(data.size() * sizeof(uint32_t), BufferType::Storage, false);

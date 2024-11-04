@@ -122,7 +122,7 @@ struct render_wrapper::pimpl {
         m_entryPoint = entryPoint;
     }
 
-    void make_pipeline(bindgroup_layout_wrapper layout)
+    void init_pipeline(bindgroup_layout_wrapper layout)
     {
         ASSERT(m_shader);
 
@@ -130,7 +130,7 @@ struct render_wrapper::pimpl {
         m_pipeline = dawn_utils::make_render_pipeline(m_device, m_bindGroupLayout, m_shader, m_vertexShader, m_entryPoint.c_str());
     }
 
-    void make_pipeline()
+    void init_pipeline()
     {
         ASSERT(m_shader);
 

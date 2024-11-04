@@ -14,17 +14,17 @@ int main()
     comp.compile_shader(R"(
         @group(0) @binding(1) var<storage, read> inputBuffer : array<u32>;
         @group(0) @binding(2) var<storage, read_write> outputBuffer: array<u32>;
-        
+
         @compute @workgroup_size(8)
         fn computeStuff(@builtin(global_invocation_id) id: vec3<u32>) {
-            
+
             outputBuffer[id.x] = inputBuffer[id.x] + 2;
-            
+
         })",
         "computeStuff");
 
     // layout and pipeline
-    auto layout = comp.make_bindgroup_layout().addReadOnlyBuffer(1).addBuffer(2);
+    auto layout = comp.make_bindgroup_layout().add_read_only_buffer(1).add_buffer(2);
     comp.init_pipeline(layout);
 
     // io buffers
@@ -36,7 +36,7 @@ int main()
     buffer_wrapper output = plugin.make_buffer(size_bytes, BufferType::Storage, false);
 
     // compute
-    auto bindgroup = comp.make_bindgroup().addBuffer(1, input).addBuffer(2, output);
+    auto bindgroup = comp.make_bindgroup().add_buffer(1, input).add_buffer(2, output);
     auto encoder = plugin.make_encoder();
     comp.compute(bindgroup, unsigned(data.size()), 1, encoder);
     plugin.run();

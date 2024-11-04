@@ -59,23 +59,23 @@ struct texture_output_wrapper {
 
 struct bindgroup_layout_wrapper {
     bindgroup_layout_wrapper() = default;
-    bindgroup_layout_wrapper& addBuffer(unsigned binding);
-    bindgroup_layout_wrapper& addReadOnlyBuffer(unsigned binding);
-    bindgroup_layout_wrapper& addUniformBuffer(unsigned binding);
-    bindgroup_layout_wrapper& addTexture_1d(unsigned binding);
-    bindgroup_layout_wrapper& addTexture_2d(unsigned binding);
-    bindgroup_layout_wrapper& addStorageTexture_2d(unsigned binding);
-    bindgroup_layout_wrapper& addSampler(unsigned binding);
+    bindgroup_layout_wrapper& add_buffer(unsigned binding);
+    bindgroup_layout_wrapper& add_read_only_buffer(unsigned binding);
+    bindgroup_layout_wrapper& add_uniform_buffer(unsigned binding);
+    bindgroup_layout_wrapper& add_texture_1d(unsigned binding);
+    bindgroup_layout_wrapper& add_texture_2d(unsigned binding);
+    bindgroup_layout_wrapper& add_storage_texture_2d(unsigned binding);
+    bindgroup_layout_wrapper& add_sampler(unsigned binding);
     WRAPPER_PIMPL_DEC(bindgroup_layout_wrapper);
 };
 
 struct bindgroup_wrapper {
     bindgroup_wrapper() = default;
-    bindgroup_wrapper& addBuffer(unsigned binding, buffer_wrapper);
+    bindgroup_wrapper& add_buffer(unsigned binding, buffer_wrapper);
     bindgroup_wrapper& addTexture(unsigned binding, texture_wrapper);
     bindgroup_wrapper& addTexture(unsigned binding, texture_output_wrapper);
-    bindgroup_wrapper& addSampler(unsigned binding, texture_wrapper);
-    bindgroup_wrapper& addSampler(unsigned binding, texture_output_wrapper);
+    bindgroup_wrapper& add_sampler(unsigned binding, texture_wrapper);
+    bindgroup_wrapper& add_sampler(unsigned binding, texture_output_wrapper);
 
     operator bool() const;
     WRAPPER_PIMPL_DEC(bindgroup_wrapper);

@@ -11,7 +11,7 @@ int main()
 
     // compile shader
     auto comp = plugin.make_compute();
-    comp.make_shader(R"(
+    comp.compile_shader(R"(
         @group(0) @binding(1) var<storage, read> inputBuffer : array<u32>;
         @group(0) @binding(2) var<storage, read_write> outputBuffer: array<u32>;
         
@@ -28,7 +28,7 @@ int main()
     comp.make_pipeline(layout);
 
     // io buffers
-    const vector<uint32_t> data = { 0, 1, 3, 5, 7, 11, 13, 17, 19 };
+    const vector<uint32_t> data = { 0, 1, 3, 5, 7, 11, 13, 17, 19, 0, 1, 3, 5, 7, 11, 13, 17, 19, 0, 1, 3, 5, 7, 11, 13, 17, 19, 0, 1, 3, 5, 7, 11, 13, 17, 19 };
     buffer_wrapper input = plugin.make_buffer(BufferType::Storage, true)
                                .write(data.data(), data.size() * sizeof(uint32_t));
     buffer_wrapper output = plugin.make_buffer(data.size() * sizeof(uint32_t), BufferType::Storage, false);

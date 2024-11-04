@@ -12,9 +12,9 @@ compute_wrapper::compute_wrapper(ptr_type ptr)
 {
 }
 
-void compute_wrapper::make_shader(std::string script, std::string entryPoint)
+void compute_wrapper::compile_shader(std::string script, std::string entryPoint)
 {
-    m_pimpl->make_shader(script, entryPoint);
+    m_pimpl->compile_shader(script, entryPoint);
 }
 
 void compute_wrapper::make_pipeline(bindgroup_layout_wrapper layout)

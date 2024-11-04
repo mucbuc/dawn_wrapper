@@ -22,7 +22,7 @@ struct compute_wrapper::pimpl {
     {
     }
 
-    void make_shader(std::string script, std::string entryPoint)
+    void compile_shader(std::string script, std::string entryPoint)
     {
         m_shader = dawn_utils::make_compute_shader(m_device, script, entryPoint.c_str());
         m_shader.GetCompilationInfo(&compilation_callback, this);

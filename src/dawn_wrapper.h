@@ -3,6 +3,7 @@
 #include <array>
 #include <functional>
 #include <iostream>
+#include <map>
 
 struct GLFWwindow;
 namespace dawn_wrapper {
@@ -84,7 +85,7 @@ struct bindgroup_wrapper {
 struct compute_wrapper {
     compute_wrapper() = default;
     void init_pipeline(bindgroup_layout_wrapper layout);
-    void compile_shader(std::string script, std::string entryPoint);
+    void compile_shader(std::string script, std::string entryPoint, std::map<std::string, std::string> = {});
     bool compute(bindgroup_wrapper, unsigned width, unsigned height, encoder_wrapper encoder);
     void setup_compute(unsigned width, unsigned height);
     bindgroup_layout_wrapper make_bindgroup_layout();
@@ -95,7 +96,7 @@ struct compute_wrapper {
 
 struct render_wrapper {
     render_wrapper() = default;
-    void compile_shader(std::string script, std::string entryPoint);
+    void compile_shader(std::string script, std::string entryPoint, std::map<std::string, std::string> = {});
     void setup_surface(GLFWwindow*, unsigned width, unsigned height, bool opaque);
     void render(bindgroup_wrapper, encoder_wrapper);
     void render(encoder_wrapper);

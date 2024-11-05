@@ -12,7 +12,7 @@
 namespace dawn_wrapper {
 
 struct bindgroup_wrapper::pimpl {
-    void addBuffer(unsigned binding, buffer_wrapper buffer)
+    void add_buffer(unsigned binding, buffer_wrapper buffer)
     {
         m_bindgroup_entries.push_back(dawn_utils::make_bindGroupBufferEntry(binding, buffer.m_pimpl->m_buffer));
     }
@@ -27,12 +27,12 @@ struct bindgroup_wrapper::pimpl {
         m_bindgroup_entries.push_back(dawn_utils::make_bind_group_entry(binding, texture.m_pimpl->get_view()));
     }
 
-    void addSampler(unsigned binding, texture_wrapper texture)
+    void add_sampler(unsigned binding, texture_wrapper texture)
     {
         m_bindgroup_entries.push_back(dawn_utils::make_bind_group_entry(binding, texture.m_pimpl->get_sampler()));
     }
 
-    void addSampler(unsigned binding, texture_output_wrapper texture)
+    void add_sampler(unsigned binding, texture_output_wrapper texture)
     {
         m_bindgroup_entries.push_back(dawn_utils::make_bind_group_entry(binding, texture.m_pimpl->get_sampler()));
     }
@@ -43,9 +43,10 @@ struct bindgroup_wrapper::pimpl {
     }
 
     pimpl(std::string context_name)
-    : m_bindgroup_entries()
-    , m_context_name(context_name)
-    {}
+        : m_bindgroup_entries()
+        , m_context_name(context_name)
+    {
+    }
 
 private:
     std::vector<BindGroupEntry> m_bindgroup_entries;

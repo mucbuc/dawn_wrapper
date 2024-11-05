@@ -56,8 +56,8 @@ struct dawn_plugin::dawn_pimpl {
 
         DeviceDescriptor deviceDesc = {};
         RequiredLimits requiredLimits = {};
-//        requiredLimits.limits.maxStorageBuffersPerShaderStage = 10;
-//        requiredLimits.limits.maxSamplersPerShaderStage = 1;
+        //        requiredLimits.limits.maxStorageBuffersPerShaderStage = 10;
+        //        requiredLimits.limits.maxSamplersPerShaderStage = 1;
         deviceDesc.requiredLimits = &requiredLimits;
         deviceDesc.deviceLostCallbackInfo.callback = [](auto device, auto reason, auto message, auto userdata) {
             auto pimpl = reinterpret_cast<dawn_pimpl*>(userdata);
@@ -68,7 +68,6 @@ struct dawn_plugin::dawn_pimpl {
         deviceDesc.uncapturedErrorCallbackInfo.callback = [](auto type, auto message, auto userdata) {
             auto pimpl = reinterpret_cast<dawn_pimpl*>(userdata);
             pimpl->log_error("error: ", message);
-
 
             ASSERT(false);
         };
@@ -130,14 +129,9 @@ struct dawn_plugin::dawn_pimpl {
         return make_shared<encoder_wrapper::pimpl>(m_device);
     }
 
-    buffer_wrapper make_buffer(unsigned size, BufferType flags, bool isDest)
+    buffer_wrapper make_buffer(unsigned size, buffer_type flags, bool isDest)
     {
         return make_shared<buffer_wrapper::pimpl>(m_device, size, flags, isDest);
-    }
-
-    buffer_wrapper make_buffer(BufferType flags, bool isDest)
-    {
-        return make_shared<buffer_wrapper::pimpl>(m_device, flags, isDest);
     }
 
     texture_wrapper make_texture(unsigned size)
@@ -188,22 +182,22 @@ compute_wrapper dawn_plugin::make_compute()
     return m_pimpl->make_compute();
 }
 
-buffer_wrapper dawn_plugin::make_buffer(size_t size, BufferType flags, bool isDest)
+buffer_wrapper dawn_plugin::make_dst_buffer(unsigned size, buffer_type flags)
 {
-    return m_pimpl->make_buffer(size, flags, isDest);
+    return m_pimpl->make_buffer(size, flags, true);
 }
 
-buffer_wrapper dawn_plugin::make_buffer(BufferType flags, bool isDest)
+buffer_wrapper dawn_plugin::make_src_buffer(unsigned size, buffer_type flags)
 {
-    return m_pimpl->make_buffer(flags, isDest);
+    return m_pimpl->make_buffer(size, flags, false);
 }
 
-texture_wrapper dawn_plugin::make_texture(size_t size)
+texture_wrapper dawn_plugin::make_texture(unsigned size)
 {
     return m_pimpl->make_texture(size);
 }
 
-texture_wrapper dawn_plugin::make_texture(size_t width, size_t height)
+texture_wrapper dawn_plugin::make_texture(unsigned width, unsigned height)
 {
     return m_pimpl->make_texture(width, height);
 }
@@ -213,7 +207,7 @@ texture_wrapper dawn_plugin::make_texture(vector<uint8_t> data)
     return m_pimpl->make_texture(data);
 }
 
-texture_output_wrapper dawn_plugin::make_texture_output(size_t width, size_t height)
+texture_output_wrapper dawn_plugin::make_texture_output(unsigned width, unsigned height)
 {
     return m_pimpl->make_texture_output(width, height);
 }

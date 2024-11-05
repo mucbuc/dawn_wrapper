@@ -115,14 +115,14 @@ struct render_wrapper::pimpl {
         return std::make_shared<bindgroup_wrapper::pimpl>(m_entryPoint);
     }
 
-    void make_fragmentShader(std::string script, std::string entryPoint)
+    void compile_shader(std::string script, std::string entryPoint)
     {
         m_shader = dawn_utils::make_shader(m_device, script, entryPoint.c_str());
         m_shader.GetCompilationInfo(&compilation_callback, this);
         m_entryPoint = entryPoint;
     }
 
-    void make_pipeline(bindgroup_layout_wrapper layout)
+    void init_pipeline(bindgroup_layout_wrapper layout)
     {
         ASSERT(m_shader);
 
@@ -130,7 +130,7 @@ struct render_wrapper::pimpl {
         m_pipeline = dawn_utils::make_render_pipeline(m_device, m_bindGroupLayout, m_shader, m_vertexShader, m_entryPoint.c_str());
     }
 
-    void make_pipeline()
+    void init_pipeline()
     {
         ASSERT(m_shader);
 

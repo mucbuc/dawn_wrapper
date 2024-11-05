@@ -10,34 +10,38 @@ bindgroup_wrapper::bindgroup_wrapper(ptr_type ptr)
 {
 }
 
-void bindgroup_wrapper::addBuffer(unsigned binding, buffer_wrapper buffer)
+bindgroup_wrapper& bindgroup_wrapper::add_buffer(unsigned binding, buffer_wrapper buffer)
 {
     ASSERT(buffer.m_pimpl);
-    m_pimpl->addBuffer(binding, buffer);
+    m_pimpl->add_buffer(binding, buffer);
+    return *this;
 }
 
-void bindgroup_wrapper::addTexture(unsigned binding, texture_wrapper texture)
+bindgroup_wrapper& bindgroup_wrapper::addTexture(unsigned binding, texture_wrapper texture)
 {
     ASSERT(texture.m_pimpl);
     m_pimpl->addTexture(binding, texture);
 }
 
-void bindgroup_wrapper::addTexture(unsigned binding, texture_output_wrapper texture)
+bindgroup_wrapper& bindgroup_wrapper::addTexture(unsigned binding, texture_output_wrapper texture)
 {
     ASSERT(texture.m_pimpl);
     m_pimpl->addTexture(binding, texture);
+    return *this;
 }
 
-void bindgroup_wrapper::addSampler(unsigned binding, texture_wrapper texture)
+bindgroup_wrapper& bindgroup_wrapper::add_sampler(unsigned binding, texture_wrapper texture)
 {
     ASSERT(texture.m_pimpl);
-    m_pimpl->addSampler(binding, texture);
+    m_pimpl->add_sampler(binding, texture);
+    return *this;
 }
 
-void bindgroup_wrapper::addSampler(unsigned binding, texture_output_wrapper texture)
+bindgroup_wrapper& bindgroup_wrapper::add_sampler(unsigned binding, texture_output_wrapper texture)
 {
     ASSERT(texture.m_pimpl);
-    m_pimpl->addSampler(binding, texture);
+    m_pimpl->add_sampler(binding, texture);
+    return *this;
 }
 
 bindgroup_wrapper::operator bool() const

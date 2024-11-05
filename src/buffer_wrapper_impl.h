@@ -12,38 +12,27 @@ struct buffer_wrapper::pimpl
 
     pimpl() = default;
 
-    pimpl(Device device, unsigned size, BufferType flags, bool isDest)
+    pimpl(Device device, unsigned size, buffer_type flags, bool isDest)
         : m_device(device)
-        , m_isDest(isDest)
-        , m_usage(getBufferUsageFromType(flags, m_isDest))
-        , m_buffer(dawn_utils::make_buffer(m_device, size, m_usage))
+        , m_size(size)
+        , m_usage(getBufferUsageFromType(flags, isDest))
+        , m_buffer(dawn_utils::make_buffer(m_device, m_size, m_usage))
         , m_done(true)
     {
     }
 
-    pimpl(Device device, BufferType flags, bool isDest)
-        : m_device(device)
-        , m_isDest(isDest)
-        , m_usage(getBufferUsageFromType(flags, m_isDest))
-        , m_buffer()
-        , m_done(true)
+    void write(const void* data)
     {
-    }
+        ASSERT(m_buffer);
 
-    void write(void* data, size_t size)
-    {
-        if (!m_buffer || m_buffer.GetSize() < size) {
-            m_buffer = dawn_utils::make_buffer(m_device, size, m_usage);
-        }
-
-        if (m_isDest) {
-            m_device.GetQueue().WriteBuffer(m_buffer, 0, data, size);
-        }
+        m_device.GetQueue().WriteBuffer(m_buffer, 0, data, m_size);
     }
 
     void write(const std::vector<uint8_t>& colors)
     {
-        write((void*)colors.data(), colors.size());
+        ASSERT(colors.size() == m_size);
+
+        write(colors.data());
     }
 
     static void callback2(auto status, auto userData)
@@ -76,34 +65,34 @@ struct buffer_wrapper::pimpl
         return m_done;
     }
 
-    size_t get_size()
+    unsigned get_size()
     {
         return m_buffer.GetSize();
     }
 
     // private:
 
-    static BufferUsage getBufferUsageFromType(BufferType type, bool isDest)
+    static BufferUsage getBufferUsageFromType(buffer_type type, bool isDest)
     {
         BufferUsage flags = isDest ? BufferUsage::CopyDst : BufferUsage::CopySrc;
         switch (type) {
-        case BufferType::Uniform:
+        case buffer_type::uniform:
             flags |= BufferUsage::Uniform;
             break;
 
-        case BufferType::Storage:
+        case buffer_type::storage:
             flags |= BufferUsage::Storage;
             break;
 
-        case BufferType::Index:
+        case buffer_type::index:
             flags |= BufferUsage::Index;
             break;
 
-        case BufferType::Vertex:
+        case buffer_type::vertex:
             flags |= BufferUsage::Vertex;
             break;
 
-        case BufferType::MapRead:
+        case buffer_type::map_read:
             flags |= BufferUsage::MapRead;
             break;
 
@@ -115,7 +104,7 @@ struct buffer_wrapper::pimpl
     }
 
     Device m_device;
-    bool m_isDest;
+    size_t m_size;
     BufferUsage m_usage;
     Buffer m_buffer;
     std::atomic<bool> m_done;

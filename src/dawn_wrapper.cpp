@@ -182,9 +182,14 @@ compute_wrapper dawn_plugin::make_compute()
     return m_pimpl->make_compute();
 }
 
-buffer_wrapper dawn_plugin::make_buffer(size_t size, BufferType flags, bool isDest)
+buffer_wrapper dawn_plugin::make_dst_buffer(size_t size, BufferType flags)
 {
-    return m_pimpl->make_buffer(size, flags, isDest);
+    return m_pimpl->make_buffer(size, flags, true);
+}
+
+buffer_wrapper dawn_plugin::make_src_buffer(size_t size, BufferType flags)
+{
+    return m_pimpl->make_buffer(size, flags, false);
 }
 
 texture_wrapper dawn_plugin::make_texture(size_t size)

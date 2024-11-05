@@ -15,8 +15,7 @@ struct buffer_wrapper::pimpl
     pimpl(Device device, size_t size, BufferType flags, bool isDest)
         : m_device(device)
         , m_size(size)
-        , m_isDest(isDest)
-        , m_usage(getBufferUsageFromType(flags, m_isDest))
+        , m_usage(getBufferUsageFromType(flags, isDest))
         , m_buffer(dawn_utils::make_buffer(m_device, m_size, m_usage))
         , m_done(true)
     {
@@ -24,7 +23,7 @@ struct buffer_wrapper::pimpl
 
     void write(const void* data)
     {
-        ASSERT(m_buffer && m_isDest);
+        ASSERT(m_buffer);
 
         m_device.GetQueue().WriteBuffer(m_buffer, 0, data, m_size);
     }
@@ -106,7 +105,6 @@ struct buffer_wrapper::pimpl
 
     Device m_device;
     size_t m_size;
-    bool m_isDest;
     BufferUsage m_usage;
     Buffer m_buffer;
     std::atomic<bool> m_done;

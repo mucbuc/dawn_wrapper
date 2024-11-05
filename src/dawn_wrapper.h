@@ -121,7 +121,8 @@ struct dawn_plugin {
     ~dawn_plugin();
     render_wrapper make_render();
     compute_wrapper make_compute();
-    buffer_wrapper make_buffer(size_t size, BufferType type, bool isDest = true);
+    buffer_wrapper make_src_buffer(size_t size, BufferType type);
+    buffer_wrapper make_dst_buffer(size_t size, BufferType type);
     texture_wrapper make_texture(size_t);
     texture_wrapper make_texture(size_t, size_t);
     texture_wrapper make_texture(std::vector<uint8_t> data);

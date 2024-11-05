@@ -1,3 +1,9 @@
+# install [dawn](https://dawn.googlesource.com/dawn)
+```
+cd lib
+git clone --depth 1 https://dawn.googlesource.com/dawn -b chromium/6482
+```
+
 # example
 **example.cpp**
 ```

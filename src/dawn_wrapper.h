@@ -29,7 +29,7 @@ struct buffer_wrapper {
     buffer_wrapper& write(const void*);
     bool done();
     buffer_wrapper& get_output(std::function<void(unsigned, const void*)>);
-    size_t get_size();
+    unsigned get_size();
 
     operator bool() const;
     WRAPPER_PIMPL_DEC(buffer_wrapper);
@@ -121,12 +121,12 @@ struct dawn_plugin {
     ~dawn_plugin();
     render_wrapper make_render();
     compute_wrapper make_compute();
-    buffer_wrapper make_src_buffer(size_t size, buffer_type type);
-    buffer_wrapper make_dst_buffer(size_t size, buffer_type type);
-    texture_wrapper make_texture(size_t);
-    texture_wrapper make_texture(size_t, size_t);
+    buffer_wrapper make_src_buffer(unsigned size, buffer_type type);
+    buffer_wrapper make_dst_buffer(unsigned size, buffer_type type);
+    texture_wrapper make_texture(unsigned);
+    texture_wrapper make_texture(unsigned, unsigned);
     texture_wrapper make_texture(std::vector<uint8_t> data);
-    texture_output_wrapper make_texture_output(size_t, size_t);
+    texture_output_wrapper make_texture_output(unsigned, unsigned);
     encoder_wrapper make_encoder();
     bool run();
 

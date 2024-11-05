@@ -10,7 +10,7 @@ int main()
 {
     using vector_type = vector<uint32_t>;
     const vector_type data = { 0, 1, 3, 5, 7, 11, 13, 17, 19 };
-    const auto size_bytes = data.size() * sizeof(vector_type::value_type);
+    const unsigned size_bytes = unsigned(data.size()) * sizeof(vector_type::value_type);
     
     enum {
         binding_in = 1,

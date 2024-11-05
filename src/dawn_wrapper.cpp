@@ -129,7 +129,7 @@ struct dawn_plugin::dawn_pimpl {
         return make_shared<encoder_wrapper::pimpl>(m_device);
     }
 
-    buffer_wrapper make_buffer(size_t size, BufferType flags, bool isDest)
+    buffer_wrapper make_buffer(size_t size, buffer_type flags, bool isDest)
     {
         return make_shared<buffer_wrapper::pimpl>(m_device, size, flags, isDest);
     }
@@ -182,12 +182,12 @@ compute_wrapper dawn_plugin::make_compute()
     return m_pimpl->make_compute();
 }
 
-buffer_wrapper dawn_plugin::make_dst_buffer(size_t size, BufferType flags)
+buffer_wrapper dawn_plugin::make_dst_buffer(size_t size, buffer_type flags)
 {
     return m_pimpl->make_buffer(size, flags, true);
 }
 
-buffer_wrapper dawn_plugin::make_src_buffer(size_t size, BufferType flags)
+buffer_wrapper dawn_plugin::make_src_buffer(size_t size, buffer_type flags)
 {
     return m_pimpl->make_buffer(size, flags, false);
 }

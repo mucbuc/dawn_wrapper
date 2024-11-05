@@ -108,12 +108,12 @@ struct render_wrapper {
 };
 #undef WRAPPER_PIMPL_DEC
 
-enum class BufferType {
-    Storage,
-    Uniform,
-    Index,
-    Vertex,
-    MapRead,
+enum class buffer_type {
+    storage,
+    uniform,
+    index,
+    vertex,
+    map_read,
 };
 
 struct dawn_plugin {
@@ -121,8 +121,8 @@ struct dawn_plugin {
     ~dawn_plugin();
     render_wrapper make_render();
     compute_wrapper make_compute();
-    buffer_wrapper make_src_buffer(size_t size, BufferType type);
-    buffer_wrapper make_dst_buffer(size_t size, BufferType type);
+    buffer_wrapper make_src_buffer(size_t size, buffer_type type);
+    buffer_wrapper make_dst_buffer(size_t size, buffer_type type);
     texture_wrapper make_texture(size_t);
     texture_wrapper make_texture(size_t, size_t);
     texture_wrapper make_texture(std::vector<uint8_t> data);

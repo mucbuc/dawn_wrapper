@@ -39,9 +39,9 @@ int main()
     comp.init_pipeline(layout);
 
     // buffers
-    buffer_wrapper input = plugin.make_dst_buffer(size_bytes, BufferType::Storage).write(data.data());
-    buffer_wrapper output = plugin.make_src_buffer(size_bytes, BufferType::Storage);
-    buffer_wrapper mapped = plugin.make_dst_buffer(size_bytes, BufferType::MapRead);
+    buffer_wrapper input = plugin.make_dst_buffer(size_bytes, buffer_type::storage).write(data.data());
+    buffer_wrapper output = plugin.make_src_buffer(size_bytes, buffer_type::storage);
+    buffer_wrapper mapped = plugin.make_dst_buffer(size_bytes, buffer_type::map_read);
 
     // compute
     auto bindgroup = comp.make_bindgroup().add_buffer(binding_in, input).add_buffer(binding_out, output);

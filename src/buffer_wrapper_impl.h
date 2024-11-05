@@ -12,7 +12,7 @@ struct buffer_wrapper::pimpl
 
     pimpl() = default;
 
-    pimpl(Device device, size_t size, BufferType flags, bool isDest)
+    pimpl(Device device, size_t size, buffer_type flags, bool isDest)
         : m_device(device)
         , m_size(size)
         , m_usage(getBufferUsageFromType(flags, isDest))
@@ -72,27 +72,27 @@ struct buffer_wrapper::pimpl
 
     // private:
 
-    static BufferUsage getBufferUsageFromType(BufferType type, bool isDest)
+    static BufferUsage getBufferUsageFromType(buffer_type type, bool isDest)
     {
         BufferUsage flags = isDest ? BufferUsage::CopyDst : BufferUsage::CopySrc;
         switch (type) {
-        case BufferType::Uniform:
+        case buffer_type::uniform:
             flags |= BufferUsage::Uniform;
             break;
 
-        case BufferType::Storage:
+        case buffer_type::storage:
             flags |= BufferUsage::Storage;
             break;
 
-        case BufferType::Index:
+        case buffer_type::index:
             flags |= BufferUsage::Index;
             break;
 
-        case BufferType::Vertex:
+        case buffer_type::vertex:
             flags |= BufferUsage::Vertex;
             break;
 
-        case BufferType::MapRead:
+        case buffer_type::map_read:
             flags |= BufferUsage::MapRead;
             break;
 

@@ -18,9 +18,9 @@ void render_wrapper::setup_surface(GLFWwindow* window, unsigned width, unsigned 
     m_pimpl->setup_surface(window, width, height, opaque);
 }
 
-void render_wrapper::compile_shader(std::string script, std::string entryPoint, std::map<std::string, std::string> variables)
+void render_wrapper::compile_shader(std::string script, std::string entryPoint)
 {
-    m_pimpl->compile_shader(script, entryPoint, variables);
+    m_pimpl->compile_shader(script, entryPoint);
 }
 
 bindgroup_layout_wrapper render_wrapper::make_bindgroup_layout()

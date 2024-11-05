@@ -6,7 +6,6 @@
 #include "dawn_utils.hpp"
 #include "dawn_wrapper.h"
 #include "encoder_wrapper_impl.h"
-#include "private_utils.hpp"
 
 #include <dawn/webgpu_cpp.h>
 
@@ -23,10 +22,9 @@ struct compute_wrapper::pimpl {
     {
     }
 
-    void compile_shader(std::string script, std::string entryPoint, std::map<std::string, std::string> variables)
+    void compile_shader(std::string script, std::string entryPoint)
     {
-        const auto temp = private_dawn_wrapper::apply_variables(script, variables);
-        m_shader = dawn_utils::make_compute_shader(m_device, temp, entryPoint.c_str());
+        m_shader = dawn_utils::make_compute_shader(m_device, script, entryPoint.c_str());
         m_shader.GetCompilationInfo(&compilation_callback, this);
         m_entryPoint = entryPoint;
     }

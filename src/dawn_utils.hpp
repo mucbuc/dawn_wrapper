@@ -7,7 +7,7 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
-#include <map> 
+#include <map>
 #include <sstream>
 
 #include <webgpu/webgpu_cpp.h>

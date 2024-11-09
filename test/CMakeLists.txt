@@ -8,6 +8,7 @@ set_target_properties(Example PROPERTIES
 	CXX_EXTENSIONS OFF
 	COMPILE_WARNING_AS_ERROR ON
 )
+set(CMAKE_THREAD_LIBS_INIT "-lpthread")
 add_compile_definitions(TARGET_HEADLESS)
 add_subdirectory(lib/dawn_wrapper)
 target_link_libraries(Example PRIVATE
@@ -16,7 +17,6 @@ target_link_libraries(Example PRIVATE
     dawncpp
     dawn_common
     dawn_native
-    dawn_wire
     dawn_utils
     webgpu_dawn
 )

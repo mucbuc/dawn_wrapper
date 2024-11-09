@@ -28,5 +28,4 @@ target_link_libraries(dawn_wrapper PUBLIC
     dawn_native
     dawn_wire
     dawn_utils
-    webgpu_dawn
 )

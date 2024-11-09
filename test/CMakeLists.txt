@@ -12,13 +12,8 @@ set(CMAKE_THREAD_LIBS_INIT "-lpthread")
 add_compile_definitions(TARGET_HEADLESS)
 add_subdirectory(lib/dawn_wrapper)
 target_link_libraries(Example PRIVATE
-    dawn_wrapper
-    dawn_internal_config
-    dawncpp
-    dawn_common
-    dawn_native
-    dawn_utils
-    webgpu_dawn
+   dawn_wrapper
+   webgpu_dawn
 )
 
 target_include_directories(Example SYSTEM PUBLIC ${CMAKE_SOURCE_DIR})

@@ -21,6 +21,7 @@ bindgroup_wrapper& bindgroup_wrapper::addTexture(unsigned binding, texture_wrapp
 {
     ASSERT(texture.m_pimpl);
     m_pimpl->addTexture(binding, texture);
+    return *this;
 }
 
 bindgroup_wrapper& bindgroup_wrapper::addTexture(unsigned binding, texture_output_wrapper texture)

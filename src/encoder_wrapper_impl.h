@@ -1,6 +1,5 @@
 #pragma once
 
-#include "dawn_utils.hpp"
 #include "buffer_wrapper_impl.h"
 
 using namespace wgpu;

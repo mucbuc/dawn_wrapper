@@ -1,6 +1,5 @@
 #pragma once
 
-#include "dawn_utils.hpp"
 #include "encoder_wrapper_impl.h"
 #include "bindgroup_wrapper_impl.h"
 #include "bindgroup_layout_wrapper_impl.h"

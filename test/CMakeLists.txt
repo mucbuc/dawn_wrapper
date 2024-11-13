@@ -18,7 +18,7 @@ if (EMSCRIPTEN)
 endif()
 
 target_link_libraries(Example PRIVATE
-    #dawn_wrapper
+    dawn_wrapper
     #webgpu_dawn
         #dawn_internal_config
         #dawncpp

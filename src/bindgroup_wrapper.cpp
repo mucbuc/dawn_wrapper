@@ -1,10 +1,6 @@
 #include <iostream>
 #include <map>
 #include <memory>
-#include "dawn_utils.hpp"
-#include "dawn_wrapper.h"
-
-using namespace wgpu;
 
 #include "bindgroup_wrapper_impl.h"
 

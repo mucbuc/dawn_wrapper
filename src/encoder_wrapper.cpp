@@ -4,6 +4,8 @@
 
 #include "encoder_wrapper_impl.h"
 
+using namespace wgpu;
+
 namespace dawn_wrapper {
 encoder_wrapper::encoder_wrapper(ptr_type ptr)
     : m_pimpl(ptr)

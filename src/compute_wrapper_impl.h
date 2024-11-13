@@ -1,13 +1,14 @@
 #pragma once
+#include "dawn_utils.hpp"
 
-#include "bindgroup_layout_wrapper_impl.h"
 #include "bindgroup_wrapper_impl.h"
+#include "bindgroup_layout_wrapper_impl.h"
 #include "buffer_wrapper_impl.h"
 #include "dawn_utils.hpp"
 #include "dawn_wrapper.h"
 #include "encoder_wrapper_impl.h"
 
-#include <dawn/webgpu_cpp.h>
+using namespace wgpu;
 
 namespace dawn_wrapper {
 struct compute_wrapper::pimpl {
@@ -87,10 +88,10 @@ private:
                 messages << "Info(" << i << "): ";
             }
 
-            messages << message.message << std::endl;
+           // messages << message.message << std::endl;
         }
 
-        std::cout << messages.str() << std::endl;
+        //std::cout << messages.str() << std::endl;
         //      instance->m_shaderCompileCallback(messages.str());
 
         //        if (!errorCount) {

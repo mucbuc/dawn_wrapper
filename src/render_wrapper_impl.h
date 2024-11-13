@@ -1,14 +1,11 @@
 #pragma once
 
-#include "bindgroup_layout_wrapper_impl.h"
-#include "bindgroup_wrapper_impl.h"
-#include "buffer_wrapper_impl.h"
 #include "dawn_utils.hpp"
-#include "dawn_wrapper.h"
 #include "encoder_wrapper_impl.h"
-#include "texture_wrapper_impl.h"
+#include "bindgroup_wrapper_impl.h"
+#include "bindgroup_layout_wrapper_impl.h"
 
-#include <dawn/webgpu_cpp.h>
+using namespace wgpu;
 
 namespace dawn_wrapper {
 struct render_wrapper::pimpl {
@@ -48,7 +45,8 @@ struct render_wrapper::pimpl {
         ASSERT(m_wgpuInstance && window);
 
 #ifndef TARGET_HEADLESS
-        m_surface = glfw::CreateSurfaceForWindow(m_wgpuInstance, window, opaque);
+#ifndef __EMSCRIPTEN__
+        m_surface = glfw::CreateSurfaceForWindow(m_wgpuInstance, window);//, opaque);
 
         SurfaceConfiguration config;
         config.device = m_device;
@@ -57,6 +55,28 @@ struct render_wrapper::pimpl {
         config.height = height;
 
         m_surface.Configure(&config);
+#else
+        wgpu::SurfaceDescriptorFromCanvasHTMLSelector canvasDesc{};
+        canvasDesc.selector = "#canvas";
+
+        wgpu::SurfaceDescriptor surfaceDesc = {};
+        surfaceDesc.nextInChain = &canvasDesc;
+        m_surface = m_wgpuInstance.CreateSurface(&surfaceDesc);
+
+        // Configure the surface.
+        wgpu::SurfaceCapabilities capabilities;
+        m_surface.GetCapabilities(adapter, &capabilities);
+        wgpu::SurfaceConfiguration config = {};
+        config.device = device;
+        config.format = capabilities.formats[0];
+        config.width = width;
+        config.height = height;
+        m_surface.Configure(&config);
+
+
+        std::cout << "surface configured" << std::endl;
+
+#endif
 #endif
     }
 
@@ -174,10 +194,10 @@ private:
                 messages << "Info(" << i << "): ";
             }
 
-            messages << message.message << std::endl;
+            //messages << message.message << std::endl;
         }
 
-        std::cout << messages.str() << std::endl;
+        //std::cout << messages.str() << std::endl;
         //      instance->m_shaderCompileCallback(messages.str());
 
         //        if (!errorCount) {

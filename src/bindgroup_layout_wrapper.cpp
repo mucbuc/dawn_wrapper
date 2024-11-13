@@ -2,6 +2,11 @@
 #include <map>
 #include <memory>
 
+#include "dawn_wrapper.h"
+#include "dawn_utils.hpp"
+
+using namespace wgpu;
+
 #include "bindgroup_layout_wrapper_impl.h"
 
 struct GLFWwindow;

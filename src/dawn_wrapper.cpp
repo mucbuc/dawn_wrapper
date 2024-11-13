@@ -1,16 +1,20 @@
 #include "dawn_wrapper.h"
 
-#include <dawn/webgpu_cpp.h>
+#include "dawn_utils.hpp"
+
+using namespace wgpu;
 
 #include "buffer_wrapper_impl.h"
+#include "bindgroup_wrapper_impl.h"
+#include "bindgroup_layout_wrapper_impl.h"
+#include "encoder_wrapper_impl.h"
 #include "compute_wrapper_impl.h"
-#include "dawn_utils.hpp"
 #include "render_wrapper_impl.h"
 #include "texture_output_wrapper_impl.h"
 #include "texture_wrapper_impl.h"
 
 using namespace std;
-using namespace wgpu;
+
 using namespace dawn_utils;
 using namespace literals;
 
@@ -45,7 +49,7 @@ struct dawn_plugin::dawn_pimpl {
     void request_device(Adapter adapter, const char* label = "")
     {
 
-#if 0
+#if 1
         size_t featureCount = adapter.EnumerateFeatures(nullptr);
         vector<FeatureName> supportedFeatures(featureCount);
         adapter.EnumerateFeatures(supportedFeatures.data());
@@ -59,6 +63,7 @@ struct dawn_plugin::dawn_pimpl {
         //        requiredLimits.limits.maxStorageBuffersPerShaderStage = 10;
         //        requiredLimits.limits.maxSamplersPerShaderStage = 1;
         deviceDesc.requiredLimits = &requiredLimits;
+    #if 0
         deviceDesc.deviceLostCallbackInfo.callback = [](auto device, auto reason, auto message, auto userdata) {
             auto pimpl = reinterpret_cast<dawn_pimpl*>(userdata);
             pimpl->log_error("device lost: ", message);
@@ -72,6 +77,8 @@ struct dawn_plugin::dawn_pimpl {
             ASSERT(false);
         };
         deviceDesc.uncapturedErrorCallbackInfo.userdata = this;
+    #endif
+
 #if 1
         vector<FeatureName> features = { FeatureName::ShaderF16 };
         deviceDesc.requiredFeatureCount = features.size();
@@ -81,6 +88,9 @@ struct dawn_plugin::dawn_pimpl {
         deviceDesc.label = label;
         adapter.RequestDevice(
             &deviceDesc, [](auto status, auto device, auto message, auto userdata) {
+
+                std::cout << "RequestDevice Callback" << std::endl;
+
                 auto pimpl = reinterpret_cast<dawn_pimpl*>(userdata);
                 if (status != WGPURequestDeviceStatus_Success) {
                     pimpl->log_error("error requesting webgpu device");
@@ -88,11 +98,15 @@ struct dawn_plugin::dawn_pimpl {
                 }
 
                 pimpl->m_device = Device::Acquire(device);
+
+                std::cout << "Device acquired" << std::endl;
+            #if 0
                 pimpl->m_device.SetLoggingCallback([](auto type, auto message, auto userdata) {
                     auto pimpl = reinterpret_cast<dawn_pimpl*>(userdata);
                     pimpl->log_error("error requesting webgpu device");
                 },
                     pimpl);
+            #endif
             },
             this);
     }
@@ -216,4 +230,10 @@ encoder_wrapper dawn_plugin::make_encoder()
 {
     return m_pimpl->make_encoder();
 }
+
+dawn_plugin::operator bool() const
+{
+    return m_pimpl && m_pimpl->m_device;
+}
+
 }

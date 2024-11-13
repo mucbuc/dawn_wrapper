@@ -3,8 +3,6 @@
 #include <memory>
 
 #include "buffer_wrapper_impl.h"
-#include "dawn_utils.hpp"
-#include "dawn_wrapper.h"
 
 struct GLFWwindow;
 

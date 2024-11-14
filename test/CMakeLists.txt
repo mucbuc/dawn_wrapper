@@ -19,14 +19,6 @@ endif()
 
 target_link_libraries(Example PRIVATE
     dawn_wrapper
-    #webgpu_dawn
-        #dawn_internal_config
-        #dawncpp
-        #dawn_common
-        #dawn_glfw
-        #dawn_native
-        #dawn_wire
-        #dawn_utils
 )
 
 target_include_directories(Example SYSTEM PUBLIC ${CMAKE_SOURCE_DIR})

@@ -21,13 +21,6 @@ else()
     set(DAWN_FETCH_DEPENDENCIES ON)
     add_subdirectory("lib/dawn" EXCLUDE_FROM_ALL)
     target_link_libraries(dawn_wrapper PUBLIC
-        #dawn_internal_config
-        #dawncpp
-        #dawn_common
-        #dawn_glfw
-        #dawn_native
-        #dawn_wire
-        #dawn_utils
         webgpu_dawn
     )
 endif()

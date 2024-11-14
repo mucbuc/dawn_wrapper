@@ -4,6 +4,9 @@ cd lib
 git clone --depth 1 https://dawn.googlesource.com/dawn
 ```
 
+# chrome
+To test the example in chrome 113 or newer you need to [enable JSPI](/kb/jspi.md).
+
 # example
 **example.cpp**
 ```

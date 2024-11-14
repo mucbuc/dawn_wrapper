@@ -4,9 +4,6 @@
 
 #include "texture_wrapper_impl.h"
 
-using namespace wgpu;
-
-
 struct GLFWwindow;
 
 namespace dawn_wrapper {

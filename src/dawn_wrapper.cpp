@@ -97,7 +97,6 @@ struct dawn_plugin::dawn_pimpl {
 
                 pimpl->m_device = Device::Acquire(device);
 
-                std::cout << "Device acquired" << std::endl;
             #if 0
                 pimpl->m_device.SetLoggingCallback([](auto type, auto message, auto userdata) {
                     auto pimpl = reinterpret_cast<dawn_pimpl*>(userdata);

@@ -26,7 +26,7 @@ using namespace wgpu;
 
 namespace dawn_utils {
 
-static void write_texture(wgpu::Device& device, wgpu::Texture& texture, wgpu::TextureDescriptor& desc, std::vector<uint8_t> colorTexture)
+static void write_texture(Device& device, Texture& texture, TextureDescriptor& desc, std::vector<uint8_t> colorTexture)
 {
     ImageCopyTexture destination {};
     destination.texture = texture;
@@ -42,7 +42,7 @@ static void write_texture(wgpu::Device& device, wgpu::Texture& texture, wgpu::Te
     device.GetQueue().WriteTexture(&destination, colorTexture.data(), colorTexture.size(), &source, &desc.size);
 }
 
-static wgpu::BindGroup make_bindGroup(wgpu::Device& device, wgpu::BindGroupLayout& layout, const std::vector<wgpu::BindGroupEntry>& entries, const char* label = "")
+static BindGroup make_bindGroup(Device& device, BindGroupLayout& layout, const std::vector<BindGroupEntry>& entries, const char* label = "")
 {
     BindGroupDescriptor bindGroupDesc;
     bindGroupDesc.entryCount = entries.size();
@@ -53,13 +53,13 @@ static wgpu::BindGroup make_bindGroup(wgpu::Device& device, wgpu::BindGroupLayou
 }
 
 template <class... T>
-static wgpu::BindGroup make_bindGroup(wgpu::Device& device, wgpu::BindGroupLayout& layout, T... entriesIntializer)
+static BindGroup make_bindGroup(Device& device, BindGroupLayout& layout, T... entriesIntializer)
 {
     std::vector<BindGroupEntry> entries { entriesIntializer... };
     return make_bindGroup(device, layout, entries);
 }
 
-static wgpu::BindGroupLayout make_bindGroupLayout(wgpu::Device& device, const std::vector<wgpu::BindGroupLayoutEntry>& entries, const char* label = "")
+static BindGroupLayout make_bindGroupLayout(Device& device, const std::vector<BindGroupLayoutEntry>& entries, const char* label = "")
 {
     ASSERT(!entries.empty());
 
@@ -71,13 +71,13 @@ static wgpu::BindGroupLayout make_bindGroupLayout(wgpu::Device& device, const st
 }
 
 template <class... T>
-static wgpu::BindGroupLayout make_bindGroupLayout(wgpu::Device& device, T... entriesIntializer)
+static BindGroupLayout make_bindGroupLayout(Device& device, T... entriesIntializer)
 {
     std::vector<BindGroupLayoutEntry> entries { entriesIntializer... };
     return make_bindGroupLayout(device, entries);
 }
 
-static wgpu::SamplerDescriptor make_samplerDesc(wgpu::AddressMode mode, const char* label) // = AddressMode::Repeat)
+static SamplerDescriptor make_samplerDesc(AddressMode mode, const char* label) // = AddressMode::Repeat)
 {
     SamplerDescriptor samplerDesc = {};
     samplerDesc.addressModeU = mode;
@@ -94,7 +94,7 @@ static wgpu::SamplerDescriptor make_samplerDesc(wgpu::AddressMode mode, const ch
     return samplerDesc;
 }
 
-static wgpu::TextureViewDescriptor make_textureViewDesc(const char* label = "")
+static TextureViewDescriptor make_textureViewDesc(const char* label = "")
 {
     TextureViewDescriptor textureViewDesc = {};
     textureViewDesc.aspect = TextureAspect::All;
@@ -108,7 +108,7 @@ static wgpu::TextureViewDescriptor make_textureViewDesc(const char* label = "")
     return textureViewDesc;
 }
 
-static wgpu::TextureDescriptor make_texture_descriptor(wgpu::Device& device, uint32_t width, uint32_t height, const char* label = "")
+static TextureDescriptor make_texture_descriptor(Device& device, uint32_t width, uint32_t height, const char* label = "")
 {
     TextureDescriptor textureDesc = {};
     textureDesc.dimension = TextureDimension::e1D;
@@ -123,9 +123,9 @@ static wgpu::TextureDescriptor make_texture_descriptor(wgpu::Device& device, uin
     return textureDesc;
 }
 
-static wgpu::TextureDescriptor make_texture_descriptor(wgpu::Device& device, uint32_t length, const char* label = "")
+static TextureDescriptor make_texture_descriptor(Device& device, uint32_t length, const char* label = "")
 {
-    wgpu::TextureDescriptor textureDesc = {};
+    TextureDescriptor textureDesc = {};
     textureDesc.dimension = TextureDimension::e1D;
     textureDesc.size = { length, 1, 1 };
     textureDesc.mipLevelCount = 1;
@@ -138,9 +138,9 @@ static wgpu::TextureDescriptor make_texture_descriptor(wgpu::Device& device, uin
     return textureDesc;
 }
 
-static wgpu::TextureDescriptor make_texture_descriptor_2d(wgpu::Device& device, uint32_t width, uint32_t height, const char* label = "")
+static TextureDescriptor make_texture_descriptor_2d(Device& device, uint32_t width, uint32_t height, const char* label = "")
 {
-    wgpu::TextureDescriptor textureDesc = {};
+    TextureDescriptor textureDesc = {};
     textureDesc.dimension = TextureDimension::e2D;
     textureDesc.size = { width, height, 1 };
     textureDesc.mipLevelCount = 1;
@@ -153,7 +153,7 @@ static wgpu::TextureDescriptor make_texture_descriptor_2d(wgpu::Device& device, 
     return textureDesc;
 }
 
-static wgpu::TextureDescriptor make_output_texture_descriptor(wgpu::Device& device, uint32_t width, uint32_t height, const char* label = "")
+static TextureDescriptor make_output_texture_descriptor(Device& device, uint32_t width, uint32_t height, const char* label = "")
 {
     TextureDescriptor textureDesc = {};
     textureDesc.dimension = TextureDimension::e2D;
@@ -168,7 +168,7 @@ static wgpu::TextureDescriptor make_output_texture_descriptor(wgpu::Device& devi
     return textureDesc;
 }
 
-static wgpu::SamplerDescriptor make_sampler_desc(wgpu::Device& device, const char* label = "")
+static SamplerDescriptor make_sampler_desc(Device& device, const char* label = "")
 {
     SamplerDescriptor samplerDesc = {};
     samplerDesc.addressModeU = AddressMode::ClampToEdge;
@@ -186,7 +186,7 @@ static wgpu::SamplerDescriptor make_sampler_desc(wgpu::Device& device, const cha
 }
 
 template <class T>
-static wgpu::Buffer make_buffer(wgpu::Device& device, size_t size, T usage, const char* label = "")
+static Buffer make_buffer(Device& device, size_t size, T usage, const char* label = "")
 {
     BufferDescriptor bufferDesc = {};
     bufferDesc.mappedAtCreation = false;
@@ -196,7 +196,7 @@ static wgpu::Buffer make_buffer(wgpu::Device& device, size_t size, T usage, cons
     return device.CreateBuffer(&bufferDesc);
 }
 
-static wgpu::CommandEncoder make_encoder(wgpu::Device& device)
+static CommandEncoder make_encoder(Device& device)
 {
     CommandEncoderDescriptor encoderDesc = {};
     encoderDesc.nextInChain = nullptr;
@@ -205,7 +205,7 @@ static wgpu::CommandEncoder make_encoder(wgpu::Device& device)
     return device.CreateCommandEncoder(&encoderDesc);
 }
 
-static wgpu::ComputePassEncoder begin_compute_pass(wgpu::CommandEncoder& encoder, const char* label = "")
+static ComputePassEncoder begin_compute_pass(CommandEncoder& encoder, const char* label = "")
 {
     ComputePassDescriptor computePassDesc = {};
     computePassDesc.timestampWrites = nullptr;
@@ -214,7 +214,7 @@ static wgpu::ComputePassEncoder begin_compute_pass(wgpu::CommandEncoder& encoder
     return encoder.BeginComputePass(&computePassDesc);
 }
 
-static wgpu::RenderPassEncoder begin_render_pass(wgpu::CommandEncoder& encoder, wgpu::TextureView textureView, const char* label = "")
+static RenderPassEncoder begin_render_pass(CommandEncoder& encoder, TextureView textureView, const char* label = "")
 {
     RenderPassColorAttachment attachment {};
     attachment.view = textureView;
@@ -228,7 +228,7 @@ static wgpu::RenderPassEncoder begin_render_pass(wgpu::CommandEncoder& encoder, 
     return encoder.BeginRenderPass(&renderpass);
 }
 
-static wgpu::ComputePipeline make_compute_pipeline(wgpu::Device& device, wgpu::ShaderModule& shaderMod, wgpu::BindGroupLayout& bindGroupLayout, const char* entryPoint, const char* label = "")
+static ComputePipeline make_compute_pipeline(Device& device, ShaderModule& shaderMod, BindGroupLayout& bindGroupLayout, const char* entryPoint, const char* label = "")
 {
     ComputePipelineDescriptor computePipelineDesc = {};
     computePipelineDesc.compute.entryPoint = entryPoint;
@@ -244,7 +244,7 @@ static wgpu::ComputePipeline make_compute_pipeline(wgpu::Device& device, wgpu::S
     return device.CreateComputePipeline(&computePipelineDesc);
 }
 
-static wgpu::RenderPipeline make_render_pipeline(wgpu::Device& device, wgpu::BindGroupLayout& bindGroupLayout, wgpu::ShaderModule& fragmentModule, wgpu::ShaderModule& vertexModule, const char* entryPoint, const char* label = "")
+static RenderPipeline make_render_pipeline(Device& device, BindGroupLayout& bindGroupLayout, ShaderModule& fragmentModule, ShaderModule& vertexModule, const char* entryPoint, const char* label = "")
 {
     ColorTargetState colorTargetState {};
     colorTargetState.format = TextureFormat::BGRA8Unorm;
@@ -287,7 +287,7 @@ static wgpu::RenderPipeline make_render_pipeline(wgpu::Device& device, wgpu::Bin
     return device.CreateRenderPipeline(&descriptor);
 }
 
-static wgpu::RenderPipeline make_render_pipeline(wgpu::Device& device, wgpu::ShaderModule& fragmentModule, wgpu::ShaderModule& vertexModule, const char* entryPoint, const char* label = "")
+static RenderPipeline make_render_pipeline(Device& device, ShaderModule& fragmentModule, ShaderModule& vertexModule, const char* entryPoint, const char* label = "")
 {
     ColorTargetState colorTargetState {};
     colorTargetState.format = TextureFormat::BGRA8Unorm;
@@ -328,7 +328,7 @@ static wgpu::RenderPipeline make_render_pipeline(wgpu::Device& device, wgpu::Sha
     return device.CreateRenderPipeline(&descriptor);
 }
 
-static wgpu::BindGroupLayoutEntry make_bindGroupLayoutBufferEntry(uint32_t binding, wgpu::BufferBindingType type, wgpu::ShaderStage stage, const char* label = "")
+static BindGroupLayoutEntry make_bindGroupLayoutBufferEntry(uint32_t binding, BufferBindingType type, ShaderStage stage, const char* label = "")
 {
     BindGroupLayoutEntry entry {};
     entry.binding = binding;
@@ -337,7 +337,7 @@ static wgpu::BindGroupLayoutEntry make_bindGroupLayoutBufferEntry(uint32_t bindi
     return entry;
 }
 
-static wgpu::ShaderModule make_compute_shader(wgpu::Device& device, std::string shaderCode, const char* label = "")
+static ShaderModule make_compute_shader(Device& device, std::string shaderCode, const char* label = "")
 {
     ShaderModuleWGSLDescriptor wgsl_shaderModuleDesc = {};
     wgsl_shaderModuleDesc.code = shaderCode.c_str();
@@ -349,7 +349,7 @@ static wgpu::ShaderModule make_compute_shader(wgpu::Device& device, std::string 
     return device.CreateShaderModule(&shaderModuleDesc);
 }
 
-static wgpu::BindGroupEntry make_bindGroupBufferEntry(uint32_t binding, wgpu::Buffer buffer, uint32_t size, const char* label = "")
+static BindGroupEntry make_bindGroupBufferEntry(uint32_t binding, Buffer buffer, uint32_t size, const char* label = "")
 {
     BindGroupEntry entry {};
     entry.binding = binding;
@@ -359,18 +359,18 @@ static wgpu::BindGroupEntry make_bindGroupBufferEntry(uint32_t binding, wgpu::Bu
     return entry;
 }
 
-static wgpu::BindGroupEntry make_bindGroupBufferEntry(uint32_t binding, wgpu::Buffer buffer, const char* label = "")
+static BindGroupEntry make_bindGroupBufferEntry(uint32_t binding, Buffer buffer, const char* label = "")
 {
     return make_bindGroupBufferEntry(binding, buffer, buffer.GetSize(), label);
 }
 
-static wgpu::Sampler make_sampler(wgpu::Device& device, wgpu::AddressMode mode, const char* label = "") // = AddressMode::Repeat)
+static Sampler make_sampler(Device& device, AddressMode mode, const char* label = "") // = AddressMode::Repeat)
 {
     SamplerDescriptor samplerDesc = dawn_utils::make_samplerDesc(mode, label);
     return device.CreateSampler(&samplerDesc);
 }
 
-static wgpu::BindGroupEntry make_bind_group_entry(unsigned binding, wgpu::Sampler sampler, const char* label = "")
+static BindGroupEntry make_bind_group_entry(unsigned binding, Sampler sampler, const char* label = "")
 {
     BindGroupEntry entry = {};
     entry.binding = binding;
@@ -378,7 +378,7 @@ static wgpu::BindGroupEntry make_bind_group_entry(unsigned binding, wgpu::Sample
     return entry;
 }
 
-static wgpu::BindGroupEntry make_bind_group_entry(unsigned binding, wgpu::TextureView view, const char* label = "")
+static BindGroupEntry make_bind_group_entry(unsigned binding, TextureView view, const char* label = "")
 {
     BindGroupEntry entry = {};
     entry.binding = binding;
@@ -386,7 +386,7 @@ static wgpu::BindGroupEntry make_bind_group_entry(unsigned binding, wgpu::Textur
     return entry;
 }
 
-static wgpu::ShaderModule make_shader(wgpu::Device& device, std::string shaderCode, const char* label = "")
+static ShaderModule make_shader(Device& device, std::string shaderCode, const char* label = "")
 {
     ASSERT(device);
     ShaderModuleWGSLDescriptor wgslDesc {};

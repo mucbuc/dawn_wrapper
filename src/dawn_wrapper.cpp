@@ -97,7 +97,7 @@ struct dawn_plugin::dawn_pimpl {
 
                 pimpl->m_device = Device::Acquire(device);
 
-            #if 0
+            #ifndef __EMSCRIPTEN__
                 pimpl->m_device.SetLoggingCallback([](auto type, auto message, auto userdata) {
                     auto pimpl = reinterpret_cast<dawn_pimpl*>(userdata);
                     pimpl->log_error("error requesting webgpu device");

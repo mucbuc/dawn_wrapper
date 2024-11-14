@@ -1,7 +1,7 @@
 #pragma once
 
-#include "bindgroup_wrapper_impl.h"
 #include "bindgroup_layout_wrapper_impl.h"
+#include "bindgroup_wrapper_impl.h"
 #include "buffer_wrapper_impl.h"
 #include "dawn_utils.hpp"
 #include "dawn_wrapper.h"

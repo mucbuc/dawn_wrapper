@@ -2,8 +2,6 @@
 
 #include "dawn_utils.hpp"
 
-using namespace wgpu;
-
 namespace dawn_wrapper {
 struct buffer_wrapper::pimpl
     : public std::enable_shared_from_this<pimpl> {

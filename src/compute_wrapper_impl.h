@@ -86,11 +86,14 @@ private:
             } else if (message.type == WGPUCompilationMessageType_Info) {
                 messages << "Info(" << i << "): ";
             }
-
-           // messages << message.message << std::endl;
+#ifndef __EMSCRIPTEN__
+            messages << message.message.data << std::endl;
+#else
+            messages << message.message << std::endl;
+#endif
         }
 
-        //std::cout << messages.str() << std::endl;
+        std::cout << messages.str() << std::endl;
         //      instance->m_shaderCompileCallback(messages.str());
 
         //        if (!errorCount) {

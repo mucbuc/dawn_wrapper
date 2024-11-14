@@ -7,6 +7,9 @@ git clone --depth 1 https://dawn.googlesource.com/dawn
 # chrome
 To test the example in chrome 113 or newer you need to [enable JSPI](/kb/jspi.md).
 
+# native
+Only tested on macOS.
+
 # example
 **example.cpp**
 ```
@@ -125,7 +128,6 @@ cmake --build web-build
 15
 19
 21
-device lost: A valid external Instance reference no longer exists.
 ```
 
 # interface

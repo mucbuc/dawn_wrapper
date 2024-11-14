@@ -89,9 +89,6 @@ struct dawn_plugin::dawn_pimpl {
         deviceDesc.label = label;
         adapter.RequestDevice(
             &deviceDesc, [](auto status, auto device, auto message, auto userdata) {
-
-                std::cout << "RequestDevice Callback" << std::endl;
-
                 auto pimpl = reinterpret_cast<dawn_pimpl*>(userdata);
                 if (status != WGPURequestDeviceStatus_Success) {
                     pimpl->log_error("error requesting webgpu device");

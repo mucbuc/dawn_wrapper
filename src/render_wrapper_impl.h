@@ -1,15 +1,14 @@
 #pragma once
 
-#include "encoder_wrapper_impl.h"
-#include "bindgroup_wrapper_impl.h"
 #include "bindgroup_layout_wrapper_impl.h"
+#include "bindgroup_wrapper_impl.h"
+#include "encoder_wrapper_impl.h"
 #include "shader_base.hpp"
 
 using namespace wgpu;
 
 namespace dawn_wrapper {
-struct render_wrapper::pimpl : private shader_base
-{
+struct render_wrapper::pimpl : private shader_base {
     pimpl() = delete;
 
     pimpl(Device device, Instance wgpuInstance)
@@ -56,7 +55,7 @@ struct render_wrapper::pimpl : private shader_base
 
         m_surface.Configure(&config);
 #else
-        wgpu::SurfaceDescriptorFromCanvasHTMLSelector canvasDesc{};
+        wgpu::SurfaceDescriptorFromCanvasHTMLSelector canvasDesc {};
         canvasDesc.selector = "#canvas";
 
         wgpu::SurfaceDescriptor surfaceDesc = {};
@@ -174,7 +173,6 @@ struct render_wrapper::pimpl : private shader_base
     }
 
 private:
-
     Device m_device;
     BindGroupLayout m_bindGroupLayout;
     ShaderModule m_shader;

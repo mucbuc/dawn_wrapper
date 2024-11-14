@@ -130,6 +130,7 @@ struct dawn_plugin {
     encoder_wrapper make_encoder();
     bool run();
     operator bool() const;
+
 private:
     struct dawn_pimpl;
     std::shared_ptr<dawn_pimpl> m_pimpl;

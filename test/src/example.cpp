@@ -4,7 +4,7 @@
 #include <lib/dawn_wrapper/src/dawn_wrapper.h>
 
 #ifdef __EMSCRIPTEN__
-    #include <emscripten/html5.h>
+#include <emscripten/html5.h>
 #endif
 
 #include <cassert>
@@ -37,7 +37,7 @@ void run_compute(dawn_plugin plugin)
         << "fn " << entry_point << "(@builtin(global_invocation_id) id: vec3<u32>) {\n"
         << "outputBuffer[id.x] = inputBuffer[id.x] + 2;"
         << "}";
-    comp.compile_shader( shader_script.str(), entry_point );
+    comp.compile_shader(shader_script.str(), entry_point);
 
     // layout and pipeline
     auto layout = comp.make_bindgroup_layout().add_read_only_buffer(binding_in).add_buffer(binding_out);
@@ -72,8 +72,7 @@ void run_compute(dawn_plugin plugin)
 #endif
 }
 
-struct StateHelper
-{
+struct StateHelper {
     dawn_plugin m_plugin;
     bool m_has_run = false;
 };
@@ -81,23 +80,20 @@ struct StateHelper
 int main()
 {
 
-
     StateHelper state;
 
 #ifdef __EMSCRIPTEN__
 
     emscripten_set_main_loop_arg(
-            [](void *userData) {
-
-                StateHelper * state ( reinterpret_cast<StateHelper *>(userData) );
-                if (!state->m_has_run && state->m_plugin) {
-                    state->m_has_run = true;
-                    run_compute(state->m_plugin);
-                }
-            },
-            & state,
-            0, true
-        );
+        [](void* userData) {
+            StateHelper* state(reinterpret_cast<StateHelper*>(userData));
+            if (!state->m_has_run && state->m_plugin) {
+                state->m_has_run = true;
+                run_compute(state->m_plugin);
+            }
+        },
+        &state,
+        0, true);
 #else
     run_compute(state.m_plugin);
 #endif

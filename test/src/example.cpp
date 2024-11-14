@@ -26,11 +26,9 @@ void run_compute(dawn_plugin plugin)
         binding_out = 2,
         workgroup_size = 8,
     };
+    const auto entry_point = "go";
 
     auto comp = plugin.make_compute();
-
-    const auto entry_point = "go";;
-
     stringstream shader_script;
     shader_script
         << "@group(0) @binding(" << binding_in << ") var<storage, read> inputBuffer : array<u32>;\n"

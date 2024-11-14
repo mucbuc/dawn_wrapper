@@ -46,7 +46,7 @@ struct render_wrapper::pimpl : private shader_base
 
 #ifndef TARGET_HEADLESS
 #ifndef __EMSCRIPTEN__
-        m_surface = glfw::CreateSurfaceForWindow(m_wgpuInstance, window);//, opaque);
+        m_surface = glfw::CreateSurfaceForWindow(m_wgpuInstance, window, opaque);
 
         SurfaceConfiguration config;
         config.device = m_device;

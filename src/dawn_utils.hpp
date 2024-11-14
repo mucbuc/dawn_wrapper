@@ -13,7 +13,6 @@
 #if defined(__EMSCRIPTEN__)
 #include <emscripten/emscripten.h>
 #else
-
 #include <webgpu/webgpu_glfw.h>
 #endif
 
@@ -23,12 +22,12 @@
 #define ASSERT(p) assert((p))
 #endif
 
+using namespace wgpu;
+
 namespace dawn_utils {
 
 static void write_texture(wgpu::Device& device, wgpu::Texture& texture, wgpu::TextureDescriptor& desc, std::vector<uint8_t> colorTexture)
 {
-    using namespace wgpu;
-
     ImageCopyTexture destination {};
     destination.texture = texture;
     destination.mipLevel = 0;
@@ -45,8 +44,6 @@ static void write_texture(wgpu::Device& device, wgpu::Texture& texture, wgpu::Te
 
 static wgpu::BindGroup make_bindGroup(wgpu::Device& device, wgpu::BindGroupLayout& layout, const std::vector<wgpu::BindGroupEntry>& entries, const char* label = "")
 {
-    using namespace wgpu;
-
     BindGroupDescriptor bindGroupDesc;
     bindGroupDesc.entryCount = entries.size();
     bindGroupDesc.entries = entries.data();
@@ -58,16 +55,12 @@ static wgpu::BindGroup make_bindGroup(wgpu::Device& device, wgpu::BindGroupLayou
 template <class... T>
 static wgpu::BindGroup make_bindGroup(wgpu::Device& device, wgpu::BindGroupLayout& layout, T... entriesIntializer)
 {
-    using namespace wgpu;
-
     std::vector<BindGroupEntry> entries { entriesIntializer... };
     return make_bindGroup(device, layout, entries);
 }
 
 static wgpu::BindGroupLayout make_bindGroupLayout(wgpu::Device& device, const std::vector<wgpu::BindGroupLayoutEntry>& entries, const char* label = "")
 {
-    using namespace wgpu;
-
     ASSERT(!entries.empty());
 
     BindGroupLayoutDescriptor bindGroupLayoutDesc = {};
@@ -80,16 +73,12 @@ static wgpu::BindGroupLayout make_bindGroupLayout(wgpu::Device& device, const st
 template <class... T>
 static wgpu::BindGroupLayout make_bindGroupLayout(wgpu::Device& device, T... entriesIntializer)
 {
-    using namespace wgpu;
-
     std::vector<BindGroupLayoutEntry> entries { entriesIntializer... };
     return make_bindGroupLayout(device, entries);
 }
 
 static wgpu::SamplerDescriptor make_samplerDesc(wgpu::AddressMode mode, const char* label) // = AddressMode::Repeat)
 {
-    using namespace wgpu;
-
     SamplerDescriptor samplerDesc = {};
     samplerDesc.addressModeU = mode;
     samplerDesc.addressModeV = mode;
@@ -107,8 +96,6 @@ static wgpu::SamplerDescriptor make_samplerDesc(wgpu::AddressMode mode, const ch
 
 static wgpu::TextureViewDescriptor make_textureViewDesc(const char* label = "")
 {
-    using namespace wgpu;
-
     TextureViewDescriptor textureViewDesc = {};
     textureViewDesc.aspect = TextureAspect::All;
     textureViewDesc.baseArrayLayer = 0;
@@ -123,8 +110,6 @@ static wgpu::TextureViewDescriptor make_textureViewDesc(const char* label = "")
 
 static wgpu::TextureDescriptor make_texture_descriptor(wgpu::Device& device, uint32_t width, uint32_t height, const char* label = "")
 {
-    using namespace wgpu;
-
     TextureDescriptor textureDesc = {};
     textureDesc.dimension = TextureDimension::e1D;
     textureDesc.size = { width, height, 1 };
@@ -140,8 +125,6 @@ static wgpu::TextureDescriptor make_texture_descriptor(wgpu::Device& device, uin
 
 static wgpu::TextureDescriptor make_texture_descriptor(wgpu::Device& device, uint32_t length, const char* label = "")
 {
-    using namespace wgpu;
-
     wgpu::TextureDescriptor textureDesc = {};
     textureDesc.dimension = TextureDimension::e1D;
     textureDesc.size = { length, 1, 1 };
@@ -157,8 +140,6 @@ static wgpu::TextureDescriptor make_texture_descriptor(wgpu::Device& device, uin
 
 static wgpu::TextureDescriptor make_texture_descriptor_2d(wgpu::Device& device, uint32_t width, uint32_t height, const char* label = "")
 {
-    using namespace wgpu;
-
     wgpu::TextureDescriptor textureDesc = {};
     textureDesc.dimension = TextureDimension::e2D;
     textureDesc.size = { width, height, 1 };
@@ -174,8 +155,6 @@ static wgpu::TextureDescriptor make_texture_descriptor_2d(wgpu::Device& device, 
 
 static wgpu::TextureDescriptor make_output_texture_descriptor(wgpu::Device& device, uint32_t width, uint32_t height, const char* label = "")
 {
-    using namespace wgpu;
-
     TextureDescriptor textureDesc = {};
     textureDesc.dimension = TextureDimension::e2D;
     textureDesc.size = { width, height, 1 };
@@ -191,8 +170,6 @@ static wgpu::TextureDescriptor make_output_texture_descriptor(wgpu::Device& devi
 
 static wgpu::SamplerDescriptor make_sampler_desc(wgpu::Device& device, const char* label = "")
 {
-    using namespace wgpu;
-
     SamplerDescriptor samplerDesc = {};
     samplerDesc.addressModeU = AddressMode::ClampToEdge;
     samplerDesc.addressModeV = AddressMode::ClampToEdge;
@@ -211,8 +188,6 @@ static wgpu::SamplerDescriptor make_sampler_desc(wgpu::Device& device, const cha
 template <class T>
 static wgpu::Buffer make_buffer(wgpu::Device& device, size_t size, T usage, const char* label = "")
 {
-    using namespace wgpu;
-
     BufferDescriptor bufferDesc = {};
     bufferDesc.mappedAtCreation = false;
     bufferDesc.size = size;
@@ -223,8 +198,6 @@ static wgpu::Buffer make_buffer(wgpu::Device& device, size_t size, T usage, cons
 
 static wgpu::CommandEncoder make_encoder(wgpu::Device& device)
 {
-    using namespace wgpu;
-
     CommandEncoderDescriptor encoderDesc = {};
     encoderDesc.nextInChain = nullptr;
     encoderDesc.label = "Moti command encoder";
@@ -234,8 +207,6 @@ static wgpu::CommandEncoder make_encoder(wgpu::Device& device)
 
 static wgpu::ComputePassEncoder begin_compute_pass(wgpu::CommandEncoder& encoder, const char* label = "")
 {
-    using namespace wgpu;
-
     ComputePassDescriptor computePassDesc = {};
     computePassDesc.timestampWrites = nullptr;
     computePassDesc.label = label;
@@ -245,8 +216,6 @@ static wgpu::ComputePassEncoder begin_compute_pass(wgpu::CommandEncoder& encoder
 
 static wgpu::RenderPassEncoder begin_render_pass(wgpu::CommandEncoder& encoder, wgpu::TextureView textureView, const char* label = "")
 {
-    using namespace wgpu;
-
     RenderPassColorAttachment attachment {};
     attachment.view = textureView;
     attachment.loadOp = LoadOp::Clear;
@@ -261,8 +230,6 @@ static wgpu::RenderPassEncoder begin_render_pass(wgpu::CommandEncoder& encoder, 
 
 static wgpu::ComputePipeline make_compute_pipeline(wgpu::Device& device, wgpu::ShaderModule& shaderMod, wgpu::BindGroupLayout& bindGroupLayout, const char* entryPoint, const char* label = "")
 {
-    using namespace wgpu;
-
     ComputePipelineDescriptor computePipelineDesc = {};
     computePipelineDesc.compute.entryPoint = entryPoint;
     computePipelineDesc.compute.module = shaderMod;
@@ -279,8 +246,6 @@ static wgpu::ComputePipeline make_compute_pipeline(wgpu::Device& device, wgpu::S
 
 static wgpu::RenderPipeline make_render_pipeline(wgpu::Device& device, wgpu::BindGroupLayout& bindGroupLayout, wgpu::ShaderModule& fragmentModule, wgpu::ShaderModule& vertexModule, const char* entryPoint, const char* label = "")
 {
-    using namespace wgpu;
-
     ColorTargetState colorTargetState {};
     colorTargetState.format = TextureFormat::BGRA8Unorm;
 
@@ -324,8 +289,6 @@ static wgpu::RenderPipeline make_render_pipeline(wgpu::Device& device, wgpu::Bin
 
 static wgpu::RenderPipeline make_render_pipeline(wgpu::Device& device, wgpu::ShaderModule& fragmentModule, wgpu::ShaderModule& vertexModule, const char* entryPoint, const char* label = "")
 {
-    using namespace wgpu;
-
     ColorTargetState colorTargetState {};
     colorTargetState.format = TextureFormat::BGRA8Unorm;
 
@@ -367,8 +330,6 @@ static wgpu::RenderPipeline make_render_pipeline(wgpu::Device& device, wgpu::Sha
 
 static wgpu::BindGroupLayoutEntry make_bindGroupLayoutBufferEntry(uint32_t binding, wgpu::BufferBindingType type, wgpu::ShaderStage stage, const char* label = "")
 {
-    using namespace wgpu;
-
     BindGroupLayoutEntry entry {};
     entry.binding = binding;
     entry.buffer.type = type;
@@ -378,8 +339,6 @@ static wgpu::BindGroupLayoutEntry make_bindGroupLayoutBufferEntry(uint32_t bindi
 
 static wgpu::ShaderModule make_compute_shader(wgpu::Device& device, std::string shaderCode, const char* label = "")
 {
-    using namespace wgpu;
-
     ShaderModuleWGSLDescriptor wgsl_shaderModuleDesc = {};
     wgsl_shaderModuleDesc.code = shaderCode.c_str();
 
@@ -392,8 +351,6 @@ static wgpu::ShaderModule make_compute_shader(wgpu::Device& device, std::string 
 
 static wgpu::BindGroupEntry make_bindGroupBufferEntry(uint32_t binding, wgpu::Buffer buffer, uint32_t size, const char* label = "")
 {
-    using namespace wgpu;
-
     BindGroupEntry entry {};
     entry.binding = binding;
     entry.buffer = buffer;
@@ -409,14 +366,12 @@ static wgpu::BindGroupEntry make_bindGroupBufferEntry(uint32_t binding, wgpu::Bu
 
 static wgpu::Sampler make_sampler(wgpu::Device& device, wgpu::AddressMode mode, const char* label = "") // = AddressMode::Repeat)
 {
-    using namespace wgpu;
     SamplerDescriptor samplerDesc = dawn_utils::make_samplerDesc(mode, label);
     return device.CreateSampler(&samplerDesc);
 }
 
 static wgpu::BindGroupEntry make_bind_group_entry(unsigned binding, wgpu::Sampler sampler, const char* label = "")
 {
-    using namespace wgpu;
     BindGroupEntry entry = {};
     entry.binding = binding;
     entry.sampler = sampler;
@@ -425,7 +380,6 @@ static wgpu::BindGroupEntry make_bind_group_entry(unsigned binding, wgpu::Sample
 
 static wgpu::BindGroupEntry make_bind_group_entry(unsigned binding, wgpu::TextureView view, const char* label = "")
 {
-    using namespace wgpu;
     BindGroupEntry entry = {};
     entry.binding = binding;
     entry.textureView = view;
@@ -435,7 +389,6 @@ static wgpu::BindGroupEntry make_bind_group_entry(unsigned binding, wgpu::Textur
 static wgpu::ShaderModule make_shader(wgpu::Device& device, std::string shaderCode, const char* label = "")
 {
     ASSERT(device);
-    using namespace wgpu;
     ShaderModuleWGSLDescriptor wgslDesc {};
     wgslDesc.code = shaderCode.c_str();
 

@@ -49,7 +49,7 @@ struct dawn_plugin::dawn_pimpl {
     void request_device(Adapter adapter, const char* label = "")
     {
 
-#if 1
+#if 0
         size_t featureCount = adapter.EnumerateFeatures(nullptr);
         vector<FeatureName> supportedFeatures(featureCount);
         adapter.EnumerateFeatures(supportedFeatures.data());

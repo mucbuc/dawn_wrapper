@@ -63,7 +63,8 @@ struct dawn_plugin::dawn_pimpl {
         //        requiredLimits.limits.maxStorageBuffersPerShaderStage = 10;
         //        requiredLimits.limits.maxSamplersPerShaderStage = 1;
         deviceDesc.requiredLimits = &requiredLimits;
-    #if 0
+
+    #ifndef __EMSCRIPTEN__
         deviceDesc.deviceLostCallbackInfo.callback = [](auto device, auto reason, auto message, auto userdata) {
             auto pimpl = reinterpret_cast<dawn_pimpl*>(userdata);
             pimpl->log_error("device lost: ", message);
@@ -125,6 +126,12 @@ struct dawn_plugin::dawn_pimpl {
     void log_error(const char* error, const char* message)
     {
         cout << error << message << endl;
+    }
+
+    template<class T>
+    void log_error(const char* error, T message)
+    {
+        cout << error << message.data << endl;
     }
 
     render_wrapper make_render()

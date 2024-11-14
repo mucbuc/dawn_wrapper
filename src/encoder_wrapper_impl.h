@@ -1,11 +1,8 @@
 #pragma once
 
-#include "dawn_utils.hpp"
-#include "dawn_wrapper.h"
-
 #include "buffer_wrapper_impl.h"
 
-#include <dawn/webgpu_cpp.h>
+using namespace wgpu;
 
 namespace dawn_wrapper {
 struct encoder_wrapper::pimpl {

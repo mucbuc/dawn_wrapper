@@ -1,7 +1,7 @@
 # install [dawn](https://dawn.googlesource.com/dawn)
 ```
 cd lib
-git clone --depth 1 https://dawn.googlesource.com/dawn -b chromium/6482
+git clone --depth 1 https://dawn.googlesource.com/dawn
 ```
 
 # example
@@ -81,30 +81,35 @@ cmake_minimum_required(VERSION 3.27)
 
 add_executable(Example src/example.cpp)
 set_target_properties(Example PROPERTIES
-	CXX_STANDARD 17
+    CXX_STANDARD 20
 	CXX_STANDARD_REQUIRED ON
 	CXX_EXTENSIONS OFF
 	COMPILE_WARNING_AS_ERROR ON
 )
+set(CMAKE_THREAD_LIBS_INIT "-lpthread")
 add_compile_definitions(TARGET_HEADLESS)
 add_subdirectory(lib/dawn_wrapper)
+
+if (EMSCRIPTEN)
+    set_target_properties(Example PROPERTIES SUFFIX ".html")
+    target_link_options(Example PRIVATE "-sUSE_WEBGPU=1" "-sUSE_GLFW=3")
+endif()
+
 target_link_libraries(Example PRIVATE
     dawn_wrapper
-    dawn_internal_config
-    dawncpp
-    dawn_common
-    dawn_native
-    dawn_wire
-    dawn_utils
-    webgpu_dawn
 )
 
 target_include_directories(Example SYSTEM PUBLIC ${CMAKE_SOURCE_DIR})
 ```
-**build:**
+**build native:**
 ```
-cmake -GXcode
-xcodebuild -scheme Example
+cmake -B build
+cmake --build build -j 8
+```
+**build emscripten:**
+```
+emcmake cmake -B web-build -DDAWN_EMSCRIPTEN_TOOLCHAIN="/Users/mucbuc/work/emscripten"
+cmake --build web-build
 ```
 **output:**
 ```
@@ -145,7 +150,7 @@ private:                                     \
     struct pimpl;                            \
     using ptr_type = std::shared_ptr<pimpl>; \
     class_name(ptr_type);                    \
-    ptr_type m_pimpl;
+    ptr_type m_pimpl
 
 struct buffer_wrapper {
     buffer_wrapper() = default;
@@ -253,7 +258,7 @@ struct dawn_plugin {
     texture_output_wrapper make_texture_output(unsigned, unsigned);
     encoder_wrapper make_encoder();
     bool run();
-
+    operator bool() const;
 private:
     struct dawn_pimpl;
     std::shared_ptr<dawn_pimpl> m_pimpl;

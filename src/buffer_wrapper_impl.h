@@ -1,9 +1,6 @@
 #pragma once
 
 #include "dawn_utils.hpp"
-#include "dawn_wrapper.h"
-
-#include <dawn/webgpu_cpp.h>
 
 namespace dawn_wrapper {
 struct buffer_wrapper::pimpl

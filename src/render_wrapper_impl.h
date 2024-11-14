@@ -1,18 +1,15 @@
 #pragma once
 
-#include "bindgroup_layout_wrapper_impl.h"
-#include "bindgroup_wrapper_impl.h"
-#include "buffer_wrapper_impl.h"
-#include "dawn_utils.hpp"
-#include "dawn_wrapper.h"
 #include "encoder_wrapper_impl.h"
-#include "texture_wrapper_impl.h"
+#include "bindgroup_wrapper_impl.h"
+#include "bindgroup_layout_wrapper_impl.h"
+#include "shader_base.hpp"
 
-#include <dawn/webgpu_cpp.h>
+using namespace wgpu;
 
 namespace dawn_wrapper {
-struct render_wrapper::pimpl {
-
+struct render_wrapper::pimpl : private shader_base
+{
     pimpl() = delete;
 
     pimpl(Device device, Instance wgpuInstance)
@@ -48,6 +45,7 @@ struct render_wrapper::pimpl {
         ASSERT(m_wgpuInstance && window);
 
 #ifndef TARGET_HEADLESS
+#ifndef __EMSCRIPTEN__
         m_surface = glfw::CreateSurfaceForWindow(m_wgpuInstance, window, opaque);
 
         SurfaceConfiguration config;
@@ -57,6 +55,24 @@ struct render_wrapper::pimpl {
         config.height = height;
 
         m_surface.Configure(&config);
+#else
+        wgpu::SurfaceDescriptorFromCanvasHTMLSelector canvasDesc{};
+        canvasDesc.selector = "#canvas";
+
+        wgpu::SurfaceDescriptor surfaceDesc = {};
+        surfaceDesc.nextInChain = &canvasDesc;
+        m_surface = m_wgpuInstance.CreateSurface(&surfaceDesc);
+
+        // Configure the surface.
+        wgpu::SurfaceCapabilities capabilities;
+        m_surface.GetCapabilities(adapter, &capabilities);
+        wgpu::SurfaceConfiguration config = {};
+        config.device = device;
+        config.format = capabilities.formats[0];
+        config.width = width;
+        config.height = height;
+        m_surface.Configure(&config);
+#endif
 #endif
     }
 
@@ -118,7 +134,7 @@ struct render_wrapper::pimpl {
     void compile_shader(std::string script, std::string entryPoint)
     {
         m_shader = dawn_utils::make_shader(m_device, script, entryPoint.c_str());
-        m_shader.GetCompilationInfo(&compilation_callback, this);
+        m_shader.GetCompilationInfo(&shader_base::compilation_callback, this);
         m_entryPoint = entryPoint;
     }
 
@@ -158,32 +174,6 @@ struct render_wrapper::pimpl {
     }
 
 private:
-    static void compilation_callback(WGPUCompilationInfoRequestStatus status, struct WGPUCompilationInfo const* compilationInfo, void* userdata)
-    {
-        pimpl* instance(reinterpret_cast<pimpl*>(userdata));
-        std::stringstream messages;
-        size_t errorCount = 0;
-        for (auto i = 0; i < compilationInfo->messageCount; ++i) {
-            const auto message = compilationInfo->messages[i];
-            if (message.type == WGPUCompilationMessageType_Error) {
-                messages << "Error(" << i << "): ";
-                ++errorCount;
-            } else if (message.type == WGPUCompilationMessageType_Warning) {
-                messages << "Warning(" << i << "): ";
-            } else if (message.type == WGPUCompilationMessageType_Info) {
-                messages << "Info(" << i << "): ";
-            }
-
-            messages << message.message << std::endl;
-        }
-
-        std::cout << messages.str() << std::endl;
-        //      instance->m_shaderCompileCallback(messages.str());
-
-        //        if (!errorCount) {
-        //            instance->setFragmentShaderUser();
-        //        }
-    }
 
     Device m_device;
     BindGroupLayout m_bindGroupLayout;

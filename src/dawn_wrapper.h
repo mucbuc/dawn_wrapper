@@ -21,7 +21,7 @@ private:                                     \
     struct pimpl;                            \
     using ptr_type = std::shared_ptr<pimpl>; \
     class_name(ptr_type);                    \
-    ptr_type m_pimpl;
+    ptr_type m_pimpl
 
 struct buffer_wrapper {
     buffer_wrapper() = default;
@@ -129,7 +129,7 @@ struct dawn_plugin {
     texture_output_wrapper make_texture_output(unsigned, unsigned);
     encoder_wrapper make_encoder();
     bool run();
-
+    operator bool() const;
 private:
     struct dawn_pimpl;
     std::shared_ptr<dawn_pimpl> m_pimpl;

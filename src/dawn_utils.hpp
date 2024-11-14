@@ -10,13 +10,18 @@
 #include <sstream>
 
 #include <webgpu/webgpu_cpp.h>
+#if defined(__EMSCRIPTEN__)
+#include <emscripten/emscripten.h>
+#else
 #include <webgpu/webgpu_glfw.h>
+#endif
+
+#include "dawn_wrapper.h"
 
 #ifndef ASSERT
 #define ASSERT(p) assert((p))
 #endif
 
-using namespace std;
 using namespace wgpu;
 
 namespace dawn_utils {
@@ -383,6 +388,7 @@ static BindGroupEntry make_bind_group_entry(unsigned binding, TextureView view, 
 
 static ShaderModule make_shader(Device& device, std::string shaderCode, const char* label = "")
 {
+    ASSERT(device);
     ShaderModuleWGSLDescriptor wgslDesc {};
     wgslDesc.code = shaderCode.c_str();
 

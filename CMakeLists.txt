@@ -14,10 +14,7 @@ target_sources(dawn_wrapper PRIVATE
     src/texture_output_wrapper.cpp
 )
 
-if (EMSCRIPTEN)
-    set_target_properties(dawn_wrapper PROPERTIES SUFFIX ".html")
-    target_link_options(dawn_wrapper PRIVATE "-sUSE_WEBGPU=1" "-sUSE_GLFW=3")
-else()
+if (NOT EMSCRIPTEN)
     set(DAWN_FETCH_DEPENDENCIES ON)
     add_subdirectory("lib/dawn" EXCLUDE_FROM_ALL)
     target_link_libraries(dawn_wrapper PUBLIC

@@ -44,6 +44,7 @@ struct render_wrapper::pimpl : private shader_base {
         ASSERT(m_wgpuInstance && window);
 
 #ifndef TARGET_HEADLESS
+#ifndef __EMSCRIPTEN__
         m_surface = glfw::CreateSurfaceForWindow(m_wgpuInstance, window);//, opaque);
 
         SurfaceConfiguration config;
@@ -53,6 +54,7 @@ struct render_wrapper::pimpl : private shader_base {
         config.height = height;
 
         m_surface.Configure(&config);
+#endif
 #endif
     }
 

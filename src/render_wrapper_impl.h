@@ -44,8 +44,7 @@ struct render_wrapper::pimpl : private shader_base {
         ASSERT(m_wgpuInstance && window);
 
 #ifndef TARGET_HEADLESS
-#ifndef __EMSCRIPTEN__
-        m_surface = glfw::CreateSurfaceForWindow(m_wgpuInstance, window, opaque);
+        m_surface = glfw::CreateSurfaceForWindow(m_wgpuInstance, window);//, opaque);
 
         SurfaceConfiguration config;
         config.device = m_device;
@@ -54,25 +53,23 @@ struct render_wrapper::pimpl : private shader_base {
         config.height = height;
 
         m_surface.Configure(&config);
-#else
-        wgpu::SurfaceDescriptorFromCanvasHTMLSelector canvasDesc {};
-        canvasDesc.selector = "#canvas";
+#endif
+    }
 
-        wgpu::SurfaceDescriptor surfaceDesc = {};
-        surfaceDesc.nextInChain = &canvasDesc;
+    void setup_surface_html_canvas(std::string selector, unsigned width, unsigned height)
+    {
+        SurfaceDescriptorFromCanvasHTMLSelector canvasDesc{};
+        canvasDesc.selector = selector.c_str();
+
+        SurfaceDescriptor surfaceDesc{.nextInChain = &canvasDesc};
         m_surface = m_wgpuInstance.CreateSurface(&surfaceDesc);
 
-        // Configure the surface.
-        wgpu::SurfaceCapabilities capabilities;
-        m_surface.GetCapabilities(adapter, &capabilities);
-        wgpu::SurfaceConfiguration config = {};
-        config.device = device;
-        config.format = capabilities.formats[0];
-        config.width = width;
-        config.height = height;
+        SurfaceConfiguration config{
+              .device = m_device,
+              .format = TextureFormat::BGRA8Unorm,
+              .width = width,
+              .height = height};
         m_surface.Configure(&config);
-#endif
-#endif
     }
 
     TextureView getCurrentTextureView()
@@ -102,8 +99,9 @@ struct render_wrapper::pimpl : private shader_base {
         pass.End();
 
         encoder.submit_command_buffer();
-
+    #ifndef __EMSCRIPTEN__
         m_surface.Present();
+    #endif
     }
 
     void render(encoder_wrapper encoder)
@@ -117,7 +115,9 @@ struct render_wrapper::pimpl : private shader_base {
 
         encoder.submit_command_buffer();
 
-        m_surface.Present();
+        #ifndef __EMSCRIPTEN__
+            m_surface.Present();
+        #endif
     }
 
     bindgroup_layout_wrapper make_bindgroup_layout()

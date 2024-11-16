@@ -1,5 +1,6 @@
-project(Example)
 cmake_minimum_required(VERSION 3.27)
+
+project(Example)
 
 add_executable(Example src/example.cpp)
 set_target_properties(Example PROPERTIES

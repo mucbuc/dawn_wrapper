@@ -1,7 +1,7 @@
 project(dawn_wrapper_lib)
 
-set(CMAKE_CXX_STANDARD 20)
 add_library(dawn_wrapper STATIC src/dawn_wrapper.h)
+
 target_sources(dawn_wrapper PRIVATE
     src/bindgroup_layout_wrapper.cpp
     src/bindgroup_wrapper.cpp

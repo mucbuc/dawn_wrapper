@@ -18,6 +18,11 @@ void render_wrapper::setup_surface(GLFWwindow* window, unsigned width, unsigned 
     m_pimpl->setup_surface(window, width, height, opaque);
 }
 
+void render_wrapper::setup_surface_html_canvas(std::string selector, unsigned width, unsigned height)
+{
+    m_pimpl->setup_surface_html_canvas(selector, width, height);
+}
+
 void render_wrapper::compile_shader(std::string script, std::string entryPoint)
 {
     m_pimpl->compile_shader(script, entryPoint);

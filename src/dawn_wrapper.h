@@ -97,6 +97,7 @@ struct render_wrapper {
     render_wrapper() = default;
     void compile_shader(std::string script, std::string entryPoint);
     void setup_surface(GLFWwindow*, unsigned width, unsigned height, bool opaque);
+    void setup_surface_html_canvas(std::string selector, unsigned width, unsigned height);
     void render(bindgroup_wrapper, encoder_wrapper);
     void render(encoder_wrapper);
     bindgroup_layout_wrapper make_bindgroup_layout();

@@ -19,5 +19,6 @@ if (NOT EMSCRIPTEN)
     add_subdirectory("lib/dawn" EXCLUDE_FROM_ALL)
     target_link_libraries(dawn_wrapper PUBLIC
         webgpu_dawn
+        webgpu_glfw
     )
 endif()

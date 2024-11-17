@@ -45,7 +45,7 @@ struct render_wrapper::pimpl : private shader_base {
 
 #ifndef TARGET_HEADLESS
 #ifndef __EMSCRIPTEN__
-        m_surface = glfw::CreateSurfaceForWindow(m_wgpuInstance, window);//, opaque);
+        m_surface = glfw::CreateSurfaceForWindow(m_wgpuInstance, window); //, opaque);
 
         SurfaceConfiguration config;
         config.device = m_device;
@@ -60,17 +60,18 @@ struct render_wrapper::pimpl : private shader_base {
 
     void setup_surface_html_canvas(std::string selector, unsigned width, unsigned height)
     {
-        SurfaceDescriptorFromCanvasHTMLSelector canvasDesc{};
+        SurfaceDescriptorFromCanvasHTMLSelector canvasDesc {};
         canvasDesc.selector = selector.c_str();
 
-        SurfaceDescriptor surfaceDesc{.nextInChain = &canvasDesc};
+        SurfaceDescriptor surfaceDesc { .nextInChain = &canvasDesc };
         m_surface = m_wgpuInstance.CreateSurface(&surfaceDesc);
 
-        SurfaceConfiguration config{
-              .device = m_device,
-              .format = TextureFormat::BGRA8Unorm,
-              .width = width,
-              .height = height};
+        SurfaceConfiguration config {
+            .device = m_device,
+            .format = TextureFormat::BGRA8Unorm,
+            .width = width,
+            .height = height
+        };
         m_surface.Configure(&config);
     }
 
@@ -101,9 +102,9 @@ struct render_wrapper::pimpl : private shader_base {
         pass.End();
 
         encoder.submit_command_buffer();
-    #ifndef __EMSCRIPTEN__
+#ifndef __EMSCRIPTEN__
         m_surface.Present();
-    #endif
+#endif
     }
 
     void render(encoder_wrapper encoder)
@@ -117,9 +118,9 @@ struct render_wrapper::pimpl : private shader_base {
 
         encoder.submit_command_buffer();
 
-        #ifndef __EMSCRIPTEN__
-            m_surface.Present();
-        #endif
+#ifndef __EMSCRIPTEN__
+        m_surface.Present();
+#endif
     }
 
     bindgroup_layout_wrapper make_bindgroup_layout()

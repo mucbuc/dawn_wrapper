@@ -349,7 +349,8 @@ static ShaderModule make_compute_shader(Device& device, std::string shaderCode, 
     return device.CreateShaderModule(&shaderModuleDesc);
 }
 
-static BindGroupEntry make_bindGroupBufferEntry(uint32_t binding, Buffer buffer, uint32_t size, const char* label = "")
+
+static BindGroupEntry make_bindGroupBufferEntry(uint32_t binding, Buffer buffer, uint64_t size, const char* label = "")
 {
     BindGroupEntry entry {};
     entry.binding = binding;

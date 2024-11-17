@@ -46,7 +46,7 @@ buffer_wrapper::operator bool() const
     return m_pimpl ? true : false;
 }
 
-unsigned buffer_wrapper::get_size()
+unsigned long buffer_wrapper::get_size()
 {
     return m_pimpl ? m_pimpl->get_size() : 0;
 }

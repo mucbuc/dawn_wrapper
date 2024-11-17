@@ -62,7 +62,7 @@ struct buffer_wrapper::pimpl
         return m_done;
     }
 
-    unsigned get_size()
+    unsigned long get_size()
     {
         return m_buffer.GetSize();
     }
@@ -105,7 +105,7 @@ struct buffer_wrapper::pimpl
     BufferUsage m_usage;
     Buffer m_buffer;
     std::atomic<bool> m_done;
-    std::function<void(unsigned, const void*)> m_dataCallback;
+    std::function<void(unsigned long, const void*)> m_dataCallback;
     std::shared_ptr<pimpl> m_self_ref;
 };
 }

@@ -29,7 +29,7 @@ struct buffer_wrapper {
     buffer_wrapper& write(const void*);
     bool done();
     buffer_wrapper& get_output(std::function<void(unsigned, const void*)>);
-    unsigned get_size();
+    unsigned long get_size();
 
     operator bool() const;
     WRAPPER_PIMPL_DEC(buffer_wrapper);

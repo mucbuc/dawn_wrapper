@@ -12,7 +12,7 @@ struct texture_wrapper::pimpl {
 
     pimpl(Device device, const std::vector<uint8_t>& colors)
         : m_device(device)
-        , m_width(colors.size() / 4)
+        , m_width(unsigned(colors.size()) / 4)
         , m_height(1)
         , m_desc(dawn_utils::make_texture_descriptor(m_device, m_width))
         , m_texture(m_device.CreateTexture(&m_desc))

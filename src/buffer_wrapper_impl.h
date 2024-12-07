@@ -9,7 +9,7 @@ struct buffer_wrapper::pimpl
 
     pimpl() = default;
 
-    pimpl(Device device, unsigned size, buffer_type flags, bool isDest)
+    pimpl(Device device, size_t size, buffer_type flags, bool isDest)
         : m_device(device)
         , m_size(size)
         , m_usage(getBufferUsageFromType(flags, isDest))
@@ -46,7 +46,7 @@ struct buffer_wrapper::pimpl
         instance->m_done = true;
     }
 
-    void get_output(std::function<void(unsigned, const void*)> cb)
+    void get_output(std::function<void(size_t, const void*)> cb)
     {
         m_dataCallback = cb;
 
@@ -62,7 +62,7 @@ struct buffer_wrapper::pimpl
         return m_done;
     }
 
-    unsigned long get_size()
+    size_t get_size()
     {
         return m_buffer.GetSize();
     }

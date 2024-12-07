@@ -146,17 +146,17 @@ struct dawn_plugin::dawn_pimpl {
         return make_shared<encoder_wrapper::pimpl>(m_device);
     }
 
-    buffer_wrapper make_buffer(unsigned size, buffer_type flags, bool isDest)
+    buffer_wrapper make_buffer(size_t size, buffer_type flags, bool isDest)
     {
         return make_shared<buffer_wrapper::pimpl>(m_device, size, flags, isDest);
     }
 
-    texture_wrapper make_texture(unsigned size)
+    texture_wrapper make_texture(size_t size)
     {
         return make_shared<texture_wrapper::pimpl>(m_device, size);
     }
 
-    texture_wrapper make_texture(unsigned width, unsigned height)
+    texture_wrapper make_texture(size_t width, size_t height)
     {
         return make_shared<texture_wrapper::pimpl>(m_device, width, height);
     }
@@ -166,7 +166,7 @@ struct dawn_plugin::dawn_pimpl {
         return make_shared<texture_wrapper::pimpl>(m_device, data);
     }
 
-    texture_output_wrapper make_texture_output(unsigned width, unsigned height)
+    texture_output_wrapper make_texture_output(size_t width, size_t height)
     {
         return make_shared<texture_output_wrapper::pimpl>(m_device, width, height);
     }
@@ -199,22 +199,22 @@ compute_wrapper dawn_plugin::make_compute()
     return m_pimpl->make_compute();
 }
 
-buffer_wrapper dawn_plugin::make_dst_buffer(unsigned size, buffer_type flags)
+buffer_wrapper dawn_plugin::make_dst_buffer(size_t size, buffer_type flags)
 {
     return m_pimpl->make_buffer(size, flags, true);
 }
 
-buffer_wrapper dawn_plugin::make_src_buffer(unsigned size, buffer_type flags)
+buffer_wrapper dawn_plugin::make_src_buffer(size_t size, buffer_type flags)
 {
     return m_pimpl->make_buffer(size, flags, false);
 }
 
-texture_wrapper dawn_plugin::make_texture(unsigned size)
+texture_wrapper dawn_plugin::make_texture(size_t size)
 {
     return m_pimpl->make_texture(size);
 }
 
-texture_wrapper dawn_plugin::make_texture(unsigned width, unsigned height)
+texture_wrapper dawn_plugin::make_texture(size_t width, size_t height)
 {
     return m_pimpl->make_texture(width, height);
 }
@@ -224,7 +224,7 @@ texture_wrapper dawn_plugin::make_texture(vector<uint8_t> data)
     return m_pimpl->make_texture(data);
 }
 
-texture_output_wrapper dawn_plugin::make_texture_output(unsigned width, unsigned height)
+texture_output_wrapper dawn_plugin::make_texture_output(size_t width, size_t height)
 {
     return m_pimpl->make_texture_output(width, height);
 }

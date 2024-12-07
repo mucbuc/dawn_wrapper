@@ -28,7 +28,7 @@ buffer_wrapper& buffer_wrapper::write(const void* p)
     return *this;
 }
 
-buffer_wrapper& buffer_wrapper::get_output(std::function<void(unsigned, const void*)> cb)
+buffer_wrapper& buffer_wrapper::get_output(std::function<void(size_t, const void*)> cb)
 {
     if (m_pimpl) {
         m_pimpl->get_output(cb);
@@ -46,7 +46,7 @@ buffer_wrapper::operator bool() const
     return m_pimpl ? true : false;
 }
 
-unsigned long buffer_wrapper::get_size()
+size_t buffer_wrapper::get_size()
 {
     return m_pimpl ? m_pimpl->get_size() : 0;
 }

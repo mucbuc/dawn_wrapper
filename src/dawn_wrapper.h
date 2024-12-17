@@ -59,7 +59,7 @@ struct texture_output_wrapper {
 
 struct bindgroup_layout_wrapper {
     bindgroup_layout_wrapper() = default;
-    bindgroup_layout_wrapper& add_buffer(unsigned binding);
+    bindgroup_layout_wrapper& add_buffer(unsigned binding, bool enable = true);
     bindgroup_layout_wrapper& add_read_only_buffer(unsigned binding);
     bindgroup_layout_wrapper& add_uniform_buffer(unsigned binding);
     bindgroup_layout_wrapper& add_texture_1d(unsigned binding);

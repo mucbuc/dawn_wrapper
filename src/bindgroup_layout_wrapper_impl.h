@@ -12,10 +12,13 @@ struct bindgroup_layout_wrapper::pimpl {
     {
     }
 
-    void add_buffer(unsigned binding)
+    void add_buffer(unsigned binding, bool enable)
     {
-        m_layoutEntries.push_back(dawn_utils::make_bindGroupLayoutBufferEntry(binding, BufferBindingType::Storage, m_stage));
+        if (enable) {
+            m_layoutEntries.push_back(dawn_utils::make_bindGroupLayoutBufferEntry(binding, BufferBindingType::Storage, m_stage));
+        }
     }
+
     void add_read_only_buffer(unsigned binding)
     {
         m_layoutEntries.push_back(dawn_utils::make_bindGroupLayoutBufferEntry(binding, BufferBindingType::ReadOnlyStorage, m_stage));

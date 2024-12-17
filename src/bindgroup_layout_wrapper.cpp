@@ -12,9 +12,9 @@ bindgroup_layout_wrapper::bindgroup_layout_wrapper(ptr_type ptr)
 {
 }
 
-bindgroup_layout_wrapper& bindgroup_layout_wrapper::add_buffer(unsigned binding)
+bindgroup_layout_wrapper& bindgroup_layout_wrapper::add_buffer(unsigned binding, bool enable)
 {
-    m_pimpl->add_buffer(binding);
+    m_pimpl->add_buffer(binding, enable);
     return *this;
 }
 

@@ -1,4 +1,6 @@
 .DS_Store
 test/build
 test/web-build
+**/.ignore_git
+
 

@@ -11,7 +11,9 @@ namespace dawn_wrapper {
 struct bindgroup_wrapper::pimpl {
     void add_buffer(unsigned binding, buffer_wrapper buffer)
     {
-        m_bindgroup_entries.push_back(dawn_utils::make_bindGroupBufferEntry(binding, buffer.m_pimpl->m_buffer));
+        if (buffer) {
+            m_bindgroup_entries.push_back(dawn_utils::make_bindGroupBufferEntry(binding, buffer.m_pimpl->m_buffer));
+        }
     }
 
     void addTexture(unsigned binding, texture_wrapper texture)

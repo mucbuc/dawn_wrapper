@@ -19,34 +19,46 @@ struct bindgroup_layout_wrapper::pimpl {
         }
     }
 
-    void add_read_only_buffer(unsigned binding)
+    void add_read_only_buffer(unsigned binding, bool enable)
     {
-        m_layoutEntries.push_back(dawn_utils::make_bindGroupLayoutBufferEntry(binding, BufferBindingType::ReadOnlyStorage, m_stage));
+        if (enable) {
+            m_layoutEntries.push_back(dawn_utils::make_bindGroupLayoutBufferEntry(binding, BufferBindingType::ReadOnlyStorage, m_stage));
+        }
     }
 
-    void add_uniform_buffer(unsigned binding)
+    void add_uniform_buffer(unsigned binding, bool enable)
     {
-        m_layoutEntries.push_back(dawn_utils::make_bindGroupLayoutBufferEntry(binding, BufferBindingType::Uniform, m_stage));
+        if (enable) {
+            m_layoutEntries.push_back(dawn_utils::make_bindGroupLayoutBufferEntry(binding, BufferBindingType::Uniform, m_stage));
+        }
     }
 
-    void add_texture_1d(unsigned binding)
+    void add_texture_1d(unsigned binding, bool enable)
     {
-        m_layoutEntries.push_back(make_texture_layout_entry(binding, TextureSampleType::Float, TextureViewDimension::e1D));
+        if (enable) {
+            m_layoutEntries.push_back(make_texture_layout_entry(binding, TextureSampleType::Float, TextureViewDimension::e1D));
+        }
     }
 
-    void add_texture_2d(unsigned binding)
+    void add_texture_2d(unsigned binding, bool enable)
     {
-        m_layoutEntries.push_back(make_texture_layout_entry(binding, TextureSampleType::Float, TextureViewDimension::e2D));
+        if (enable) {
+            m_layoutEntries.push_back(make_texture_layout_entry(binding, TextureSampleType::Float, TextureViewDimension::e2D));
+        }
     }
 
-    void add_storage_texture_2d(unsigned binding)
+    void add_storage_texture_2d(unsigned binding, bool enable)
     {
-        m_layoutEntries.push_back(make_texture_output_layout_entry(binding));
+        if (enable) {
+            m_layoutEntries.push_back(make_texture_output_layout_entry(binding));
+        }
     }
 
-    void add_sampler(unsigned binding)
+    void add_sampler(unsigned binding, bool enable)
     {
-        m_layoutEntries.push_back(make_sampler_layout_entry(binding));
+        if (enable) {
+            m_layoutEntries.push_back(make_sampler_layout_entry(binding));
+        }
     }
 
     BindGroupLayoutEntry make_texture_layout_entry(unsigned binding, TextureSampleType type = TextureSampleType::Float, TextureViewDimension dimension = TextureViewDimension::e1D)

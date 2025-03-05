@@ -17,4 +17,9 @@ void texture_output_wrapper::make_sampler(bool clamp_to_edge)
     m_pimpl->make_sampler(clamp_to_edge);
 }
 
+texture_output_wrapper::operator bool() const
+{
+    return m_pimpl ? true : false;
+}
+
 } // dawn_wrapper

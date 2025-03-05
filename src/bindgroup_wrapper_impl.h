@@ -18,22 +18,30 @@ struct bindgroup_wrapper::pimpl {
 
     void addTexture(unsigned binding, texture_wrapper texture)
     {
-        m_bindgroup_entries.push_back(dawn_utils::make_bind_group_entry(binding, texture.m_pimpl->get_view()));
+        if (texture) {
+            m_bindgroup_entries.push_back(dawn_utils::make_bind_group_entry(binding, texture.m_pimpl->get_view()));
+        }
     }
 
     void addTexture(unsigned binding, texture_output_wrapper texture)
     {
-        m_bindgroup_entries.push_back(dawn_utils::make_bind_group_entry(binding, texture.m_pimpl->get_view()));
+        if (texture) {
+            m_bindgroup_entries.push_back(dawn_utils::make_bind_group_entry(binding, texture.m_pimpl->get_view()));
+        }
     }
 
     void add_sampler(unsigned binding, texture_wrapper texture)
     {
-        m_bindgroup_entries.push_back(dawn_utils::make_bind_group_entry(binding, texture.m_pimpl->get_sampler()));
+        if (texture) {
+            m_bindgroup_entries.push_back(dawn_utils::make_bind_group_entry(binding, texture.m_pimpl->get_sampler()));
+        }
     }
 
     void add_sampler(unsigned binding, texture_output_wrapper texture)
     {
-        m_bindgroup_entries.push_back(dawn_utils::make_bind_group_entry(binding, texture.m_pimpl->get_sampler()));
+        if (texture) {
+            m_bindgroup_entries.push_back(dawn_utils::make_bind_group_entry(binding, texture.m_pimpl->get_sampler()));
+        }
     }
 
     BindGroup make_bindgroup(Device device, BindGroupLayout layout)

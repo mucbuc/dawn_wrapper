@@ -54,18 +54,20 @@ struct texture_wrapper {
 struct texture_output_wrapper {
     texture_output_wrapper() = default;
     void make_sampler(bool clamp_to_edge);
+
+    operator bool() const;
     WRAPPER_PIMPL_DEC(texture_output_wrapper);
 };
 
 struct bindgroup_layout_wrapper {
     bindgroup_layout_wrapper() = default;
     bindgroup_layout_wrapper& add_buffer(unsigned binding, bool enable = true);
-    bindgroup_layout_wrapper& add_read_only_buffer(unsigned binding);
-    bindgroup_layout_wrapper& add_uniform_buffer(unsigned binding);
-    bindgroup_layout_wrapper& add_texture_1d(unsigned binding);
-    bindgroup_layout_wrapper& add_texture_2d(unsigned binding);
-    bindgroup_layout_wrapper& add_storage_texture_2d(unsigned binding);
-    bindgroup_layout_wrapper& add_sampler(unsigned binding);
+    bindgroup_layout_wrapper& add_read_only_buffer(unsigned binding, bool enable = true);
+    bindgroup_layout_wrapper& add_uniform_buffer(unsigned binding, bool enable = true);
+    bindgroup_layout_wrapper& add_texture_1d(unsigned binding, bool enable = true);
+    bindgroup_layout_wrapper& add_texture_2d(unsigned binding, bool enable = true);
+    bindgroup_layout_wrapper& add_storage_texture_2d(unsigned binding, bool enable = true);
+    bindgroup_layout_wrapper& add_sampler(unsigned binding, bool enable = true);
     WRAPPER_PIMPL_DEC(bindgroup_layout_wrapper);
 };
 

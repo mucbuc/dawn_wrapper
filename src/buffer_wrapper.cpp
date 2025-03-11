@@ -46,7 +46,7 @@ buffer_wrapper::operator bool() const
     return m_pimpl ? true : false;
 }
 
-size_t buffer_wrapper::get_size()
+size_t buffer_wrapper::get_size() const
 {
     return m_pimpl ? m_pimpl->get_size() : 0;
 }

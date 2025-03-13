@@ -122,6 +122,7 @@ enum class buffer_type {
 struct dawn_plugin {
     dawn_plugin();
     ~dawn_plugin();
+    void on_load(std::function<void()>);
     render_wrapper make_render();
     compute_wrapper make_compute();
     buffer_wrapper make_src_buffer(size_t size, buffer_type type);

@@ -25,7 +25,16 @@ struct dawn_plugin::dawn_pimpl {
         , m_adapter()
         , m_instance(CreateInstance())
         , m_label(label)
+        , m_loaded_callback()
     {
+    }
+
+    void on_load(std::function<void()> load_callback)
+    {
+        ASSERT(!m_loaded_callback); 
+
+        m_loaded_callback = load_callback;
+
         request_adapter(m_instance);
     }
 
@@ -104,6 +113,8 @@ struct dawn_plugin::dawn_pimpl {
                 },
                     pimpl);
 #endif
+
+                pimpl->m_loaded_callback();
             },
             this);
     }
@@ -175,6 +186,7 @@ struct dawn_plugin::dawn_pimpl {
     Adapter m_adapter;
     Instance m_instance;
     const string m_label;
+    std::function<void()> m_loaded_callback;
 };
 
 dawn_plugin::dawn_plugin(/*ostream& o*/)
@@ -183,6 +195,11 @@ dawn_plugin::dawn_plugin(/*ostream& o*/)
 }
 
 dawn_plugin::~dawn_plugin() = default;
+
+void dawn_plugin::on_load(std::function<void()> load_callback)
+{
+    m_pimpl->on_load(load_callback);
+}
 
 bool dawn_plugin::run()
 {

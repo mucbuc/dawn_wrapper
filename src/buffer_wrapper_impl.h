@@ -62,7 +62,7 @@ struct buffer_wrapper::pimpl
         return m_done;
     }
 
-    size_t get_size()
+    size_t get_size() const
     {
         return m_buffer.GetSize();
     }

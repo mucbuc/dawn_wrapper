@@ -50,8 +50,6 @@ struct render_wrapper::pimpl : private shader_base {
         SurfaceConfiguration config;
         config.device = m_device;
         config.format = TextureFormat::BGRA8Unorm;
-        config.width = width;
-        config.height = height;
 
         m_surface.Configure(&config);
 #endif
@@ -70,7 +68,7 @@ struct render_wrapper::pimpl : private shader_base {
             .device = m_device,
             .format = TextureFormat::BGRA8Unorm,
             .width = width,
-            .height = height
+            .height = height,
         };
         m_surface.Configure(&config);
     }

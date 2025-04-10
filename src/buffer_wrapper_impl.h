@@ -93,6 +93,10 @@ struct buffer_wrapper::pimpl
             flags |= BufferUsage::MapRead;
             break;
 
+        case buffer_type::copy:
+            flags |= BufferUsage::CopyDst | BufferUsage::CopySrc | BufferUsage::Storage;
+            break;
+
         default:
             ASSERT(false);
         }

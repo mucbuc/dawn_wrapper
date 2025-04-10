@@ -46,6 +46,7 @@ struct dawn_plugin::dawn_pimpl {
                 auto pimpl = reinterpret_cast<dawn_pimpl*>(userdata);
                 if (status != WGPURequestAdapterStatus_Success) {
                     pimpl->log_error("error requesting webgpu device adapter");
+                    pimpl->m_loaded_callback();
                     return;
                 }
 

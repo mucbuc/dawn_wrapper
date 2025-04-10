@@ -117,6 +117,7 @@ enum class buffer_type {
     index,
     vertex,
     map_read,
+    copy,
 };
 
 struct dawn_plugin {

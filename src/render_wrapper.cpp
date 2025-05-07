@@ -13,14 +13,9 @@ render_wrapper::render_wrapper(ptr_type ptr)
 {
 }
 
-void render_wrapper::setup_surface(GLFWwindow* window, unsigned width, unsigned height, bool opaque)
+void render_wrapper::set_surface(surface_wrapper s)
 {
-    m_pimpl->setup_surface(window, width, height, opaque);
-}
-
-void render_wrapper::setup_surface_html_canvas(std::string selector, unsigned width, unsigned height)
-{
-    m_pimpl->setup_surface_html_canvas(selector, width, height);
+    m_pimpl->set_surface(s); 
 }
 
 void render_wrapper::compile_shader(std::string script, std::string entryPoint)

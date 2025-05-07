@@ -23,6 +23,8 @@ target_sources(dawn_wrapper PRIVATE
     src/encoder_wrapper_impl.hpp
     src/render_wrapper.cpp
     src/render_wrapper_impl.hpp
+    src/surface_wrapper.cpp
+    src/surface_wrapper_impl.hpp
     src/texture_output_wrapper.cpp
     src/texture_output_wrapper_impl.hpp
     src/texture_wrapper.cpp

@@ -18,6 +18,7 @@ private:                                     \
     friend class buffer_wrapper;             \
     friend class bindgroup_layout_wrapper;   \
     friend class encoder_wrapper;            \
+    friend class surface_wrapper;            \
     struct pimpl;                            \
     using ptr_type = std::shared_ptr<pimpl>; \
     class_name(ptr_type);                    \
@@ -95,11 +96,22 @@ struct compute_wrapper {
     WRAPPER_PIMPL_DEC(compute_wrapper);
 };
 
+struct surface_wrapper {
+
+    surface_wrapper() = default;
+    void setup(GLFWwindow*, unsigned width, unsigned height, bool opaque);
+    void setup(std::string html_canvas_selector, unsigned width, unsigned height);
+    void present();
+
+    operator bool() const;
+    WRAPPER_PIMPL_DEC(surface_wrapper);
+};
+
 struct render_wrapper {
     render_wrapper() = default;
     void compile_shader(std::string script, std::string entryPoint);
-    void setup_surface(GLFWwindow*, unsigned width, unsigned height, bool opaque);
-    void setup_surface_html_canvas(std::string selector, unsigned width, unsigned height);
+    void set_surface(surface_wrapper); 
+
     void render(bindgroup_wrapper, encoder_wrapper);
     void render(encoder_wrapper);
     bindgroup_layout_wrapper make_bindgroup_layout();
@@ -124,6 +136,7 @@ struct dawn_plugin {
     dawn_plugin();
     ~dawn_plugin();
     void on_load(std::function<void()>);
+    surface_wrapper make_surface();
     render_wrapper make_render();
     compute_wrapper make_compute();
     buffer_wrapper make_src_buffer(size_t size, buffer_type type);

@@ -2,7 +2,7 @@
 #include <map>
 #include <memory>
 
-#include "texture_wrapper_impl.h"
+#include "texture_wrapper_impl.hpp"
 
 struct GLFWwindow;
 

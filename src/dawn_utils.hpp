@@ -16,7 +16,7 @@
 #include <webgpu/webgpu_glfw.h>
 #endif
 
-#include "dawn_wrapper.h"
+#include "dawn_wrapper.hpp"
 
 #ifndef ASSERT
 #define ASSERT(p) assert((p))

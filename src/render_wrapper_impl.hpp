@@ -1,8 +1,8 @@
 #pragma once
 
-#include "bindgroup_layout_wrapper_impl.h"
-#include "bindgroup_wrapper_impl.h"
-#include "encoder_wrapper_impl.h"
+#include "bindgroup_layout_wrapper_impl.hpp"
+#include "bindgroup_wrapper_impl.hpp"
+#include "encoder_wrapper_impl.hpp"
 #include "shader_base.hpp"
 
 using namespace wgpu;
@@ -23,6 +23,7 @@ struct render_wrapper::pimpl : private shader_base {
         , m_bufferVertex()
         , m_bufferIndex()
         , m_entryPoint()
+        , m_surface()
         , m_wgpuInstance(wgpuInstance)
     {
         std::vector<float> verts { -1, 3, -1, -1, 3, -1 };
@@ -50,6 +51,8 @@ struct render_wrapper::pimpl : private shader_base {
         SurfaceConfiguration config;
         config.device = m_device;
         config.format = TextureFormat::BGRA8Unorm;
+        config.width = width;
+        config.height = height;
 
         m_surface.Configure(&config);
 #endif

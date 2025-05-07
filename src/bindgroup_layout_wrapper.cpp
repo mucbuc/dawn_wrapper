@@ -2,7 +2,7 @@
 #include <map>
 #include <memory>
 
-#include "bindgroup_layout_wrapper_impl.h"
+#include "bindgroup_layout_wrapper_impl.hpp"
 
 struct GLFWwindow;
 

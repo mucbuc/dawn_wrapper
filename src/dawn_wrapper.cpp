@@ -1,17 +1,17 @@
-#include "dawn_wrapper.h"
+#include "dawn_wrapper.hpp"
 
 #include "dawn_utils.hpp"
 
 using namespace wgpu;
 
-#include "bindgroup_layout_wrapper_impl.h"
-#include "bindgroup_wrapper_impl.h"
-#include "buffer_wrapper_impl.h"
-#include "compute_wrapper_impl.h"
-#include "encoder_wrapper_impl.h"
-#include "render_wrapper_impl.h"
-#include "texture_output_wrapper_impl.h"
-#include "texture_wrapper_impl.h"
+#include "bindgroup_layout_wrapper_impl.hpp"
+#include "bindgroup_wrapper_impl.hpp"
+#include "buffer_wrapper_impl.hpp"
+#include "compute_wrapper_impl.hpp"
+#include "encoder_wrapper_impl.hpp"
+#include "render_wrapper_impl.hpp"
+#include "texture_output_wrapper_impl.hpp"
+#include "texture_wrapper_impl.hpp"
 
 using namespace std;
 
@@ -31,7 +31,7 @@ struct dawn_plugin::dawn_pimpl {
 
     void on_load(std::function<void()> load_callback)
     {
-        ASSERT(!m_loaded_callback); 
+        ASSERT(!m_loaded_callback);
 
         m_loaded_callback = load_callback;
 

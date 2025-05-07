@@ -2,7 +2,7 @@
 #include <map>
 #include <memory>
 
-#include "encoder_wrapper_impl.h"
+#include "encoder_wrapper_impl.hpp"
 
 namespace dawn_wrapper {
 encoder_wrapper::encoder_wrapper(ptr_type ptr)

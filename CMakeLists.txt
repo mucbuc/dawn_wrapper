@@ -1,6 +1,6 @@
 project(dawn_wrapper_lib)
 
-add_library(dawn_wrapper STATIC src/dawn_wrapper.h)
+add_library(dawn_wrapper STATIC src/dawn_wrapper.hpp)
 
 set_target_properties(dawn_wrapper PROPERTIES
     CXX_STANDARD 20
@@ -11,14 +11,24 @@ set_target_properties(dawn_wrapper PROPERTIES
 
 target_sources(dawn_wrapper PRIVATE
     src/bindgroup_layout_wrapper.cpp
+    src/bindgroup_layout_wrapper_impl.hpp
     src/bindgroup_wrapper.cpp
+    src/bindgroup_wrapper_impl.hpp
     src/buffer_wrapper.cpp
+    src/buffer_wrapper_impl.hpp
     src/compute_wrapper.cpp
+    src/compute_wrapper_impl.hpp
     src/dawn_wrapper.cpp
     src/encoder_wrapper.cpp
+    src/encoder_wrapper_impl.hpp
     src/render_wrapper.cpp
-    src/texture_wrapper.cpp
+    src/render_wrapper_impl.hpp
+    src/surface_wrapper.cpp
+    src/surface_wrapper_impl.hpp
     src/texture_output_wrapper.cpp
+    src/texture_output_wrapper_impl.hpp
+    src/texture_wrapper.cpp
+    src/texture_wrapper_impl.hpp
 )
 
 if (NOT EMSCRIPTEN)

@@ -1,11 +1,11 @@
 #pragma once
 
-#include "bindgroup_layout_wrapper_impl.h"
-#include "bindgroup_wrapper_impl.h"
-#include "buffer_wrapper_impl.h"
+#include "bindgroup_layout_wrapper_impl.hpp"
+#include "bindgroup_wrapper_impl.hpp"
+#include "buffer_wrapper_impl.hpp"
 #include "dawn_utils.hpp"
-#include "dawn_wrapper.h"
-#include "encoder_wrapper_impl.h"
+#include "dawn_wrapper.hpp"
+#include "encoder_wrapper_impl.hpp"
 #include "shader_base.hpp"
 
 using namespace wgpu;

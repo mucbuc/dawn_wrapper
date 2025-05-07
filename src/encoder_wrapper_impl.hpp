@@ -1,6 +1,6 @@
 #pragma once
 
-#include "buffer_wrapper_impl.h"
+#include "buffer_wrapper_impl.hpp"
 
 using namespace wgpu;
 

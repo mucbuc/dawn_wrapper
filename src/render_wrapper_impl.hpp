@@ -1,9 +1,10 @@
 #pragma once
 
-#include "bindgroup_layout_wrapper_impl.h"
-#include "bindgroup_wrapper_impl.h"
-#include "encoder_wrapper_impl.h"
+#include "bindgroup_layout_wrapper_impl.hpp"
+#include "bindgroup_wrapper_impl.hpp"
+#include "encoder_wrapper_impl.hpp"
 #include "shader_base.hpp"
+#include "surface_wrapper_impl.hpp"
 
 using namespace wgpu;
 
@@ -13,6 +14,7 @@ struct render_wrapper::pimpl : private shader_base {
 
     pimpl(Device device, Instance wgpuInstance)
         : m_device(device)
+        , m_wgpuInstance(wgpuInstance)
         , m_bindGroupLayout()
         , m_shader()
         , m_vertexShader(dawn_utils::make_shader(m_device,
@@ -23,7 +25,7 @@ struct render_wrapper::pimpl : private shader_base {
         , m_bufferVertex()
         , m_bufferIndex()
         , m_entryPoint()
-        , m_wgpuInstance(wgpuInstance)
+        , m_surface()
     {
         std::vector<float> verts { -1, 3, -1, -1, 3, -1 };
         const auto vertBytes = verts.size() * sizeof(float);
@@ -38,48 +40,14 @@ struct render_wrapper::pimpl : private shader_base {
         m_device.GetQueue().WriteBuffer(m_bufferIndex, 0, indecies.data(), indexBytes);
     }
 
-    void setup_surface(GLFWwindow* window, unsigned width, unsigned height, bool opaque)
+    void set_surface(surface_wrapper s)
     {
-        using namespace dawn_utils;
-        ASSERT(m_wgpuInstance && window);
-
-#ifndef TARGET_HEADLESS
-#ifndef __EMSCRIPTEN__
-        m_surface = glfw::CreateSurfaceForWindow(m_wgpuInstance, window); //, opaque);
-
-        SurfaceConfiguration config;
-        config.device = m_device;
-        config.format = TextureFormat::BGRA8Unorm;
-        config.width = width;
-        config.height = height;
-
-        m_surface.Configure(&config);
-#endif
-#endif
-    }
-
-    void setup_surface_html_canvas(std::string selector, unsigned width, unsigned height)
-    {
-        SurfaceDescriptorFromCanvasHTMLSelector canvasDesc {};
-        canvasDesc.selector = selector.c_str();
-
-        SurfaceDescriptor surfaceDesc { .nextInChain = &canvasDesc };
-        m_surface = m_wgpuInstance.CreateSurface(&surfaceDesc);
-
-        SurfaceConfiguration config {
-            .device = m_device,
-            .format = TextureFormat::BGRA8Unorm,
-            .width = width,
-            .height = height
-        };
-        m_surface.Configure(&config);
+        m_surface = s;
     }
 
     TextureView getCurrentTextureView()
     {
-        SurfaceTexture st;
-        m_surface.GetCurrentTexture(&st);
-        return st.texture.CreateView();
+        return m_surface.m_pimpl->getCurrentTextureView();
     }
 
     void render(bindgroup_wrapper bindGroup, encoder_wrapper encoder)
@@ -103,7 +71,7 @@ struct render_wrapper::pimpl : private shader_base {
 
         encoder.submit_command_buffer();
 #ifndef __EMSCRIPTEN__
-        m_surface.Present();
+        m_surface.present();
 #endif
     }
 
@@ -119,7 +87,7 @@ struct render_wrapper::pimpl : private shader_base {
         encoder.submit_command_buffer();
 
 #ifndef __EMSCRIPTEN__
-        m_surface.Present();
+        m_surface.present();
 #endif
     }
 
@@ -177,6 +145,7 @@ struct render_wrapper::pimpl : private shader_base {
 
 private:
     Device m_device;
+    Instance m_wgpuInstance;
     BindGroupLayout m_bindGroupLayout;
     ShaderModule m_shader;
     ShaderModule m_vertexShader;
@@ -184,8 +153,7 @@ private:
     Buffer m_bufferVertex;
     Buffer m_bufferIndex;
     std::string m_entryPoint;
-    Surface m_surface;
-    Instance m_wgpuInstance;
+    dawn_wrapper::surface_wrapper m_surface;
 };
 
 }

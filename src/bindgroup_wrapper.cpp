@@ -2,7 +2,7 @@
 #include <map>
 #include <memory>
 
-#include "bindgroup_wrapper_impl.h"
+#include "bindgroup_wrapper_impl.hpp"
 
 namespace dawn_wrapper {
 bindgroup_wrapper::bindgroup_wrapper(ptr_type ptr)

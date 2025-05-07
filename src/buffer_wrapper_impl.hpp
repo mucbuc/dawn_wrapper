@@ -2,6 +2,8 @@
 
 #include "dawn_utils.hpp"
 
+using namespace wgpu;
+
 namespace dawn_wrapper {
 struct buffer_wrapper::pimpl
     : public std::enable_shared_from_this<pimpl> {
@@ -91,6 +93,10 @@ struct buffer_wrapper::pimpl
 
         case buffer_type::map_read:
             flags |= BufferUsage::MapRead;
+            break;
+
+        case buffer_type::copy:
+            flags |= BufferUsage::CopyDst | BufferUsage::CopySrc | BufferUsage::Storage;
             break;
 
         default:

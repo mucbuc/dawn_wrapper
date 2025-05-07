@@ -1,17 +1,18 @@
-#include "dawn_wrapper.h"
+#include "dawn_wrapper.hpp"
 
 #include "dawn_utils.hpp"
 
 using namespace wgpu;
 
-#include "bindgroup_layout_wrapper_impl.h"
-#include "bindgroup_wrapper_impl.h"
-#include "buffer_wrapper_impl.h"
-#include "compute_wrapper_impl.h"
-#include "encoder_wrapper_impl.h"
-#include "render_wrapper_impl.h"
-#include "texture_output_wrapper_impl.h"
-#include "texture_wrapper_impl.h"
+#include "bindgroup_layout_wrapper_impl.hpp"
+#include "bindgroup_wrapper_impl.hpp"
+#include "buffer_wrapper_impl.hpp"
+#include "compute_wrapper_impl.hpp"
+#include "encoder_wrapper_impl.hpp"
+#include "render_wrapper_impl.hpp"
+#include "surface_wrapper_impl.hpp"
+#include "texture_output_wrapper_impl.hpp"
+#include "texture_wrapper_impl.hpp"
 
 using namespace std;
 
@@ -31,7 +32,7 @@ struct dawn_plugin::dawn_pimpl {
 
     void on_load(std::function<void()> load_callback)
     {
-        ASSERT(!m_loaded_callback); 
+        ASSERT(!m_loaded_callback);
 
         m_loaded_callback = load_callback;
 
@@ -46,6 +47,7 @@ struct dawn_plugin::dawn_pimpl {
                 auto pimpl = reinterpret_cast<dawn_pimpl*>(userdata);
                 if (status != WGPURequestAdapterStatus_Success) {
                     pimpl->log_error("error requesting webgpu device adapter");
+                    pimpl->m_loaded_callback();
                     return;
                 }
 
@@ -141,6 +143,12 @@ struct dawn_plugin::dawn_pimpl {
         cout << error << message.data << endl;
     }
 
+    surface_wrapper make_surface()
+    {
+        ASSERT(m_device.Get() && m_instance.Get());
+        return make_shared<surface_wrapper::pimpl>(m_device, m_instance);
+    }
+
     render_wrapper make_render()
     {
         ASSERT(m_device.Get() && m_instance.Get());
@@ -204,6 +212,11 @@ void dawn_plugin::on_load(std::function<void()> load_callback)
 bool dawn_plugin::run()
 {
     return m_pimpl->run();
+}
+
+surface_wrapper dawn_plugin::make_surface()
+{
+    return m_pimpl->make_surface();
 }
 
 render_wrapper dawn_plugin::make_render()

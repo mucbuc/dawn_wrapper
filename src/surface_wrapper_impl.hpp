@@ -1,7 +1,7 @@
 #pragma once
 
-#include "dawn_wrapper.hpp"
 #include "dawn_utils.hpp"
+#include "dawn_wrapper.hpp"
 
 using namespace wgpu;
 

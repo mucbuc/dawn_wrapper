@@ -110,7 +110,7 @@ struct surface_wrapper {
 struct render_wrapper {
     render_wrapper() = default;
     void compile_shader(std::string script, std::string entryPoint);
-    void set_surface(surface_wrapper); 
+    void set_surface(surface_wrapper);
 
     void render(bindgroup_wrapper, encoder_wrapper);
     void render(encoder_wrapper);

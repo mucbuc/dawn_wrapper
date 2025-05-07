@@ -3,8 +3,8 @@
 #include "bindgroup_layout_wrapper_impl.hpp"
 #include "bindgroup_wrapper_impl.hpp"
 #include "encoder_wrapper_impl.hpp"
-#include "surface_wrapper_impl.hpp"
 #include "shader_base.hpp"
+#include "surface_wrapper_impl.hpp"
 
 using namespace wgpu;
 

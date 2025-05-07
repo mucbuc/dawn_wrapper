@@ -15,7 +15,7 @@ render_wrapper::render_wrapper(ptr_type ptr)
 
 void render_wrapper::set_surface(surface_wrapper s)
 {
-    m_pimpl->set_surface(s); 
+    m_pimpl->set_surface(s);
 }
 
 void render_wrapper::compile_shader(std::string script, std::string entryPoint)

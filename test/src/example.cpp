@@ -1,7 +1,7 @@
 #include <iostream>
 #include <sstream>
 
-#include <lib/dawn_wrapper/src/dawn_wrapper.h>
+#include <lib/dawn_wrapper/src/dawn_wrapper.hpp>
 
 #ifdef __EMSCRIPTEN__
 #include <emscripten/html5.h>
@@ -72,31 +72,14 @@ void run_compute(dawn_plugin plugin)
 #endif
 }
 
-struct StateHelper {
-    dawn_plugin m_plugin;
-    bool m_has_run = false;
-};
-
 int main()
 {
 
-    StateHelper state;
+    dawn_plugin plugin;
 
-#ifdef __EMSCRIPTEN__
-
-    emscripten_set_main_loop_arg(
-        [](void* userData) {
-            StateHelper* state(reinterpret_cast<StateHelper*>(userData));
-            if (!state->m_has_run && state->m_plugin) {
-                state->m_has_run = true;
-                run_compute(state->m_plugin);
-            }
-        },
-        &state,
-        0, true);
-#else
-    run_compute(state.m_plugin);
-#endif
+    plugin.on_load([plugin](){
+        run_compute(plugin); 
+    }); 
 
     return 0;
 }

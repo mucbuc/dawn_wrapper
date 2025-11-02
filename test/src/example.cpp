@@ -1,5 +1,6 @@
 #include <iostream>
 #include <sstream>
+#include <vector>
 
 #include <lib/dawn_wrapper/src/dawn_wrapper.hpp>
 
@@ -78,8 +79,8 @@ int main()
     dawn_plugin plugin;
 
     plugin.on_load([plugin](){
-        run_compute(plugin); 
-    }); 
+        run_compute(plugin);
+    });
 
     return 0;
 }

@@ -1,3 +1,5 @@
+cmake_minimum_required(VERSION 3.27)
+
 project(dawn_wrapper_lib)
 
 add_library(dawn_wrapper STATIC src/dawn_wrapper.hpp)

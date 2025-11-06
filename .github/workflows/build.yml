@@ -20,4 +20,7 @@ jobs:
           cmake-version: "4.1.2"
 
       - name: Build and run
-        run: ./test/build_and_run
+        run: |
+          cd test 
+          ./build_and_run
+          

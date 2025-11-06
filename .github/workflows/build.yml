@@ -26,6 +26,4 @@ jobs:
           em++ --version
 
       - name: Build and run
-        run: |
-          ./test/build_and_run
-          ./test/em_build_and_run
+        run: ./test/em_build_and_run

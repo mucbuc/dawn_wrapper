@@ -18,9 +18,9 @@ jobs:
             actions-cache-folder: 'emsdk-cache'
         
     - name: Verify Emscripten installation
-        run: |
-            emcc --version
-            em++ --version
+      run: |  
+          emcc --version
+          em++ --version
 
     - name: Build project
         run: |

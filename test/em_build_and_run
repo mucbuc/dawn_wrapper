@@ -1,3 +1,4 @@
 emcmake cmake -B web-build -DDAWN_EMSCRIPTEN_TOOLCHAIN="/Users/mucbuc/work/emscripten"
 cmake --build web-build
-emrun --browser chrome web-build/Example.html
+node src/harness.js
+#emrun --browser chrome web-build/Example.html

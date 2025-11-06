@@ -2,14 +2,12 @@
 #include <sstream>
 #include <vector>
 
+#include <lib/asserter/src/test.hpp>
 #include <lib/dawn_wrapper/src/dawn_wrapper.hpp>
 
 #ifdef __EMSCRIPTEN__
 #include <emscripten/html5.h>
 #endif
-
-#include <cassert>
-#define ASSERT(p) assert((p))
 
 using namespace std;
 using namespace dawn_wrapper;
@@ -61,6 +59,15 @@ void run_compute(dawn_plugin plugin)
     encoder.copy_buffer_to_buffer(output, mapped).submit_command_buffer();
     mapped.get_output([](auto size, auto data) {
         const uint32_t* p = reinterpret_cast<const vector_type::value_type*>(data);
+        ASSERT(p[0] == 2);
+        ASSERT(p[1] == 3);
+        ASSERT(p[2] == 5);
+        ASSERT(p[3] == 7);
+        ASSERT(p[4] == 9);
+        ASSERT(p[5] == 13);
+        ASSERT(p[6] == 15);
+        ASSERT(p[7] == 19);
+        ASSERT(p[8] == 21);
         for (auto i = 0; i < size / sizeof(vector_type::value_type); ++i) {
             cout << p[i] << endl;
         }
@@ -78,7 +85,7 @@ int main()
 
     dawn_plugin plugin;
 
-    plugin.on_load([plugin](){
+    plugin.on_load([plugin]() {
         run_compute(plugin);
     });
 

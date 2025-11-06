@@ -12,6 +12,7 @@ set_target_properties(Example PROPERTIES
 set(CMAKE_THREAD_LIBS_INIT "-lpthread")
 add_compile_definitions(TARGET_HEADLESS)
 add_subdirectory(lib/dawn_wrapper)
+target_link_libraries(Example INTERFACE asserter)
 
 if (EMSCRIPTEN)
     set_target_properties(Example PROPERTIES SUFFIX ".html")

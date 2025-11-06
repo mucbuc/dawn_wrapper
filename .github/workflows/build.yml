@@ -14,13 +14,29 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup CMake
-        uses: jwlawson/actions-setup-cmake@v2
+      # Cache CMake build directory
+      - name: Cache CMake build
+        uses: actions/cache@v4
         with:
-          cmake-version: "4.1.2"
+          path: |
+            build
+            ~/.cache/ccache
+          key: ${{ runner.os }}-cmake-${{ hashFiles('**/CMakeLists.txt', '**/*.cmake') }}
+          restore-keys: |
+            ${{ runner.os }}-cmake-
+      
+      # Optional: Cache Dawn dependencies if they're fetched
+      - name: Cache Dawn dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            lib/dawn/third_party
+          key: ${{ runner.os }}-dawn-deps-${{ hashFiles('lib/dawn/DEPS') }}
+          restore-keys: |
+            ${{ runner.os }}-dawn-deps-
 
       - name: Build and run
         run: |
           cd test 
           ./build_and_run
-          
+

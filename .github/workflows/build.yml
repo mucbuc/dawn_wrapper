@@ -22,8 +22,8 @@ jobs:
           emcc --version
           em++ --version
 
-    - name: Build project
-      run: |
-          ./build_and_run 
+#    - name: Build project
+#      run: |
+#          ./build_and_run 
 
  

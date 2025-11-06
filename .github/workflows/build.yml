@@ -23,7 +23,7 @@ jobs:
           em++ --version
 
     - name: Build project
-        run: |
-            ./build_and_run 
+      run: |
+          ./build_and_run 
 
  

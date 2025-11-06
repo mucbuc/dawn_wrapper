@@ -11,19 +11,19 @@ jobs:
         runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-      with: 
-        version: 'latest'
-        actions-cache-folder: 'emsdk-cache'
+        name: Checkout repository
+        uses: actions/checkout@v4
+        with: 
+            version: 'latest'
+            actions-cache-folder: 'emsdk-cache'
         
-    - name: Verify Emscripten installation
-      run: |
-        emcc --version
-        em++ --version
+        name: Verify Emscripten installation
+        run: |
+            emcc --version
+            em++ --version
 
-    - name: Build project
-      run: |
-        ./build_and_run 
+        name: Build project
+        run: |
+            ./build_and_run 
 
  

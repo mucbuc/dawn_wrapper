@@ -14,16 +14,10 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Emscripten
-        uses: mymindstorm/setup-emsdk@v14
+      - name: Setup CMake
+        uses: jwlawson/actions-setup-cmake@v2
         with:
-          version: latest # Specify your desired Emscripten version
-          actions-cache-folder: "emsdk-cache"
-
-      - name: Verify Emscripten installation
-        run: |
-          emcc --version
-          em++ --version
+          cmake-version: "4.1.2"
 
       - name: Build and run
-        run: ./test/em_build_and_run
+        run: ./test/build_and_run

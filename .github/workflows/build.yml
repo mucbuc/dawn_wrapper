@@ -1,29 +1,32 @@
 name: Build dawn_wrapper Project
 
 on:
-    push:
-        branches: [main, master, dev, develop]
-    pull_request: 
-        branches: [main, master]
-    
+  push:
+    branches: [main, master, dev, develop]
+  pull_request:
+    branches: [main, master]
+
 jobs:
-    build:
-        runs-on: ubuntu-latest
+  build:
+    runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-      with: 
-            version: 'latest'
-            actions-cache-folder: 'emsdk-cache'
-        
-    - name: Verify Emscripten installation
-      run: |  
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive # If you have git submodules
+
+      - name: Setup Emscripten
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: latest # Specify your desired Emscripten version
+          actions-cache-folder: "emsdk-cache"
+
+      - name: Verify Emscripten installation
+        run: |
           emcc --version
           em++ --version
 
 #    - name: Build project
 #      run: |
-#          ./build_and_run 
-
- 
+#          ./build_and_run

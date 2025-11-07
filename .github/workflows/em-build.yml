@@ -22,4 +22,6 @@ jobs:
           version: 'latest'
             
       - name: Build
-        run: ./test/em_build_and_run.sh
+        run: |
+          cd test 
+          ./em_build_and_run

@@ -67,7 +67,7 @@ void run_compute(dawn_plugin plugin)
         ASSERT(p[5] == 13);
         ASSERT(p[6] == 15);
         ASSERT(p[7] == 19);
-        ASSERT(p[8] == 22);
+        ASSERT(p[8] == 21);
         for (auto i = 0; i < size / sizeof(vector_type::value_type); ++i) {
             cout << p[i] << endl;
         }

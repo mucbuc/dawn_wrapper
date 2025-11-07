@@ -20,6 +20,7 @@ if (EMSCRIPTEN)
         -sUSE_WEBGPU=1
         -sUSE_GLFW=3
         --emrun
+        -sASSERTIONS=1
     )
 endif()
 

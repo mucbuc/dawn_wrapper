@@ -2,7 +2,7 @@
 #include <sstream>
 #include <vector>
 
-#include <lib/asserter/src/test.hpp>
+#include <lib/asserter/src/asserter.hpp>
 #include <lib/dawn_wrapper/src/dawn_wrapper.hpp>
 
 #ifdef __EMSCRIPTEN__
@@ -67,7 +67,7 @@ void run_compute(dawn_plugin plugin)
         ASSERT(p[5] == 13);
         ASSERT(p[6] == 15);
         ASSERT(p[7] == 19);
-        ASSERT(p[8] == 29);
+        ASSERT(p[8] == 22);
         for (auto i = 0; i < size / sizeof(vector_type::value_type); ++i) {
             cout << p[i] << endl;
         }

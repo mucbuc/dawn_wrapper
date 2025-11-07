@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include <cassert>
 #include "archiver.hpp"
 
 #ifdef NDEBUG
@@ -43,8 +44,8 @@ public:
         struct local_t {                                                           \
             local_t(const asserter_t<>& o)                                         \
             {                                                                      \
-                if (!(o.pass())) {                                                 \
-                    assert(false);                                                 \
+                if (!(o.pass())) {                                                 \                                                                                   
+                    o.on_failure();                                                      \
                 }                                                                  \
             }                                                                      \
         } local_obj = asserter_t<>(bool(expr))                                     \
@@ -57,6 +58,7 @@ struct asserter_t final {
     asserter_t(bool);
 
     bool pass() const;
+    void on_failure() const;
 
     const asserter_t& print_message(
         const char* file,

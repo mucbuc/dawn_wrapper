@@ -1,4 +1,4 @@
-name: Build dawn_wrapper Project
+name: Native WebGPU Tests
 
 on:
   push:

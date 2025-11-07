@@ -15,13 +15,11 @@ add_subdirectory(lib/dawn_wrapper)
 target_link_libraries(Example INTERFACE asserter)
 
 if (EMSCRIPTEN)
-    set_target_properties(Example PROPERTIES SUFFIX ".js")
+    set_target_properties(Example PROPERTIES SUFFIX ".html")
     target_link_options(Example PRIVATE 
         -sUSE_WEBGPU=1
         -sUSE_GLFW=3
-        -sMODULARIZE=1
-        -sEXPORT_NAME="createModule"
-        -sENVIRONMENT=node
+        --emrun
     )
 endif()
 

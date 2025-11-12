@@ -36,6 +36,7 @@ FeatureStatus GetLanguageFeatureStatus(LanguageFeature f) {
         case LanguageFeature::kReadonlyAndReadwriteStorageTextures:
         case LanguageFeature::kPacked4X8IntegerDotProduct:
             return FeatureStatus::kExperimental;
+        default:
         case LanguageFeature::kUndefined:
             return FeatureStatus::kUnknown;
 

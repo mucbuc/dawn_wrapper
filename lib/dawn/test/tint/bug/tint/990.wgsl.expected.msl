@@ -1,0 +1,10 @@
+#include <metal_stdlib>
+
+using namespace metal;
+void f() {
+  int i = 0;
+  for(; false; ) {
+    __asm__("");
+  }
+}
+

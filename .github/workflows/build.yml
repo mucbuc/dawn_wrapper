@@ -27,7 +27,7 @@ jobs:
         run: |
           cd test 
           cmake -B build --compile-no-warning-as-error
-          cmake --build build &&
+          cmake --build build -j $nproc &&
           ./build/Example
 
 

@@ -2,5 +2,6 @@
 test/build
 test/web-build
 **/.ignore_git
+test/result.json
 
 

@@ -1,8 +1,0 @@
-SKIP: FAILED
-
-#include <metal_stdlib>
-using namespace metal;
-
-thread int a = 1;
-void f() {
-}

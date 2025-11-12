@@ -12,24 +12,26 @@
 
 #version 310 es
 precision highp float;
+precision highp int;
 
-layout(location = 0) in float x_1;
-int tint_ftoi(float v) {
-  return ((v < 2147483520.0f) ? ((v < -2147483648.0f) ? (-2147483647 - 1) : int(v)) : 2147483647);
+uniform highp sampler2D t_s;
+layout(location = 0) in float tint_symbol_loc0_Input;
+int tint_f32_to_i32(float value) {
+  return mix(2147483647, mix((-2147483647 - 1), int(value), (value >= -2147483648.0f)), (value <= 2147483520.0f));
 }
-
-void tint_symbol(float x) {
-  switch(tint_ftoi(x)) {
-    case 0: {
+void tint_symbol_inner(float x) {
+  switch(tint_f32_to_i32(x)) {
+    case 0:
+    {
+      texture(t_s, vec2(0.0f));
       break;
     }
-    default: {
+    default:
+    {
       break;
     }
   }
 }
-
 void main() {
-  tint_symbol(x_1);
-  return;
+  tint_symbol_inner(tint_symbol_loc0_Input);
 }

@@ -94,10 +94,17 @@ static constexpr FeatureEnumAndInfo kFeatureInfo[] = {
     {Feature::Float32Filterable,
      {"Allows textures with formats \"r32float\" \"rg32float\" and \"rgba32float\" to be filtered.",
       "https://gpuweb.github.io/gpuweb/#float32-filterable", FeatureInfo::FeatureState::Stable}},
+    {Feature::Float32Blendable,
+     {"Allows textures with formats \"r32float\" \"rg32float\" and \"rgba32float\" to be "
+      "blendable.",
+      "https://gpuweb.github.io/gpuweb/#float32-blendable", FeatureInfo::FeatureState::Stable}},
     {Feature::ChromiumExperimentalSubgroups,
-     {"Experimental, allows using subgroup and supports the \"enable "
+     {"DEPRECATED, use subgroups and subgroups-f16 features instead. "
+      "Experimental, allows using subgroup and supports the \"enable "
       "chromium_experimental_subgroups\" directive in WGSL. Only used to investigate the semantic "
-      "of subgroups and should not be relied upon.",
+      "of subgroups and should not be relied upon. Note that currently \"enable "
+      "chromium_experimental_subgroups\" feature allows using subgroups functions with f16 types "
+      "within WGSL, but doesn't ensure that backend supports it.",
       "https://dawn.googlesource.com/dawn/+/refs/heads/main/docs/dawn/features/shader_features.md",
       FeatureInfo::FeatureState::Experimental}},
     {Feature::ChromiumExperimentalSubgroupUniformControlFlow,
@@ -132,6 +139,26 @@ static constexpr FeatureEnumAndInfo kFeatureInfo[] = {
       "https://dawn.googlesource.com/dawn/+/refs/heads/main/docs/dawn/features/"
       "multi_planar_formats.md",
       FeatureInfo::FeatureState::Experimental}},
+    {Feature::MultiPlanarFormatNv16,
+     {"Import and use the NV16 multi-planar texture format with per plane views",
+      "https://dawn.googlesource.com/dawn/+/refs/heads/main/docs/dawn/features/"
+      "multi_planar_formats.md",
+      FeatureInfo::FeatureState::Experimental}},
+    {Feature::MultiPlanarFormatNv24,
+     {"Import and use the NV24 multi-planar texture format with per plane views",
+      "https://dawn.googlesource.com/dawn/+/refs/heads/main/docs/dawn/features/"
+      "multi_planar_formats.md",
+      FeatureInfo::FeatureState::Experimental}},
+    {Feature::MultiPlanarFormatP210,
+     {"Import and use the P210 multi-planar texture format with per plane views",
+      "https://dawn.googlesource.com/dawn/+/refs/heads/main/docs/dawn/features/"
+      "multi_planar_formats.md",
+      FeatureInfo::FeatureState::Experimental}},
+    {Feature::MultiPlanarFormatP410,
+     {"Import and use the P410 multi-planar texture format with per plane views",
+      "https://dawn.googlesource.com/dawn/+/refs/heads/main/docs/dawn/features/"
+      "multi_planar_formats.md",
+      FeatureInfo::FeatureState::Experimental}},
     {Feature::MultiPlanarRenderTargets,
      {"Import and use multi-planar texture formats as render attachments",
       "https://dawn.googlesource.com/dawn/+/refs/heads/main/docs/dawn/features/"
@@ -148,12 +175,6 @@ static constexpr FeatureEnumAndInfo kFeatureInfo[] = {
       "https://dawn.googlesource.com/dawn/+/refs/heads/main/docs/dawn/features/"
       "implicit_device_synchronization.md",
       FeatureInfo::FeatureState::Stable}},
-    {Feature::SurfaceCapabilities,
-     {"Support querying Surface's capabilities such as supporte usage flags. This feature also "
-      "enables swap chain to be created with usage other than RenderAttachment.",
-      "https://dawn.googlesource.com/dawn/+/refs/heads/main/docs/dawn/features/"
-      "surface_capabilities.md",
-      FeatureInfo::FeatureState::Stable}},
     {Feature::TransientAttachments,
      {"Support transient attachments that allow render pass operations to stay in tile memory, "
       "avoiding VRAM traffic and potentially avoiding VRAM allocation for the textures.",
@@ -167,10 +188,9 @@ static constexpr FeatureEnumAndInfo kFeatureInfo[] = {
       FeatureInfo::FeatureState::Stable}},
     {Feature::DualSourceBlending,
      {"Support dual source blending. Enables Src1, OneMinusSrc1, Src1Alpha, and OneMinusSrc1Alpha "
-      "blend factors along with @index WGSL output attribute.",
-      "https://dawn.googlesource.com/dawn/+/refs/heads/main/docs/dawn/features/"
-      "dual_source_blending.md",
-      FeatureInfo::FeatureState::Experimental}},
+      "blend factors along with @blend_src WGSL output attribute.",
+      "https://gpuweb.github.io/gpuweb/#dom-gpufeaturename-dual-source-blending",
+      FeatureInfo::FeatureState::Stable}},
     {Feature::D3D11MultithreadProtected,
      {"Enable ID3D11Multithread protection for interop with external users of the D3D11 device.",
       "https://dawn.googlesource.com/dawn/+/refs/heads/main/docs/dawn/features/"
@@ -199,8 +219,18 @@ static constexpr FeatureEnumAndInfo kFeatureInfo[] = {
       "https://dawn.googlesource.com/dawn/+/refs/heads/main/docs/dawn/features/"
       "pixel_local_storage.md",
       FeatureInfo::FeatureState::Experimental}},
+    {Feature::Unorm16TextureFormats,
+     {"Supports R/RG/RGBA16 unorm texture formats",
+      "https://dawn.googlesource.com/dawn/+/refs/heads/main/docs/dawn/features/"
+      "norm16_texture_formats.md",
+      FeatureInfo::FeatureState::Stable}},
+    {Feature::Snorm16TextureFormats,
+     {"Supports R/RG/RGBA16 snorm texture formats",
+      "https://dawn.googlesource.com/dawn/+/refs/heads/main/docs/dawn/features/"
+      "norm16_texture_formats.md",
+      FeatureInfo::FeatureState::Stable}},
     {Feature::Norm16TextureFormats,
-     {"Supports R/RG/RGBA16 norm texture formats",
+     {"DEPRECATED Supports R/RG/RGBA16 norm texture formats.",
       "https://dawn.googlesource.com/dawn/+/refs/heads/main/docs/dawn/features/"
       "norm16_texture_formats.md",
       FeatureInfo::FeatureState::Stable}},
@@ -254,8 +284,8 @@ static constexpr FeatureEnumAndInfo kFeatureInfo[] = {
      {"Support for importing and exporting VkSemaphoreOpaqueFD used for GPU synchronization.",
       "https://dawn.googlesource.com/dawn/+/refs/heads/main/docs/dawn/features/shared_fence.md",
       FeatureInfo::FeatureState::Stable}},
-    {Feature::SharedFenceVkSemaphoreSyncFD,
-     {"Support for importing and exporting VkSemaphoreSyncFD used for GPU synchronization.",
+    {Feature::SharedFenceSyncFD,
+     {"Support for importing and exporting SyncFD used for GPU synchronization.",
       "https://dawn.googlesource.com/dawn/+/refs/heads/main/docs/dawn/features/shared_fence.md",
       FeatureInfo::FeatureState::Stable}},
     {Feature::SharedFenceVkSemaphoreZirconHandle,
@@ -290,7 +320,85 @@ static constexpr FeatureEnumAndInfo kFeatureInfo[] = {
       "https://dawn.googlesource.com/dawn/+/refs/heads/main/docs/dawn/features/"
       "adapter_properties.md",
       FeatureInfo::FeatureState::Stable}},
-};
+    {Feature::AdapterPropertiesD3D,
+     {"Support querying D3D info from the adapter.",
+      "https://dawn.googlesource.com/dawn/+/refs/heads/main/docs/dawn/features/"
+      "adapter_properties.md",
+      FeatureInfo::FeatureState::Stable}},
+    {Feature::AdapterPropertiesVk,
+     {"Support querying Vulkan info from the adapter.",
+      "https://dawn.googlesource.com/dawn/+/refs/heads/main/docs/dawn/features/"
+      "adapter_properties.md",
+      FeatureInfo::FeatureState::Stable}},
+    {Feature::SharedBufferMemoryD3D12Resource,
+     {"Support importing ID3D12Resource as shared buffer memory.",
+      "https://dawn.googlesource.com/dawn/+/refs/heads/main/docs/dawn/features/shared_buffer.md",
+      FeatureInfo::FeatureState::Experimental}},
+    {Feature::R8UnormStorage,
+     {"Supports using r8unorm texture as storage texture.",
+      "https://dawn.googlesource.com/dawn/+/refs/heads/main/docs/dawn/features/"
+      "r8unorm_storage.md",
+      FeatureInfo::FeatureState::Experimental}},
+    {Feature::FormatCapabilities,
+     {"Supports querying the capabilities of a texture format.",
+      "https://dawn.googlesource.com/dawn/+/refs/heads/main/docs/dawn/features/"
+      "format_capabilities.md",
+      FeatureInfo::FeatureState::Stable}},
+    {Feature::DrmFormatCapabilities,
+     {"Supports querying the DRM-related capabilities of a texture format.",
+      "https://dawn.googlesource.com/dawn/+/refs/heads/main/docs/dawn/features/"
+      "format_capabilities.md",
+      FeatureInfo::FeatureState::Stable}},
+    {Feature::StaticSamplers,
+     {"Support setting samplers statically as part of bind group layout",
+      "https://dawn.googlesource.com/dawn/+/refs/heads/main/docs/dawn/features/"
+      "static_samplers.md",
+      FeatureInfo::FeatureState::Experimental}},
+    {Feature::YCbCrVulkanSamplers,
+     {"Support setting VkSamplerYcbcrConversionCreateInfo as part of static vulkan sampler "
+      "descriptor",
+      "https://dawn.googlesource.com/dawn/+/refs/heads/main/docs/dawn/features/"
+      "y_cb_cr_vulkan_samplers.md",
+      FeatureInfo::FeatureState::Experimental}},
+    {Feature::ShaderModuleCompilationOptions,
+     {"Support overriding default shader module compilation options.",
+      "https://dawn.googlesource.com/dawn/+/refs/heads/main/docs/dawn/features/"
+      "shader_module_compilation_options.md",
+      FeatureInfo::FeatureState::Stable}},
+    {Feature::DawnLoadResolveTexture,
+     {"Support ExpandResolveTexture as LoadOp for a render pass. This LoadOp will expand the "
+      "resolve texture into the MSAA texture as a load operation",
+      "https://dawn.googlesource.com/dawn/+/refs/heads/main/docs/dawn/features/"
+      "dawn_load_resolve_texture.md",
+      FeatureInfo::FeatureState::Stable}},
+    {Feature::DawnPartialLoadResolveTexture,
+     {"Support RenderPassDescriptorExpandResolveRect as chained struct into RenderPassDescriptor "
+      "for a render pass. This will expand and resolve the texels within the rect of texture.",
+      "https://dawn.googlesource.com/dawn/+/refs/heads/main/docs/dawn/features/"
+      "dawn_partial_load_resolve_texture.md",
+      FeatureInfo::FeatureState::Stable}},
+    {Feature::Subgroups,
+     {"Supports the \"enable subgroups;\" directive in WGSL.",
+      "https://github.com/gpuweb/gpuweb/blob/main/proposals/subgroups.md",
+      FeatureInfo::FeatureState::Stable}},
+    {Feature::SubgroupsF16,
+     {"Supports the \"enable subgroups_f16;\" directive in WGSL.",
+      "https://github.com/gpuweb/gpuweb/blob/main/proposals/subgroups.md",
+      FeatureInfo::FeatureState::Stable}},
+    {Feature::MultiDrawIndirect,
+     {"Support MultiDrawIndirect and MultiDrawIndexedIndirect. Allows batching multiple indirect "
+      "calls with one command",
+      "https://dawn.googlesource.com/dawn/+/refs/heads/main/docs/dawn/features/"
+      "multi_draw_indirect.md",
+      FeatureInfo::FeatureState::Experimental}},
+    {Feature::ClipDistances,
+     {"Support the \"enable clip_distances;\" directive in WGSL.",
+      "https://gpuweb.github.io/gpuweb/#dom-gpufeaturename-clip-distances",
+      FeatureInfo::FeatureState::Stable}},
+    {Feature::ChromiumExperimentalImmediateData,
+     {"Support the \"enable chromium_experimental_immediate_data;\" directive in WGSL.",
+      "https://github.com/gpuweb/gpuweb/blob/main/proposals/push-constants.md",
+      FeatureInfo::FeatureState::Experimental}}};
 
 }  // anonymous namespace
 
@@ -334,6 +442,29 @@ std::vector<const char*> FeaturesSet::GetEnabledFeatureNames() const {
         ++index;
     }
     return enabledFeatureNames;
+}
+
+void FeaturesSet::ToSupportedFeatures(SupportedFeatures* supportedFeatures) const {
+    if (!supportedFeatures) {
+        return;
+    }
+
+    const size_t count = featuresBitSet.count();
+    supportedFeatures->featureCount = count;
+    supportedFeatures->features = nullptr;
+
+    if (count == 0) {
+        return;
+    }
+
+    // This will be freed by wgpuSupportedFeaturesFreeMembers.
+    wgpu::FeatureName* features = new wgpu::FeatureName[count];
+    uint32_t index = 0;
+    for (Feature f : IterateBitSet(featuresBitSet)) {
+        features[index++] = ToAPI(f);
+    }
+    DAWN_ASSERT(index == count);
+    supportedFeatures->features = features;
 }
 
 }  // namespace dawn::native

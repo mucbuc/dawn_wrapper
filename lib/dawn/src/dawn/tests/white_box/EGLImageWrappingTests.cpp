@@ -25,13 +25,12 @@
 // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#include <EGL/egl.h>
-
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "dawn/common/DynamicLib.h"
+#include "dawn/common/egl_platform.h"
 #include "dawn/native/OpenGLBackend.h"
 #include "dawn/native/opengl/DeviceGL.h"
 #include "dawn/tests/DawnTest.h"
@@ -243,16 +242,6 @@ TEST_P(EGLImageValidationTests, InvalidTextureDimension) {
     ScopedEGLImage image = CreateDefaultEGLImage();
     ASSERT_DEVICE_ERROR(wgpu::Texture texture = WrapEGLImage(&descriptor, image.getImage()));
 
-    ASSERT_EQ(texture.Get(), nullptr);
-}
-
-// Test an error occurs if the texture usage is not RenderAttachment
-TEST_P(EGLImageValidationTests, InvalidTextureUsage) {
-    DAWN_TEST_UNSUPPORTED_IF(UsesWire());
-    descriptor.usage = wgpu::TextureUsage::StorageBinding;
-
-    ScopedEGLImage image = CreateDefaultEGLImage();
-    ASSERT_DEVICE_ERROR(wgpu::Texture texture = WrapEGLImage(&descriptor, image.getImage()));
     ASSERT_EQ(texture.Get(), nullptr);
 }
 

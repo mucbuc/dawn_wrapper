@@ -26,9 +26,7 @@
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "gmock/gmock.h"
-#include "gtest/gtest-spi.h"
 #include "src/tint/lang/core/ir/builder.h"
-#include "src/tint/lang/core/ir/instruction.h"
 #include "src/tint/lang/core/ir/ir_helper_test.h"
 
 namespace tint::core::ir {
@@ -59,7 +57,7 @@ TEST_F(IR_LoadTest, Usage) {
     auto* inst = b.Load(var);
 
     ASSERT_NE(inst->From(), nullptr);
-    EXPECT_THAT(inst->From()->Usages(), testing::UnorderedElementsAre(Usage{inst, 0u}));
+    EXPECT_THAT(inst->From()->UsagesUnsorted(), testing::UnorderedElementsAre(Usage{inst, 0u}));
 }
 
 TEST_F(IR_LoadTest, Results) {
@@ -69,16 +67,6 @@ TEST_F(IR_LoadTest, Results) {
     EXPECT_EQ(inst->Results().Length(), 1u);
     EXPECT_TRUE(inst->Result(0)->Is<InstructionResult>());
     EXPECT_EQ(inst->Result(0)->Instruction(), inst);
-}
-
-TEST_F(IR_LoadTest, Fail_NonPtr_Builder) {
-    EXPECT_FATAL_FAILURE(
-        {
-            Module mod;
-            Builder b{mod};
-            b.Load(b.Constant(1_i));
-        },
-        "");
 }
 
 TEST_F(IR_LoadTest, Clone) {

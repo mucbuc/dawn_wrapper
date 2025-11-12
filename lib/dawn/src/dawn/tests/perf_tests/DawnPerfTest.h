@@ -34,6 +34,7 @@
 #include <vector>
 
 #include "dawn/tests/DawnTest.h"
+#include "partition_alloc/pointers/raw_ptr.h"
 
 void InitDawnPerfTestEnvironment(int argc, char** argv);
 
@@ -105,7 +106,7 @@ class DawnPerfTestBase {
                      unsigned int value,
                      const std::string& units,
                      bool important) const;
-    void SetGPUTime(double GPUTime);
+    void AddGPUTime(double GPUTime);
 
   private:
     void DoRunLoop(double maxRunTime);
@@ -118,7 +119,7 @@ class DawnPerfTestBase {
 
     virtual void Step() = 0;
 
-    DawnTestBase* mTest;
+    raw_ptr<DawnTestBase> mTest;
     bool mRunning = false;
     const unsigned int mIterationsPerStep;
     const unsigned int mMaxStepsInFlight;
@@ -138,9 +139,9 @@ class DawnPerfTestWithParams : public DawnTestWithParams<Params>, public DawnPer
     void SetUp() override {
         DawnTestWithParams<Params>::SetUp();
 
-        wgpu::AdapterProperties properties;
-        this->GetAdapter().GetProperties(&properties);
-        DAWN_TEST_UNSUPPORTED_IF(properties.adapterType == wgpu::AdapterType::CPU);
+        wgpu::AdapterInfo info;
+        this->GetAdapter().GetInfo(&info);
+        DAWN_TEST_UNSUPPORTED_IF(info.adapterType == wgpu::AdapterType::CPU);
 
         if (mSupportsTimestampQuery) {
             InitializeGPUTimer();
@@ -165,6 +166,18 @@ class DawnPerfTestWithParams : public DawnTestWithParams<Params>, public DawnPer
 
     void RecordEndTimestampAndResolveQuerySet(wgpu::CommandEncoder encoder) {
         encoder.WriteTimestamp(mTimestampQuerySet, 1);
+        ResolveTimestamps(encoder);
+    }
+
+    wgpu::ComputePassTimestampWrites GetComputePassTimestampWrites() const {
+        wgpu::ComputePassTimestampWrites timestampWrites;
+        timestampWrites.querySet = mTimestampQuerySet;
+        timestampWrites.beginningOfPassWriteIndex = 0;
+        timestampWrites.endOfPassWriteIndex = 1;
+        return timestampWrites;
+    }
+
+    void ResolveTimestamps(wgpu::CommandEncoder encoder) {
         encoder.ResolveQuerySet(mTimestampQuerySet, 0, kTimestampQueryCount, mResolveBuffer, 0);
         encoder.CopyBufferToBuffer(mResolveBuffer, 0, mReadbackBuffer, 0,
                                    sizeof(uint64_t) * kTimestampQueryCount);
@@ -172,12 +185,9 @@ class DawnPerfTestWithParams : public DawnTestWithParams<Params>, public DawnPer
 
     void ComputeGPUElapsedTime() {
         bool done = false;
-        mReadbackBuffer.MapAsync(
-            wgpu::MapMode::Read, 0, sizeof(uint64_t) * kTimestampQueryCount,
-            [](WGPUBufferMapAsyncStatus status, void* userdata) {
-                *static_cast<bool*>(userdata) = true;
-            },
-            &done);
+        mReadbackBuffer.MapAsync(wgpu::MapMode::Read, 0, sizeof(uint64_t) * kTimestampQueryCount,
+                                 wgpu::CallbackMode::AllowProcessEvents,
+                                 [&done](wgpu::MapAsyncStatus, wgpu::StringView) { done = true; });
         while (!done) {
             DawnTestWithParams<Params>::WaitABit();
         }
@@ -185,7 +195,7 @@ class DawnPerfTestWithParams : public DawnTestWithParams<Params>, public DawnPer
             static_cast<const uint64_t*>(mReadbackBuffer.GetConstMappedRange());
         ASSERT_EQ(2u, kTimestampQueryCount);
         double gpuTimeElapsed = (readbackValues[1] - readbackValues[0]) / 1e9;
-        SetGPUTime(gpuTimeElapsed);
+        AddGPUTime(gpuTimeElapsed);
         mReadbackBuffer.Unmap();
     }
 

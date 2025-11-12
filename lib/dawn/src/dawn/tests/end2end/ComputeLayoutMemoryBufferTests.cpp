@@ -455,7 +455,6 @@ void RunComputeShaderWithBuffers(const wgpu::Device& device,
 
     wgpu::ComputePipelineDescriptor csDesc;
     csDesc.compute.module = module;
-    csDesc.compute.entryPoint = "main";
 
     wgpu::ComputePipeline pipeline = device.CreateComputePipeline(&csDesc);
 
@@ -698,8 +697,7 @@ fn main() {
     RunComputeShaderWithBuffers(device, queue, shader, {inputBuf, outputBuf, statusBuf});
 
     // Check the status
-    EXPECT_BUFFER_U32_EQ(kStatusOk, statusBuf, 0) << "status code error" << std::endl
-                                                  << "Shader: " << shader;
+    EXPECT_BUFFER_U32_EQ(kStatusOk, statusBuf, 0) << "status code error\nShader: " << shader;
 
     // Check the data. Note that MemoryDataBuilder avoid generating NaN and Inf floating point data,
     // whose bit pattern will not get preserved when reading from buffer (arbitrary NaNs may be

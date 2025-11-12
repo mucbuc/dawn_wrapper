@@ -1,9 +1,20 @@
-SKIP: FAILED
+#include <metal_stdlib>
+using namespace metal;
 
-<dawn>/src/tint/lang/msl/writer/printer/printer.cc:247 internal compiler error: Switch() matched no cases. Type: tint::core::ir::Access
-********************************************************************
-*  The tint shader compiler has encountered an unexpected error.   *
-*                                                                  *
-*  Please help us fix this issue by submitting a bug report at     *
-*  crbug.com/tint with the source program that triggered the bug.  *
-********************************************************************
+struct FragmentInputs {
+  float4 position;
+  bool front_facing;
+  uint sample_index;
+  uint sample_mask;
+};
+
+void tint_symbol_inner(FragmentInputs inputs) {
+  if (inputs.front_facing) {
+    float4 const foo = inputs.position;
+    uint const bar = (inputs.sample_index + inputs.sample_mask);
+  }
+}
+
+fragment void tint_symbol(float4 FragmentInputs_position [[position]], bool FragmentInputs_front_facing [[front_facing]], uint FragmentInputs_sample_index [[sample_id]], uint FragmentInputs_sample_mask [[sample_mask]]) {
+  tint_symbol_inner(FragmentInputs{.position=FragmentInputs_position, .front_facing=FragmentInputs_front_facing, .sample_index=FragmentInputs_sample_index, .sample_mask=FragmentInputs_sample_mask});
+}

@@ -11,7 +11,7 @@
               ^
 
 int tint_ftoi(float v) {
-  return ((v < 2147483520.0f) ? ((v < -2147483648.0f) ? -2147483648 : int(v)) : 2147483647);
+  return ((v <= 2147483520.0f) ? ((v < -2147483648.0f) ? -2147483648 : int(v)) : 2147483647);
 }
 
 struct tint_symbol_1 {
@@ -21,6 +21,7 @@ struct tint_symbol_1 {
 void main_inner(float x) {
   tint_ftoi(x);
   do {
+    float tint_phony = ddx(1.0f);
   } while (false);
 }
 

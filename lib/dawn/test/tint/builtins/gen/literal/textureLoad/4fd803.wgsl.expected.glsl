@@ -1,67 +1,62 @@
 #version 310 es
-
-uniform highp isampler3D arg_0_1;
-layout(binding = 0, std430) buffer prevent_dce_block_ssbo {
-  ivec4 inner;
-} prevent_dce;
-
-void textureLoad_4fd803() {
-  ivec4 res = texelFetch(arg_0_1, ivec3(1), 1);
-  prevent_dce.inner = res;
-}
-
-vec4 vertex_main() {
-  textureLoad_4fd803();
-  return vec4(0.0f);
-}
-
-void main() {
-  gl_PointSize = 1.0;
-  vec4 inner_result = vertex_main();
-  gl_Position = inner_result;
-  gl_Position.y = -(gl_Position.y);
-  gl_Position.z = ((2.0f * gl_Position.z) - gl_Position.w);
-  return;
-}
-#version 310 es
 precision highp float;
+precision highp int;
 
-uniform highp isampler3D arg_0_1;
-layout(binding = 0, std430) buffer prevent_dce_block_ssbo {
+layout(binding = 0, std430)
+buffer prevent_dce_block_1_ssbo {
   ivec4 inner;
-} prevent_dce;
-
-void textureLoad_4fd803() {
-  ivec4 res = texelFetch(arg_0_1, ivec3(1), 1);
-  prevent_dce.inner = res;
+} v;
+uniform highp isampler3D arg_0;
+ivec4 textureLoad_4fd803() {
+  ivec3 v_1 = ivec3(ivec3(1));
+  ivec4 res = texelFetch(arg_0, v_1, int(1));
+  return res;
 }
-
-void fragment_main() {
-  textureLoad_4fd803();
-}
-
 void main() {
-  fragment_main();
-  return;
+  v.inner = textureLoad_4fd803();
 }
 #version 310 es
 
-uniform highp isampler3D arg_0_1;
-layout(binding = 0, std430) buffer prevent_dce_block_ssbo {
+layout(binding = 0, std430)
+buffer prevent_dce_block_1_ssbo {
   ivec4 inner;
-} prevent_dce;
-
-void textureLoad_4fd803() {
-  ivec4 res = texelFetch(arg_0_1, ivec3(1), 1);
-  prevent_dce.inner = res;
+} v;
+uniform highp isampler3D arg_0;
+ivec4 textureLoad_4fd803() {
+  ivec3 v_1 = ivec3(ivec3(1));
+  ivec4 res = texelFetch(arg_0, v_1, int(1));
+  return res;
 }
-
-void compute_main() {
-  textureLoad_4fd803();
-}
-
 layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
 void main() {
-  compute_main();
-  return;
+  v.inner = textureLoad_4fd803();
+}
+#version 310 es
+
+
+struct VertexOutput {
+  vec4 pos;
+  ivec4 prevent_dce;
+};
+
+uniform highp isampler3D arg_0;
+layout(location = 0) flat out ivec4 vertex_main_loc0_Output;
+ivec4 textureLoad_4fd803() {
+  ivec3 v = ivec3(ivec3(1));
+  ivec4 res = texelFetch(arg_0, v, int(1));
+  return res;
+}
+VertexOutput vertex_main_inner() {
+  VertexOutput tint_symbol = VertexOutput(vec4(0.0f), ivec4(0));
+  tint_symbol.pos = vec4(0.0f);
+  tint_symbol.prevent_dce = textureLoad_4fd803();
+  return tint_symbol;
+}
+void main() {
+  VertexOutput v_1 = vertex_main_inner();
+  gl_Position = v_1.pos;
+  gl_Position[1u] = -(gl_Position.y);
+  gl_Position[2u] = ((2.0f * gl_Position.z) - gl_Position.w);
+  vertex_main_loc0_Output = v_1.prevent_dce;
+  gl_PointSize = 1.0f;
 }

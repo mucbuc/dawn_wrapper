@@ -44,17 +44,27 @@ tint_add_target(tint_cmd_test_test_cmd test_cmd
 
 tint_target_add_dependencies(tint_cmd_test_test_cmd test_cmd
   tint_api
-  tint_cmd_common_test
+  tint_api_common_test
   tint_lang_core_constant_test
   tint_lang_core_intrinsic_test
   tint_lang_core_ir_transform_test
   tint_lang_core_ir_test
   tint_lang_core_type_test
   tint_lang_core_test
+  tint_lang_glsl_ir_test
+  tint_lang_hlsl_ir_test
+  tint_lang_hlsl_type_test
+  tint_lang_hlsl_writer_common_test
+  tint_lang_hlsl_writer_raise_test
   tint_lang_msl_ir_test
+  tint_lang_msl_type_test
   tint_lang_spirv_ir_test
+  tint_lang_spirv_reader_lower_test
+  tint_lang_spirv_type_test
   tint_lang_wgsl_ast_test
+  tint_lang_wgsl_common_test
   tint_lang_wgsl_helpers_test
+  tint_lang_wgsl_intrinsic_test
   tint_lang_wgsl_program_test
   tint_lang_wgsl_reader_lower_test
   tint_lang_wgsl_resolver_test
@@ -68,9 +78,7 @@ tint_target_add_dependencies(tint_cmd_test_test_cmd test_cmd
   tint_utils_containers_test
   tint_utils_diagnostic_test
   tint_utils_file_test
-  tint_utils_ice
   tint_utils_ice_test
-  tint_utils_macros
   tint_utils_macros_test
   tint_utils_math_test
   tint_utils_memory_test
@@ -89,20 +97,21 @@ tint_target_add_external_dependencies(tint_cmd_test_test_cmd test_cmd
 
 if(TINT_BUILD_GLSL_WRITER)
   tint_target_add_dependencies(tint_cmd_test_test_cmd test_cmd
-    tint_lang_glsl_writer_ast_printer_test
-    tint_lang_glsl_writer_printer_test
+    tint_lang_glsl_writer_common_test
+    tint_lang_glsl_writer_raise_test
   )
 endif(TINT_BUILD_GLSL_WRITER)
 
-if(TINT_BUILD_GLSL_WRITER AND TINT_BUILD_WGSL_READER AND TINT_BUILD_WGSL_WRITER)
+if(TINT_BUILD_GLSL_WRITER AND TINT_BUILD_GLSL_VALIDATOR)
   tint_target_add_dependencies(tint_cmd_test_test_cmd test_cmd
-    tint_lang_glsl_writer_ast_raise_test
+    tint_lang_glsl_writer_test
   )
-endif(TINT_BUILD_GLSL_WRITER AND TINT_BUILD_WGSL_READER AND TINT_BUILD_WGSL_WRITER)
+endif(TINT_BUILD_GLSL_WRITER AND TINT_BUILD_GLSL_VALIDATOR)
 
 if(TINT_BUILD_HLSL_WRITER)
   tint_target_add_dependencies(tint_cmd_test_test_cmd test_cmd
     tint_lang_hlsl_writer_ast_printer_test
+    tint_lang_hlsl_writer_test
   )
 endif(TINT_BUILD_HLSL_WRITER)
 
@@ -122,8 +131,8 @@ if(TINT_BUILD_MSL_WRITER)
   tint_target_add_dependencies(tint_cmd_test_test_cmd test_cmd
     tint_lang_msl_writer_ast_printer_test
     tint_lang_msl_writer_common_test
-    tint_lang_msl_writer_printer_test
     tint_lang_msl_writer_raise_test
+    tint_lang_msl_writer_test
   )
 endif(TINT_BUILD_MSL_WRITER)
 
@@ -135,7 +144,9 @@ endif(TINT_BUILD_MSL_WRITER AND TINT_BUILD_WGSL_READER AND TINT_BUILD_WGSL_WRITE
 
 if(TINT_BUILD_SPV_READER)
   tint_target_add_dependencies(tint_cmd_test_test_cmd test_cmd
+    tint_lang_spirv_reader_common_test
     tint_lang_spirv_reader_parser_test
+    tint_lang_spirv_reader_test
   )
 endif(TINT_BUILD_SPV_READER)
 
@@ -159,24 +170,24 @@ endif(TINT_BUILD_SPV_READER OR TINT_BUILD_SPV_WRITER)
 
 if(TINT_BUILD_SPV_WRITER)
   tint_target_add_dependencies(tint_cmd_test_test_cmd test_cmd
-    tint_lang_spirv_writer_ast_printer_test
     tint_lang_spirv_writer_common_test
     tint_lang_spirv_writer_raise_test
     tint_lang_spirv_writer_test
   )
 endif(TINT_BUILD_SPV_WRITER)
 
-if(TINT_BUILD_SPV_WRITER AND TINT_BUILD_WGSL_READER AND TINT_BUILD_WGSL_WRITER)
+if(TINT_BUILD_TINTD AND TINT_BUILD_WGSL_READER)
   tint_target_add_dependencies(tint_cmd_test_test_cmd test_cmd
-    tint_lang_spirv_writer_ast_raise_test
+    tint_lang_wgsl_ls_test
   )
-endif(TINT_BUILD_SPV_WRITER AND TINT_BUILD_WGSL_READER AND TINT_BUILD_WGSL_WRITER)
+endif(TINT_BUILD_TINTD AND TINT_BUILD_WGSL_READER)
 
 if(TINT_BUILD_WGSL_READER)
   tint_target_add_dependencies(tint_cmd_test_test_cmd test_cmd
     tint_lang_wgsl_inspector_test
     tint_lang_wgsl_reader_parser_test
     tint_lang_wgsl_reader_program_to_ir_test
+    tint_lang_wgsl_reader_test
   )
 endif(TINT_BUILD_WGSL_READER)
 
@@ -189,6 +200,7 @@ endif(TINT_BUILD_WGSL_READER AND TINT_BUILD_WGSL_WRITER)
 if(TINT_BUILD_WGSL_WRITER)
   tint_target_add_dependencies(tint_cmd_test_test_cmd test_cmd
     tint_lang_wgsl_writer_ast_printer_test
+    tint_lang_wgsl_writer_test
   )
 endif(TINT_BUILD_WGSL_WRITER)
 

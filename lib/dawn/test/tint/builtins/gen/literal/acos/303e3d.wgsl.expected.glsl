@@ -1,67 +1,59 @@
 #version 310 es
-#extension GL_AMD_gpu_shader_half_float : require
-
-layout(binding = 0, std430) buffer prevent_dce_block_ssbo {
-  float16_t inner;
-} prevent_dce;
-
-void acos_303e3d() {
-  float16_t res = 0.25048828125hf;
-  prevent_dce.inner = res;
-}
-
-vec4 vertex_main() {
-  acos_303e3d();
-  return vec4(0.0f);
-}
-
-void main() {
-  gl_PointSize = 1.0;
-  vec4 inner_result = vertex_main();
-  gl_Position = inner_result;
-  gl_Position.y = -(gl_Position.y);
-  gl_Position.z = ((2.0f * gl_Position.z) - gl_Position.w);
-  return;
-}
-#version 310 es
-#extension GL_AMD_gpu_shader_half_float : require
+#extension GL_AMD_gpu_shader_half_float: require
 precision highp float;
+precision highp int;
 
-layout(binding = 0, std430) buffer prevent_dce_block_ssbo {
+layout(binding = 0, std430)
+buffer prevent_dce_block_1_ssbo {
   float16_t inner;
-} prevent_dce;
-
-void acos_303e3d() {
+} v;
+float16_t acos_303e3d() {
   float16_t res = 0.25048828125hf;
-  prevent_dce.inner = res;
+  return res;
 }
-
-void fragment_main() {
-  acos_303e3d();
-}
-
 void main() {
-  fragment_main();
-  return;
+  v.inner = acos_303e3d();
 }
 #version 310 es
-#extension GL_AMD_gpu_shader_half_float : require
+#extension GL_AMD_gpu_shader_half_float: require
 
-layout(binding = 0, std430) buffer prevent_dce_block_ssbo {
+layout(binding = 0, std430)
+buffer prevent_dce_block_1_ssbo {
   float16_t inner;
-} prevent_dce;
-
-void acos_303e3d() {
+} v;
+float16_t acos_303e3d() {
   float16_t res = 0.25048828125hf;
-  prevent_dce.inner = res;
+  return res;
 }
-
-void compute_main() {
-  acos_303e3d();
-}
-
 layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
 void main() {
-  compute_main();
-  return;
+  v.inner = acos_303e3d();
+}
+#version 310 es
+#extension GL_AMD_gpu_shader_half_float: require
+
+
+struct VertexOutput {
+  vec4 pos;
+  float16_t prevent_dce;
+};
+
+layout(location = 0) flat out float16_t vertex_main_loc0_Output;
+float16_t acos_303e3d() {
+  float16_t res = 0.25048828125hf;
+  return res;
+}
+VertexOutput vertex_main_inner() {
+  VertexOutput tint_symbol = VertexOutput(vec4(0.0f), 0.0hf);
+  tint_symbol.pos = vec4(0.0f);
+  tint_symbol.prevent_dce = acos_303e3d();
+  return tint_symbol;
+}
+void main() {
+  VertexOutput v = vertex_main_inner();
+  gl_Position = v.pos;
+  gl_Position[1u] = -(gl_Position.y);
+  gl_Position[2u] = ((2.0f * gl_Position.z) - gl_Position.w);
+  vertex_main_loc0_Output = v.prevent_dce;
+  gl_PointSize = 1.0f;
 }

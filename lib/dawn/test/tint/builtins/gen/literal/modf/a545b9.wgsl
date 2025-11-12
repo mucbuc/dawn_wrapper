@@ -35,18 +35,15 @@
 ////////////////////////////////////////////////////////////////////////////////
 
 
+// flags: --hlsl_shader_model 62
+
+
 enable f16;
 
 // fn modf(vec<2, f16>) -> __modf_result_vec<2, f16>
 fn modf_a545b9() {
   var res = modf(vec2<f16>(-1.5h));
 }
-@vertex
-fn vertex_main() -> @builtin(position) vec4<f32> {
-  modf_a545b9();
-  return vec4<f32>();
-}
-
 @fragment
 fn fragment_main() {
   modf_a545b9();
@@ -55,4 +52,16 @@ fn fragment_main() {
 @compute @workgroup_size(1)
 fn compute_main() {
   modf_a545b9();
+}
+
+struct VertexOutput {
+    @builtin(position) pos: vec4<f32>,
+};
+
+@vertex
+fn vertex_main() -> VertexOutput {
+  var out : VertexOutput;
+  out.pos = vec4<f32>();
+  modf_a545b9();
+  return out;
 }

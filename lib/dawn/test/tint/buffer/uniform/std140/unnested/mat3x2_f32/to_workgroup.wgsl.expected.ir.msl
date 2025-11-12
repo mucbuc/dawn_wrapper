@@ -1,35 +1,27 @@
-SKIP: FAILED
+#include <metal_stdlib>
+using namespace metal;
 
-<dawn>/src/tint/lang/msl/writer/printer/printer.cc:355 internal compiler error: %b1 = block {  # root
-  %u:ptr<uniform, mat3x2<f32>, read> = var @binding_point(0, 0)
-  %w:ptr<workgroup, mat3x2<f32>, read_write> = var
-}
+struct tint_module_vars_struct {
+  const constant float3x2* u;
+  threadgroup float3x2* w;
+};
 
-%f = @compute @workgroup_size(1, 1, 1) func():void -> %b2 {
-  %b2 = block {
-    %4:mat3x2<f32> = load %u
-    store %w, %4
-    %5:ptr<workgroup, vec2<f32>, read_write> = access %w, 1i
-    %6:ptr<uniform, vec2<f32>, read> = access %u, 0i
-    %7:vec2<f32> = load %6
-    store %5, %7
-    %8:ptr<workgroup, vec2<f32>, read_write> = access %w, 1i
-    %9:ptr<uniform, vec2<f32>, read> = access %u, 0i
-    %10:vec2<f32> = load %9
-    %11:vec2<f32> = swizzle %10, yx
-    store %8, %11
-    %12:ptr<workgroup, vec2<f32>, read_write> = access %w, 0i
-    %13:ptr<uniform, vec2<f32>, read> = access %u, 1i
-    %14:f32 = load_vector_element %13, 0i
-    store_vector_element %12, 1i, %14
-    ret
+struct tint_symbol_1 {
+  float3x2 tint_symbol;
+};
+
+void f_inner(uint tint_local_index, tint_module_vars_struct tint_module_vars) {
+  if ((tint_local_index == 0u)) {
+    (*tint_module_vars.w) = float3x2(float2(0.0f), float2(0.0f), float2(0.0f));
   }
+  threadgroup_barrier(mem_flags::mem_threadgroup);
+  (*tint_module_vars.w) = (*tint_module_vars.u);
+  (*tint_module_vars.w)[1] = (*tint_module_vars.u)[0];
+  (*tint_module_vars.w)[1] = (*tint_module_vars.u)[0].yx;
+  (*tint_module_vars.w)[0][1] = (*tint_module_vars.u)[1][0];
 }
 
-unhandled variable address space
-********************************************************************
-*  The tint shader compiler has encountered an unexpected error.   *
-*                                                                  *
-*  Please help us fix this issue by submitting a bug report at     *
-*  crbug.com/tint with the source program that triggered the bug.  *
-********************************************************************
+kernel void f(uint tint_local_index [[thread_index_in_threadgroup]], const constant float3x2* u [[buffer(0)]], threadgroup tint_symbol_1* v [[threadgroup(0)]]) {
+  tint_module_vars_struct const tint_module_vars = tint_module_vars_struct{.u=u, .w=(&(*v).tint_symbol)};
+  f_inner(tint_local_index, tint_module_vars);
+}

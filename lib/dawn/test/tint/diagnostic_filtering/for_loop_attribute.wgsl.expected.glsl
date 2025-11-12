@@ -12,22 +12,29 @@
 
 #version 310 es
 precision highp float;
+precision highp int;
 
-layout(location = 0) in float x_1;
-void tint_symbol(float x) {
+layout(location = 0) in float tint_symbol_loc0_Input;
+void tint_symbol_inner(float x) {
   vec4 v = vec4(0.0f);
   {
-    while (true) {
-      bool tint_tmp = (x > v.x);
-      if (tint_tmp) {
-        tint_tmp = (dFdx(1.0f) > 0.0f);
+    while(true) {
+      bool v_1 = false;
+      if ((x > v.x)) {
+        v_1 = (dFdx(1.0f) > 0.0f);
+      } else {
+        v_1 = false;
       }
-      if (!((tint_tmp))) { break; }
+      if (v_1) {
+      } else {
+        break;
+      }
+      {
+      }
+      continue;
     }
   }
 }
-
 void main() {
-  tint_symbol(x_1);
-  return;
+  tint_symbol_inner(tint_symbol_loc0_Input);
 }

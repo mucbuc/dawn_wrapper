@@ -77,16 +77,15 @@ class OcclusionExpectation : public detail::Expectation {
             if (actual[i] == kSentinelValue) {
                 return testing::AssertionFailure()
                        << "Data[" << i << "] was not written (it kept the sentinel value of "
-                       << kSentinelValue << ")." << std::endl;
+                       << kSentinelValue << ").\n";
             }
             if (mExpected == Result::Zero && actual[i] != 0) {
                 return testing::AssertionFailure()
-                       << "Expected data[" << i << "] to be zero, actual: " << actual[i] << "."
-                       << std::endl;
+                       << "Expected data[" << i << "] to be zero, actual: " << actual[i] << ".\n";
             }
             if (mExpected == Result::NonZero && actual[i] == 0) {
                 return testing::AssertionFailure()
-                       << "Expected data[" << i << "] to be non-zero." << std::endl;
+                       << "Expected data[" << i << "] to be non-zero.\n";
             }
         }
 
@@ -540,6 +539,9 @@ TEST_P(OcclusionQueryTests, RewriteToZeroWithDraw) {
 
 // Test resolving occlusion query to the destination buffer with offset
 TEST_P(OcclusionQueryTests, ResolveToBufferWithOffset) {
+    // TODO(crbug.com/dawn/2295): diagnose this failure on Pixel 6 OpenGLES
+    DAWN_SUPPRESS_TEST_IF(IsOpenGLES() && IsAndroid() && IsARM());
+
     constexpr uint32_t kQueryCount = 2;
 
     wgpu::QuerySet querySet = CreateOcclusionQuerySet(kQueryCount);
@@ -611,7 +613,7 @@ class TimestampExpectation : public detail::Expectation {
         for (size_t i = 0; i < size / sizeof(uint64_t); i++) {
             if (timestamps[i] == 0) {
                 return testing::AssertionFailure()
-                       << "Expected data[" << i << "] to be greater than 0." << std::endl;
+                       << "Expected data[" << i << "] to be greater than 0.\n";
             }
         }
 
@@ -635,7 +637,6 @@ class TimestampQueryTests : public QueryTests {
 
         wgpu::ComputePipelineDescriptor csDesc;
         csDesc.compute.module = module;
-        csDesc.compute.entryPoint = "main";
         computePipeline = device.CreateComputePipeline(&csDesc);
     }
 

@@ -27,6 +27,7 @@
 
 #include "src/tint/lang/core/ir/binary/encode.h"
 
+#include <string>
 #include <utility>
 
 #include "src/tint/lang/core/builtin_fn.h"
@@ -35,13 +36,14 @@
 #include "src/tint/lang/core/constant/scalar.h"
 #include "src/tint/lang/core/constant/splat.h"
 #include "src/tint/lang/core/ir/access.h"
-#include "src/tint/lang/core/ir/binary.h"
 #include "src/tint/lang/core/ir/bitcast.h"
 #include "src/tint/lang/core/ir/break_if.h"
 #include "src/tint/lang/core/ir/construct.h"
 #include "src/tint/lang/core/ir/continue.h"
 #include "src/tint/lang/core/ir/convert.h"
+#include "src/tint/lang/core/ir/core_binary.h"
 #include "src/tint/lang/core/ir/core_builtin_call.h"
+#include "src/tint/lang/core/ir/core_unary.h"
 #include "src/tint/lang/core/ir/discard.h"
 #include "src/tint/lang/core/ir/exit_if.h"
 #include "src/tint/lang/core/ir/exit_loop.h"
@@ -60,7 +62,6 @@
 #include "src/tint/lang/core/ir/store_vector_element.h"
 #include "src/tint/lang/core/ir/switch.h"
 #include "src/tint/lang/core/ir/swizzle.h"
-#include "src/tint/lang/core/ir/unary.h"
 #include "src/tint/lang/core/ir/unreachable.h"
 #include "src/tint/lang/core/ir/user_call.h"
 #include "src/tint/lang/core/ir/var.h"
@@ -73,6 +74,7 @@
 #include "src/tint/lang/core/type/f16.h"
 #include "src/tint/lang/core/type/f32.h"
 #include "src/tint/lang/core/type/i32.h"
+#include "src/tint/lang/core/type/input_attachment.h"
 #include "src/tint/lang/core/type/matrix.h"
 #include "src/tint/lang/core/type/multisampled_texture.h"
 #include "src/tint/lang/core/type/pointer.h"
@@ -81,11 +83,12 @@
 #include "src/tint/lang/core/type/storage_texture.h"
 #include "src/tint/lang/core/type/u32.h"
 #include "src/tint/lang/core/type/void.h"
+#include "src/tint/utils/constants/internal_limits.h"
 #include "src/tint/utils/macros/compiler.h"
 #include "src/tint/utils/rtti/switch.h"
 
 TINT_BEGIN_DISABLE_PROTOBUF_WARNINGS();
-#include "src/tint/lang/core/ir/binary/ir.pb.h"
+#include "src/tint/utils/protos/ir/ir.pb.h"
 TINT_END_DISABLE_PROTOBUF_WARNINGS();
 
 namespace tint::core::ir::binary {
@@ -93,13 +96,16 @@ namespace {
 struct Encoder {
     const Module& mod_in_;
     pb::Module& mod_out_;
+
     Hashmap<const core::ir::Function*, uint32_t, 32> functions_{};
     Hashmap<const core::ir::Block*, uint32_t, 32> blocks_{};
     Hashmap<const core::type::Type*, uint32_t, 32> types_{};
     Hashmap<const core::ir::Value*, uint32_t, 32> values_{};
     Hashmap<const core::constant::Value*, uint32_t, 32> constant_values_{};
 
-    void Encode() {
+    diag::List diags_{};
+
+    Result<SuccessType> Encode() {
         // Encode all user-declared structures first. This is to ensure that the IR disassembly
         // (which prints structure types first) does not reorder after encoding and decoding.
         for (auto* ty : mod_in_.Types()) {
@@ -109,7 +115,7 @@ struct Encoder {
         }
         Vector<pb::Function*, 8> fns_out;
         for (auto& fn_in : mod_in_.functions) {
-            uint32_t id = static_cast<uint32_t>(fns_out.Length() + 1);
+            uint32_t id = static_cast<uint32_t>(mod_out_.functions().size());
             fns_out.Push(mod_out_.add_functions());
             functions_.Add(fn_in, id);
         }
@@ -117,7 +123,15 @@ struct Encoder {
             PopulateFunction(fns_out[i], mod_in_.functions[i]);
         }
         mod_out_.set_root_block(Block(mod_in_.root_block));
+
+        if (diags_.ContainsErrors()) {
+            return Failure{std::move(diags_)};
+        }
+        return Success;
     }
+
+    /// Adds a new error to the diagnostics and returns a reference to it
+    diag::Diagnostic& Error() { return diags_.AddError(Source{}); }
 
     ////////////////////////////////////////////////////////////////////////////
     // Functions
@@ -132,16 +146,19 @@ struct Encoder {
         }
         if (auto wg_size_in = fn_in->WorkgroupSize()) {
             auto& wg_size_out = *fn_out->mutable_workgroup_size();
-            wg_size_out.set_x((*wg_size_in)[0]);
-            wg_size_out.set_y((*wg_size_in)[1]);
-            wg_size_out.set_z((*wg_size_in)[2]);
+            wg_size_out.set_x(Value((*wg_size_in)[0]));
+            wg_size_out.set_y(Value((*wg_size_in)[1]));
+            wg_size_out.set_z(Value((*wg_size_in)[2]));
         }
         for (auto* param_in : fn_in->Params()) {
             fn_out->add_parameters(Value(param_in));
         }
         if (auto ret_loc_in = fn_in->ReturnLocation()) {
-            auto& ret_loc_out = *fn_out->mutable_return_location();
-            Location(ret_loc_out, *ret_loc_in);
+            fn_out->set_return_location(*ret_loc_in);
+        }
+        if (auto ret_interp_in = fn_in->ReturnInterpolation()) {
+            auto& ret_interp_out = *fn_out->mutable_return_interpolation();
+            Interpolation(ret_interp_out, *ret_interp_in);
         }
         if (auto builtin_in = fn_in->ReturnBuiltin()) {
             fn_out->set_return_builtin(BuiltinValue(*builtin_in));
@@ -152,7 +169,7 @@ struct Encoder {
         fn_out->set_block(Block(fn_in->Block()));
     }
 
-    uint32_t Function(const ir::Function* fn_in) { return fn_in ? *functions_.Get(fn_in) : 0; }
+    uint32_t Function(const ir::Function* fn_in) { return *functions_.Get(fn_in); }
 
     pb::PipelineStage PipelineStage(Function::PipelineStage stage) {
         switch (stage) {
@@ -162,22 +179,21 @@ struct Encoder {
                 return pb::PipelineStage::Fragment;
             case Function::PipelineStage::kVertex:
                 return pb::PipelineStage::Vertex;
-            default:
-                TINT_ICE() << "unhandled PipelineStage: " << stage;
-                return pb::PipelineStage::Compute;
+            case Function::PipelineStage::kUndefined:
+                break;
         }
+        TINT_ICE() << "unhandled PipelineStage: " << stage;
     }
 
     ////////////////////////////////////////////////////////////////////////////
     // Blocks
     ////////////////////////////////////////////////////////////////////////////
     uint32_t Block(const ir::Block* block_in) {
-        if (block_in == nullptr) {
-            return 0;
-        }
-        return blocks_.GetOrCreate(block_in, [&]() -> uint32_t {
+        TINT_ASSERT(block_in != nullptr);
+
+        return blocks_.GetOrAdd(block_in, [&]() -> uint32_t {
+            auto id = static_cast<uint32_t>(mod_out_.blocks().size());
             auto& block_out = *mod_out_.add_blocks();
-            auto id = static_cast<uint32_t>(blocks_.Count());
             for (auto* inst : *block_in) {
                 Instruction(*block_out.add_instructions(), inst);
             }
@@ -198,12 +214,13 @@ struct Encoder {
         tint::Switch(
             inst_in,  //
             [&](const ir::Access* i) { InstructionAccess(*inst_out.mutable_access(), i); },
-            [&](const ir::Binary* i) { InstructionBinary(*inst_out.mutable_binary(), i); },
             [&](const ir::Bitcast* i) { InstructionBitcast(*inst_out.mutable_bitcast(), i); },
             [&](const ir::BreakIf* i) { InstructionBreakIf(*inst_out.mutable_break_if(), i); },
+            [&](const ir::CoreBinary* i) { InstructionBinary(*inst_out.mutable_binary(), i); },
             [&](const ir::CoreBuiltinCall* i) {
                 InstructionBuiltinCall(*inst_out.mutable_builtin_call(), i);
             },
+            [&](const ir::CoreUnary* i) { InstructionUnary(*inst_out.mutable_unary(), i); },
             [&](const ir::Construct* i) { InstructionConstruct(*inst_out.mutable_construct(), i); },
             [&](const ir::Continue* i) { InstructionContinue(*inst_out.mutable_continue_(), i); },
             [&](const ir::Convert* i) { InstructionConvert(*inst_out.mutable_convert(), i); },
@@ -230,7 +247,6 @@ struct Encoder {
             },
             [&](const ir::Switch* i) { InstructionSwitch(*inst_out.mutable_switch_(), i); },
             [&](const ir::Swizzle* i) { InstructionSwizzle(*inst_out.mutable_swizzle(), i); },
-            [&](const ir::Unary* i) { InstructionUnary(*inst_out.mutable_unary(), i); },
             [&](const ir::UserCall* i) { InstructionUserCall(*inst_out.mutable_user_call(), i); },
             [&](const ir::Var* i) { InstructionVar(*inst_out.mutable_var(), i); },
             [&](const ir::Unreachable* i) {
@@ -247,13 +263,16 @@ struct Encoder {
 
     void InstructionAccess(pb::InstructionAccess&, const ir::Access*) {}
 
-    void InstructionBinary(pb::InstructionBinary& binary_out, const ir::Binary* binary_in) {
+    void InstructionBinary(pb::InstructionBinary& binary_out, const ir::CoreBinary* binary_in) {
         binary_out.set_op(BinaryOp(binary_in->Op()));
     }
 
     void InstructionBitcast(pb::InstructionBitcast&, const ir::Bitcast*) {}
 
-    void InstructionBreakIf(pb::InstructionBreakIf&, const ir::BreakIf*) {}
+    void InstructionBreakIf(pb::InstructionBreakIf& breakif_out, const ir::BreakIf* breakif_in) {
+        auto num_next_iter_values = static_cast<uint32_t>(breakif_in->NextIterValues().Length());
+        breakif_out.set_num_next_iter_values(num_next_iter_values);
+    }
 
     void InstructionBuiltinCall(pb::InstructionBuiltinCall& call_out,
                                 const ir::CoreBuiltinCall* call_in) {
@@ -292,7 +311,7 @@ struct Encoder {
 
     void InstructionLoop(pb::InstructionLoop& loop_out, const ir::Loop* loop_in) {
         if (loop_in->HasInitializer()) {
-            loop_out.set_initalizer(Block(loop_in->Initializer()));
+            loop_out.set_initializer(Block(loop_in->Initializer()));
         }
         loop_out.set_body(Block(loop_in->Body()));
         if (loop_in->HasContinuing()) {
@@ -329,7 +348,7 @@ struct Encoder {
         }
     }
 
-    void InstructionUnary(pb::InstructionUnary& unary_out, const ir::Unary* unary_in) {
+    void InstructionUnary(pb::InstructionUnary& unary_out, const ir::CoreUnary* unary_in) {
         unary_out.set_op(UnaryOp(unary_in->Op()));
     }
 
@@ -340,6 +359,9 @@ struct Encoder {
             auto& bp_out = *var_out.mutable_binding_point();
             BindingPoint(bp_out, *bp_in);
         }
+        if (auto iidx_in = var_in->InputAttachmentIndex()) {
+            var_out.set_input_attachment_index(iidx_in.value());
+        }
     }
 
     void InstructionUnreachable(pb::InstructionUnreachable&, const ir::Unreachable*) {}
@@ -348,10 +370,8 @@ struct Encoder {
     // Types
     ////////////////////////////////////////////////////////////////////////////
     uint32_t Type(const core::type::Type* type_in) {
-        if (type_in == nullptr) {
-            return 0;
-        }
-        return types_.GetOrCreate(type_in, [&]() -> uint32_t {
+        TINT_ASSERT(type_in != nullptr);
+        return types_.GetOrAdd(type_in, [&]() -> uint32_t {
             pb::Type type_out;
             tint::Switch(
                 type_in,  //
@@ -386,22 +406,44 @@ struct Encoder {
                     TypeExternalTexture(*type_out.mutable_external_texture(), t);
                 },
                 [&](const core::type::Sampler* s) { TypeSampler(*type_out.mutable_sampler(), s); },
+                [&](const core::type::InputAttachment* i) {
+                    TypeInputAttachment(*type_out.mutable_input_attachment(), i);
+                },
+                [&]([[maybe_unused]] const core::type::SubgroupMatrix* s) {
+                    // TODO(crbug.com/348702031): Re-enable encoding SubgroupMatrix once it is fully
+                    // implemented
+                    Error() << "SubgroupMatrix is currently not implemented";
+                    //                    switch (s->Kind()) {
+                    //                        case core::SubgroupMatrixKind::kLeft:
+                    //                            TypeSubgroupMatrix(*type_out.mutable_subgroup_matrix_left(),
+                    //                            s); break;
+                    //                        case core::SubgroupMatrixKind::kRight:
+                    //                            TypeSubgroupMatrix(*type_out.mutable_subgroup_matrix_right(),
+                    //                            s); break;
+                    //                        case core::SubgroupMatrixKind::kResult:
+                    //                            TypeSubgroupMatrix(*type_out.mutable_subgroup_matrix_result(),
+                    //                            s); break;
+                    //                        default:
+                    //                            TINT_ICE() << "invalid subgroup matrix kind: " <<
+                    //                            ToString(s->Kind());
+                    //                    }
+                },
                 TINT_ICE_ON_NO_MATCH);
 
             mod_out_.mutable_types()->Add(std::move(type_out));
-            return static_cast<uint32_t>(mod_out_.types().size());
+            return static_cast<uint32_t>(mod_out_.types().size() - 1);
         });
     }
 
     void TypeVector(pb::TypeVector& vector_out, const core::type::Vector* vector_in) {
         vector_out.set_width(vector_in->Width());
-        vector_out.set_element_type(Type(vector_in->type()));
+        vector_out.set_element_type(Type(vector_in->Type()));
     }
 
     void TypeMatrix(pb::TypeMatrix& matrix_out, const core::type::Matrix* matrix_in) {
-        matrix_out.set_num_columns(matrix_in->columns());
-        matrix_out.set_num_rows(matrix_in->rows());
-        matrix_out.set_element_type(Type(matrix_in->type()));
+        matrix_out.set_num_columns(matrix_in->Columns());
+        matrix_out.set_num_rows(matrix_in->Rows());
+        matrix_out.set_element_type(Type(matrix_in->Type()));
     }
 
     void TypePointer(pb::TypePointer& pointer_out, const core::type::Pointer* pointer_in) {
@@ -423,8 +465,8 @@ struct Encoder {
             if (attrs_in.location) {
                 member_out.mutable_attributes()->set_location(*attrs_in.location);
             }
-            if (attrs_in.index) {
-                member_out.mutable_attributes()->set_index(*attrs_in.index);
+            if (attrs_in.blend_src) {
+                member_out.mutable_attributes()->set_blend_src(*attrs_in.blend_src);
             }
             if (attrs_in.color) {
                 member_out.mutable_attributes()->set_color(*attrs_in.color);
@@ -451,45 +493,63 @@ struct Encoder {
         array_out.set_stride(array_in->Stride());
         tint::Switch(
             array_in->Count(),  //
-            [&](const core::type::ConstantArrayCount* c) { array_out.set_count(c->value); },
+            [&](const core::type::ConstantArrayCount* c) {
+                array_out.set_count(c->value);
+                if (c->value >= internal_limits::kMaxArrayElementCount) {
+                    Error() << "array count (" << c->value << ") must be less than "
+                            << internal_limits::kMaxArrayElementCount;
+                }
+            },
             [&](const core::type::RuntimeArrayCount*) { array_out.set_count(0); },
             TINT_ICE_ON_NO_MATCH);
     }
 
     void TypeDepthTexture(pb::TypeDepthTexture& texture_out,
                           const core::type::DepthTexture* texture_in) {
-        texture_out.set_dimension(TextureDimension(texture_in->dim()));
+        texture_out.set_dimension(TextureDimension(texture_in->Dim()));
     }
 
     void TypeSampledTexture(pb::TypeSampledTexture& texture_out,
                             const core::type::SampledTexture* texture_in) {
-        texture_out.set_dimension(TextureDimension(texture_in->dim()));
-        texture_out.set_sub_type(Type(texture_in->type()));
+        texture_out.set_dimension(TextureDimension(texture_in->Dim()));
+        texture_out.set_sub_type(Type(texture_in->Type()));
     }
 
     void TypeMultisampledTexture(pb::TypeMultisampledTexture& texture_out,
                                  const core::type::MultisampledTexture* texture_in) {
-        texture_out.set_dimension(TextureDimension(texture_in->dim()));
-        texture_out.set_sub_type(Type(texture_in->type()));
+        texture_out.set_dimension(TextureDimension(texture_in->Dim()));
+        texture_out.set_sub_type(Type(texture_in->Type()));
     }
 
     void TypeDepthMultisampledTexture(pb::TypeDepthMultisampledTexture& texture_out,
                                       const core::type::DepthMultisampledTexture* texture_in) {
-        texture_out.set_dimension(TextureDimension(texture_in->dim()));
+        texture_out.set_dimension(TextureDimension(texture_in->Dim()));
     }
 
     void TypeStorageTexture(pb::TypeStorageTexture& texture_out,
                             const core::type::StorageTexture* texture_in) {
-        texture_out.set_dimension(TextureDimension(texture_in->dim()));
-        texture_out.set_texel_format(TexelFormat(texture_in->texel_format()));
-        texture_out.set_access(AccessControl(texture_in->access()));
+        texture_out.set_dimension(TextureDimension(texture_in->Dim()));
+        texture_out.set_texel_format(TexelFormat(texture_in->TexelFormat()));
+        texture_out.set_access(AccessControl(texture_in->Access()));
     }
 
     void TypeExternalTexture(pb::TypeExternalTexture&, const core::type::ExternalTexture*) {}
+    void TypeInputAttachment(pb::TypeInputAttachment& input_attachment_out,
+                             const core::type::InputAttachment* input_attachment_in) {
+        input_attachment_out.set_sub_type(Type(input_attachment_in->Type()));
+    }
 
     void TypeSampler(pb::TypeSampler& sampler_out, const core::type::Sampler* sampler_in) {
-        sampler_out.set_kind(SamplerKind(sampler_in->kind()));
+        sampler_out.set_kind(SamplerKind(sampler_in->Kind()));
     }
+
+    // TODO(crbug.com/348702031): Re-enable encoding SubgroupMatrix once it is fully implemented
+    //    void TypeSubgroupMatrix(pb::TypeSubgroupMatrix& subgroup_matrix_out,
+    //                            const core::type::SubgroupMatrix* subgroup_matrix_in) {
+    //        subgroup_matrix_out.set_sub_type(Type(subgroup_matrix_in->Type()));
+    //        subgroup_matrix_out.set_columns(subgroup_matrix_in->Columns());
+    //        subgroup_matrix_out.set_rows(subgroup_matrix_in->Rows());
+    //    }
 
     ////////////////////////////////////////////////////////////////////////////
     // Values
@@ -498,7 +558,7 @@ struct Encoder {
         if (!value_in) {
             return 0;
         }
-        return values_.GetOrCreate(value_in, [&] {
+        return values_.GetOrAdd(value_in, [&] {
             auto& value_out = *mod_out_.add_values();
             auto id = static_cast<uint32_t>(mod_out_.values().size());
 
@@ -538,8 +598,14 @@ struct Encoder {
             BindingPoint(bp_out, *bp_in);
         }
         if (auto location_in = param_in->Location()) {
-            auto& location_out = *param_out.mutable_attributes()->mutable_location();
-            Location(location_out, *location_in);
+            param_out.mutable_attributes()->set_location(*location_in);
+        }
+        if (auto color_in = param_in->Color()) {
+            param_out.mutable_attributes()->set_color(*color_in);
+        }
+        if (auto interpolation_in = param_in->Interpolation()) {
+            auto& interpolation_out = *param_out.mutable_attributes()->mutable_interpolation();
+            Interpolation(interpolation_out, *interpolation_in);
         }
         if (auto builtin_in = param_in->Builtin()) {
             param_out.mutable_attributes()->set_builtin(BuiltinValue(*builtin_in));
@@ -560,10 +626,8 @@ struct Encoder {
     // ConstantValues
     ////////////////////////////////////////////////////////////////////////////
     uint32_t ConstantValue(const core::constant::Value* constant_in) {
-        if (!constant_in) {
-            return 0;
-        }
-        return constant_values_.GetOrCreate(constant_in, [&] {
+        TINT_ASSERT(constant_in != nullptr);
+        return constant_values_.GetOrAdd(constant_in, [&] {
             pb::ConstantValue constant_out;
             tint::Switch(
                 constant_in,  //
@@ -591,7 +655,7 @@ struct Encoder {
                 TINT_ICE_ON_NO_MATCH);
 
             mod_out_.mutable_constant_values()->Add(std::move(constant_out));
-            return static_cast<uint32_t>(mod_out_.constant_values().size());
+            return static_cast<uint32_t>(mod_out_.constant_values().size() - 1);
         });
     }
 
@@ -606,6 +670,10 @@ struct Encoder {
     void ConstantValueSplat(pb::ConstantValueSplat& splat_out,
                             const core::constant::Splat* splat_in) {
         splat_out.set_type(Type(splat_in->type));
+        if (DAWN_UNLIKELY(splat_in->count > internal_limits::kMaxArrayConstructorElements)) {
+            Error() << "array constructor has excessive number of elements (>"
+                    << internal_limits::kMaxArrayConstructorElements << ")";
+        }
         splat_out.set_elements(ConstantValue(splat_in->el));
         splat_out.set_count(static_cast<uint32_t>(splat_in->count));
     }
@@ -613,14 +681,6 @@ struct Encoder {
     ////////////////////////////////////////////////////////////////////////////
     // Attributes
     ////////////////////////////////////////////////////////////////////////////
-    void Location(pb::Location& location_out, const ir::Location& location_in) {
-        if (auto interpolation_in = location_in.interpolation) {
-            auto& interpolation_out = *location_out.mutable_interpolation();
-            Interpolation(interpolation_out, *interpolation_in);
-        }
-        location_out.set_value(location_in.value);
-    }
-
     void Interpolation(pb::Interpolation& interpolation_out,
                        const core::Interpolation& interpolation_in) {
         interpolation_out.set_type(InterpolationType(interpolation_in.type));
@@ -655,10 +715,13 @@ struct Encoder {
                 return pb::AddressSpace::uniform;
             case core::AddressSpace::kWorkgroup:
                 return pb::AddressSpace::workgroup;
-            default:
-                TINT_ICE() << "invalid AddressSpace: " << in;
-                return pb::AddressSpace::function;
+
+            case core::AddressSpace::kUndefined:
+            case core::AddressSpace::kIn:
+            case core::AddressSpace::kOut:
+                break;
         }
+        TINT_ICE() << "invalid AddressSpace: " << in;
     }
 
     pb::AccessControl AccessControl(core::Access in) {
@@ -669,61 +732,69 @@ struct Encoder {
                 return pb::AccessControl::write;
             case core::Access::kReadWrite:
                 return pb::AccessControl::read_write;
-            default:
-                TINT_ICE() << "invalid Access: " << in;
-                return pb::AccessControl::read;
+            case core::Access::kUndefined:
+                break;
         }
+        TINT_ICE() << "invalid Access: " << in;
     }
 
-    pb::UnaryOp UnaryOp(core::ir::UnaryOp in) {
+    pb::UnaryOp UnaryOp(core::UnaryOp in) {
         switch (in) {
-            case core::ir::UnaryOp::kComplement:
+            case core::UnaryOp::kComplement:
                 return pb::UnaryOp::complement;
-            case core::ir::UnaryOp::kNegation:
+            case core::UnaryOp::kNegation:
                 return pb::UnaryOp::negation;
+            case core::UnaryOp::kAddressOf:
+                return pb::UnaryOp::address_of;
+            case core::UnaryOp::kIndirection:
+                return pb::UnaryOp::indirection;
+            case core::UnaryOp::kNot:
+                return pb::UnaryOp::not_;
         }
         TINT_ICE() << "invalid UnaryOp: " << in;
-        return pb::UnaryOp::complement;
     }
 
-    pb::BinaryOp BinaryOp(core::ir::BinaryOp in) {
+    pb::BinaryOp BinaryOp(core::BinaryOp in) {
         switch (in) {
-            case core::ir::BinaryOp::kAdd:
+            case core::BinaryOp::kAdd:
                 return pb::BinaryOp::add_;
-            case core::ir::BinaryOp::kSubtract:
+            case core::BinaryOp::kSubtract:
                 return pb::BinaryOp::subtract;
-            case core::ir::BinaryOp::kMultiply:
+            case core::BinaryOp::kMultiply:
                 return pb::BinaryOp::multiply;
-            case core::ir::BinaryOp::kDivide:
+            case core::BinaryOp::kDivide:
                 return pb::BinaryOp::divide;
-            case core::ir::BinaryOp::kModulo:
+            case core::BinaryOp::kModulo:
                 return pb::BinaryOp::modulo;
-            case core::ir::BinaryOp::kAnd:
+            case core::BinaryOp::kAnd:
                 return pb::BinaryOp::and_;
-            case core::ir::BinaryOp::kOr:
+            case core::BinaryOp::kOr:
                 return pb::BinaryOp::or_;
-            case core::ir::BinaryOp::kXor:
+            case core::BinaryOp::kXor:
                 return pb::BinaryOp::xor_;
-            case core::ir::BinaryOp::kEqual:
+            case core::BinaryOp::kEqual:
                 return pb::BinaryOp::equal;
-            case core::ir::BinaryOp::kNotEqual:
+            case core::BinaryOp::kNotEqual:
                 return pb::BinaryOp::not_equal;
-            case core::ir::BinaryOp::kLessThan:
+            case core::BinaryOp::kLessThan:
                 return pb::BinaryOp::less_than;
-            case core::ir::BinaryOp::kGreaterThan:
+            case core::BinaryOp::kGreaterThan:
                 return pb::BinaryOp::greater_than;
-            case core::ir::BinaryOp::kLessThanEqual:
+            case core::BinaryOp::kLessThanEqual:
                 return pb::BinaryOp::less_than_equal;
-            case core::ir::BinaryOp::kGreaterThanEqual:
+            case core::BinaryOp::kGreaterThanEqual:
                 return pb::BinaryOp::greater_than_equal;
-            case core::ir::BinaryOp::kShiftLeft:
+            case core::BinaryOp::kShiftLeft:
                 return pb::BinaryOp::shift_left;
-            case core::ir::BinaryOp::kShiftRight:
+            case core::BinaryOp::kShiftRight:
                 return pb::BinaryOp::shift_right;
+            case core::BinaryOp::kLogicalAnd:
+                return pb::BinaryOp::logical_and;
+            case core::BinaryOp::kLogicalOr:
+                return pb::BinaryOp::logical_or;
         }
 
         TINT_ICE() << "invalid BinaryOp: " << in;
-        return pb::BinaryOp::add_;
     }
 
     pb::TextureDimension TextureDimension(core::type::TextureDimension in) {
@@ -740,12 +811,11 @@ struct Encoder {
                 return pb::TextureDimension::cube;
             case core::type::TextureDimension::kCubeArray:
                 return pb::TextureDimension::cube_array;
-            default:
+            case core::type::TextureDimension::kNone:
                 break;
         }
 
         TINT_ICE() << "invalid TextureDimension: " << in;
-        return pb::TextureDimension::_1d;
     }
 
     pb::TexelFormat TexelFormat(core::TexelFormat in) {
@@ -758,6 +828,8 @@ struct Encoder {
                 return pb::TexelFormat::r32_sint;
             case core::TexelFormat::kR32Uint:
                 return pb::TexelFormat::r32_uint;
+            case core::TexelFormat::kR8Unorm:
+                return pb::TexelFormat::r8_unorm;
             case core::TexelFormat::kRg32Float:
                 return pb::TexelFormat::rg32_float;
             case core::TexelFormat::kRg32Sint:
@@ -784,12 +856,11 @@ struct Encoder {
                 return pb::TexelFormat::rgba8_uint;
             case core::TexelFormat::kRgba8Unorm:
                 return pb::TexelFormat::rgba8_unorm;
-            default:
+            case core::TexelFormat::kUndefined:
                 break;
         }
 
         TINT_ICE() << "invalid TexelFormat: " << in;
-        return pb::TexelFormat::bgra8_unorm;
     }
 
     pb::SamplerKind SamplerKind(core::type::SamplerKind in) {
@@ -801,7 +872,6 @@ struct Encoder {
         }
 
         TINT_ICE() << "invalid SamplerKind: " << in;
-        return pb::SamplerKind::sampler;
     }
 
     pb::InterpolationType InterpolationType(core::InterpolationType in) {
@@ -812,11 +882,10 @@ struct Encoder {
                 return pb::InterpolationType::linear;
             case core::InterpolationType::kPerspective:
                 return pb::InterpolationType::perspective;
-            default:
+            case core::InterpolationType::kUndefined:
                 break;
         }
         TINT_ICE() << "invalid InterpolationType: " << in;
-        return pb::InterpolationType::flat;
     }
 
     pb::InterpolationSampling InterpolationSampling(core::InterpolationSampling in) {
@@ -827,11 +896,14 @@ struct Encoder {
                 return pb::InterpolationSampling::centroid;
             case core::InterpolationSampling::kSample:
                 return pb::InterpolationSampling::sample;
-            default:
+            case core::InterpolationSampling::kFirst:
+                return pb::InterpolationSampling::first;
+            case core::InterpolationSampling::kEither:
+                return pb::InterpolationSampling::either;
+            case core::InterpolationSampling::kUndefined:
                 break;
         }
         TINT_ICE() << "invalid InterpolationSampling: " << in;
-        return pb::InterpolationSampling::center;
     }
 
     pb::BuiltinValue BuiltinValue(core::BuiltinValue in) {
@@ -866,11 +938,12 @@ struct Encoder {
                 return pb::BuiltinValue::vertex_index;
             case core::BuiltinValue::kWorkgroupId:
                 return pb::BuiltinValue::workgroup_id;
-            default:
+            case core::BuiltinValue::kClipDistances:
+                return pb::BuiltinValue::clip_distances;
+            case core::BuiltinValue::kUndefined:
                 break;
         }
         TINT_ICE() << "invalid BuiltinValue: " << in;
-        return pb::BuiltinValue::point_size;
     }
 
     pb::BuiltinFn BuiltinFn(core::BuiltinFn in) {
@@ -995,6 +1068,14 @@ struct Encoder {
                 return pb::BuiltinFn::pack4x8_snorm;
             case core::BuiltinFn::kPack4X8Unorm:
                 return pb::BuiltinFn::pack4x8_unorm;
+            case core::BuiltinFn::kPack4XI8:
+                return pb::BuiltinFn::pack4xi8;
+            case core::BuiltinFn::kPack4XU8:
+                return pb::BuiltinFn::pack4xu8;
+            case core::BuiltinFn::kPack4XI8Clamp:
+                return pb::BuiltinFn::pack4xi8_clamp;
+            case core::BuiltinFn::kPack4XU8Clamp:
+                return pb::BuiltinFn::pack4xu8_clamp;
             case core::BuiltinFn::kPow:
                 return pb::BuiltinFn::pow;
             case core::BuiltinFn::kQuantizeToF16:
@@ -1045,6 +1126,10 @@ struct Encoder {
                 return pb::BuiltinFn::unpack4x8_snorm;
             case core::BuiltinFn::kUnpack4X8Unorm:
                 return pb::BuiltinFn::unpack4x8_unorm;
+            case core::BuiltinFn::kUnpack4XI8:
+                return pb::BuiltinFn::unpack4xi8;
+            case core::BuiltinFn::kUnpack4XU8:
+                return pb::BuiltinFn::unpack4xu8;
             case core::BuiltinFn::kWorkgroupBarrier:
                 return pb::BuiltinFn::workgroup_barrier;
             case core::BuiltinFn::kTextureBarrier:
@@ -1103,29 +1188,88 @@ struct Encoder {
                 return pb::BuiltinFn::atomic_compare_exchange_weak;
             case core::BuiltinFn::kSubgroupBallot:
                 return pb::BuiltinFn::subgroup_ballot;
+            case core::BuiltinFn::kSubgroupElect:
+                return pb::BuiltinFn::subgroup_elect;
             case core::BuiltinFn::kSubgroupBroadcast:
                 return pb::BuiltinFn::subgroup_broadcast;
-            default:
+            case core::BuiltinFn::kSubgroupBroadcastFirst:
+                return pb::BuiltinFn::subgroup_broadcast_first;
+            case core::BuiltinFn::kSubgroupShuffle:
+                return pb::BuiltinFn::subgroup_shuffle;
+            case core::BuiltinFn::kSubgroupShuffleXor:
+                return pb::BuiltinFn::subgroup_shuffle_xor;
+            case core::BuiltinFn::kSubgroupShuffleUp:
+                return pb::BuiltinFn::subgroup_shuffle_up;
+            case core::BuiltinFn::kSubgroupShuffleDown:
+                return pb::BuiltinFn::subgroup_shuffle_down;
+            case core::BuiltinFn::kInputAttachmentLoad:
+                return pb::BuiltinFn::input_attachment_load;
+            case core::BuiltinFn::kSubgroupAdd:
+                return pb::BuiltinFn::subgroup_add;
+            case core::BuiltinFn::kSubgroupInclusiveAdd:
+                return pb::BuiltinFn::subgroup_inclusive_add;
+            case core::BuiltinFn::kSubgroupExclusiveAdd:
+                return pb::BuiltinFn::subgroup_exclusive_add;
+            case core::BuiltinFn::kSubgroupMul:
+                return pb::BuiltinFn::subgroup_mul;
+            case core::BuiltinFn::kSubgroupInclusiveMul:
+                return pb::BuiltinFn::subgroup_inclusive_mul;
+            case core::BuiltinFn::kSubgroupExclusiveMul:
+                return pb::BuiltinFn::subgroup_exclusive_mul;
+            case core::BuiltinFn::kSubgroupAnd:
+                return pb::BuiltinFn::subgroup_and;
+            case core::BuiltinFn::kSubgroupOr:
+                return pb::BuiltinFn::subgroup_or;
+            case core::BuiltinFn::kSubgroupXor:
+                return pb::BuiltinFn::subgroup_xor;
+            case core::BuiltinFn::kSubgroupMin:
+                return pb::BuiltinFn::subgroup_min;
+            case core::BuiltinFn::kSubgroupMax:
+                return pb::BuiltinFn::subgroup_max;
+            case core::BuiltinFn::kSubgroupAll:
+                return pb::BuiltinFn::subgroup_all;
+            case core::BuiltinFn::kSubgroupAny:
+                return pb::BuiltinFn::subgroup_any;
+            case core::BuiltinFn::kQuadBroadcast:
+                return pb::BuiltinFn::quad_broadcast;
+            case core::BuiltinFn::kQuadSwapX:
+                return pb::BuiltinFn::quad_swap_x;
+            case core::BuiltinFn::kQuadSwapY:
+                return pb::BuiltinFn::quad_swap_y;
+            case core::BuiltinFn::kQuadSwapDiagonal:
+                return pb::BuiltinFn::quad_swap_diagonal;
+            case core::BuiltinFn::kNone:
                 break;
         }
         TINT_ICE() << "invalid BuiltinFn: " << in;
-        return pb::BuiltinFn::abs;
     }
 };
 
 }  // namespace
 
-Result<Vector<std::byte, 0>> Encode(const Module& mod_in) {
+Result<std::unique_ptr<pb::Module>> EncodeToProto(const Module& mod_in) {
     GOOGLE_PROTOBUF_VERIFY_VERSION;
 
     pb::Module mod_out;
-    Encoder{mod_in, mod_out}.Encode();
+    auto res = Encoder{mod_in, mod_out}.Encode();
+    if (res != Success) {
+        return res.Failure();
+    }
+
+    return std::make_unique<pb::Module>(mod_out);
+}
+
+Result<Vector<std::byte, 0>> EncodeToBinary(const Module& mod_in) {
+    auto mod_out = EncodeToProto(mod_in);
+    if (mod_out != Success) {
+        return mod_out.Failure();
+    }
 
     Vector<std::byte, 0> buffer;
-    size_t len = mod_out.ByteSizeLong();
+    size_t len = mod_out.Get()->ByteSizeLong();
     buffer.Resize(len);
     if (len > 0) {
-        if (!mod_out.SerializeToArray(&buffer[0], static_cast<int>(len))) {
+        if (!mod_out.Get()->SerializeToArray(&buffer[0], static_cast<int>(len))) {
             return Failure{"failed to serialize protobuf"};
         }
     }

@@ -28,22 +28,19 @@
 #ifndef SRC_DAWN_WIRE_CLIENT_INSTANCE_H_
 #define SRC_DAWN_WIRE_CLIENT_INSTANCE_H_
 
-#include <unordered_set>
-
-#include "dawn/webgpu.h"
+#include "absl/container/flat_hash_set.h"
+#include "dawn/common/RefCountedWithExternalCount.h"
 #include "dawn/wire/WireClient.h"
 #include "dawn/wire/WireCmd_autogen.h"
 #include "dawn/wire/client/ObjectBase.h"
-#include "dawn/wire/client/RequestTracker.h"
 
 namespace dawn::wire::client {
 
-WGPUBool ClientGetInstanceFeatures(WGPUInstanceFeatures* features);
-WGPUInstance ClientCreateInstance(WGPUInstanceDescriptor const* descriptor);
-
-class Instance final : public ObjectBase {
+class Instance final : public RefCountedWithExternalCount<ObjectWithEventsBase> {
   public:
-    using ObjectBase::ObjectBase;
+    explicit Instance(const ObjectBaseParams& params);
+
+    ObjectType GetObjectType() const override;
 
     WireResult Initialize(const WGPUInstanceDescriptor* descriptor);
 
@@ -52,13 +49,8 @@ class Instance final : public ObjectBase {
                         void* userdata);
     WGPUFuture RequestAdapterF(const WGPURequestAdapterOptions* options,
                                const WGPURequestAdapterCallbackInfo& callbackInfo);
-    bool OnRequestAdapterCallback(WGPUFuture future,
-                                  WGPURequestAdapterStatus status,
-                                  const char* message,
-                                  const WGPUAdapterProperties* properties,
-                                  const WGPUSupportedLimits* limits,
-                                  uint32_t featuresCount,
-                                  const WGPUFeatureName* features);
+    WGPUFuture RequestAdapter2(const WGPURequestAdapterOptions* options,
+                               const WGPURequestAdapterCallbackInfo2& callbackInfo);
 
     void ProcessEvents();
     WGPUWaitStatus WaitAny(size_t count, WGPUFutureWaitInfo* infos, uint64_t timeoutNS);
@@ -68,11 +60,14 @@ class Instance final : public ObjectBase {
     // TODO(https://github.com/webgpu-native/webgpu-headers/issues/252): Add a count argument.
     size_t EnumerateWGSLLanguageFeatures(WGPUWGSLFeatureName* features) const;
 
+    WGPUSurface CreateSurface(const WGPUSurfaceDescriptor* desc) const;
+
   private:
+    void WillDropLastExternalRef() override;
     void GatherWGSLFeatures(const WGPUDawnWireWGSLControl* wgslControl,
                             const WGPUDawnWGSLBlocklist* wgslBlocklist);
 
-    std::unordered_set<WGPUWGSLFeatureName> mWGSLFeatures;
+    absl::flat_hash_set<WGPUWGSLFeatureName> mWGSLFeatures;
 };
 
 }  // namespace dawn::wire::client

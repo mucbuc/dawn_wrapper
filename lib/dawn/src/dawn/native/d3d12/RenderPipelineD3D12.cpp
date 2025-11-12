@@ -33,8 +33,8 @@
 #include <utility>
 
 #include "dawn/common/Assert.h"
-#include "dawn/common/Log.h"
-#include "dawn/native/CreatePipelineAsyncTask.h"
+#include "dawn/native/CreatePipelineAsyncEvent.h"
+#include "dawn/native/Instance.h"
 #include "dawn/native/d3d/BlobD3D.h"
 #include "dawn/native/d3d/D3DError.h"
 #include "dawn/native/d3d12/DeviceD3D12.h"
@@ -55,8 +55,10 @@ D3D12_INPUT_CLASSIFICATION VertexStepModeFunction(wgpu::VertexStepMode mode) {
         case wgpu::VertexStepMode::Instance:
             return D3D12_INPUT_CLASSIFICATION_PER_INSTANCE_DATA;
         case wgpu::VertexStepMode::VertexBufferNotUsed:
-            DAWN_UNREACHABLE();
+        case wgpu::VertexStepMode::Undefined:
+            break;
     }
+    DAWN_UNREACHABLE();
 }
 
 D3D12_PRIMITIVE_TOPOLOGY D3D12PrimitiveTopology(wgpu::PrimitiveTopology primitiveTopology) {
@@ -71,7 +73,10 @@ D3D12_PRIMITIVE_TOPOLOGY D3D12PrimitiveTopology(wgpu::PrimitiveTopology primitiv
             return D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
         case wgpu::PrimitiveTopology::TriangleStrip:
             return D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP;
+        case wgpu::PrimitiveTopology::Undefined:
+            break;
     }
+    DAWN_UNREACHABLE();
 }
 
 D3D12_PRIMITIVE_TOPOLOGY_TYPE D3D12PrimitiveTopologyType(
@@ -85,7 +90,10 @@ D3D12_PRIMITIVE_TOPOLOGY_TYPE D3D12PrimitiveTopologyType(
         case wgpu::PrimitiveTopology::TriangleList:
         case wgpu::PrimitiveTopology::TriangleStrip:
             return D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+        case wgpu::PrimitiveTopology::Undefined:
+            break;
     }
+    DAWN_UNREACHABLE();
 }
 
 D3D12_CULL_MODE D3D12CullMode(wgpu::CullMode mode) {
@@ -96,7 +104,10 @@ D3D12_CULL_MODE D3D12CullMode(wgpu::CullMode mode) {
             return D3D12_CULL_MODE_FRONT;
         case wgpu::CullMode::Back:
             return D3D12_CULL_MODE_BACK;
+        case wgpu::CullMode::Undefined:
+            break;
     }
+    DAWN_UNREACHABLE();
 }
 
 D3D12_BLEND D3D12Blend(wgpu::BlendFactor factor) {
@@ -135,7 +146,10 @@ D3D12_BLEND D3D12Blend(wgpu::BlendFactor factor) {
             return D3D12_BLEND_SRC1_ALPHA;
         case wgpu::BlendFactor::OneMinusSrc1Alpha:
             return D3D12_BLEND_INV_SRC1_ALPHA;
+        case wgpu::BlendFactor::Undefined:
+            break;
     }
+    DAWN_UNREACHABLE();
 }
 
 // When a blend factor is defined for the alpha channel, any of the factors that don't
@@ -174,7 +188,10 @@ D3D12_BLEND_OP D3D12BlendOperation(wgpu::BlendOperation operation) {
             return D3D12_BLEND_OP_MIN;
         case wgpu::BlendOperation::Max:
             return D3D12_BLEND_OP_MAX;
+        case wgpu::BlendOperation::Undefined:
+            break;
     }
+    DAWN_UNREACHABLE();
 }
 
 uint8_t D3D12RenderTargetWriteMask(wgpu::ColorWriteMask writeMask) {
@@ -253,7 +270,10 @@ D3D12_STENCIL_OP StencilOp(wgpu::StencilOperation op) {
             return D3D12_STENCIL_OP_INCR;
         case wgpu::StencilOperation::DecrementWrap:
             return D3D12_STENCIL_OP_DECR;
+        case wgpu::StencilOperation::Undefined:
+            break;
     }
+    DAWN_UNREACHABLE();
 }
 
 D3D12_DEPTH_STENCILOP_DESC StencilOpDesc(const StencilFaceState& descriptor) {
@@ -265,26 +285,6 @@ D3D12_DEPTH_STENCILOP_DESC StencilOpDesc(const StencilFaceState& descriptor) {
     desc.StencilFunc = ToD3D12ComparisonFunc(descriptor.compare);
 
     return desc;
-}
-
-D3D12_DEPTH_STENCIL_DESC ComputeDepthStencilDesc(const DepthStencilState* descriptor) {
-    D3D12_DEPTH_STENCIL_DESC depthStencilDescriptor = {};
-    depthStencilDescriptor.DepthEnable =
-        (descriptor->depthCompare == wgpu::CompareFunction::Always &&
-         !descriptor->depthWriteEnabled)
-            ? FALSE
-            : TRUE;
-    depthStencilDescriptor.DepthWriteMask =
-        descriptor->depthWriteEnabled ? D3D12_DEPTH_WRITE_MASK_ALL : D3D12_DEPTH_WRITE_MASK_ZERO;
-    depthStencilDescriptor.DepthFunc = ToD3D12ComparisonFunc(descriptor->depthCompare);
-
-    depthStencilDescriptor.StencilEnable = StencilTestEnabled(descriptor) ? TRUE : FALSE;
-    depthStencilDescriptor.StencilReadMask = static_cast<UINT8>(descriptor->stencilReadMask);
-    depthStencilDescriptor.StencilWriteMask = static_cast<UINT8>(descriptor->stencilWriteMask);
-
-    depthStencilDescriptor.FrontFace = StencilOpDesc(descriptor->stencilFront);
-    depthStencilDescriptor.BackFace = StencilOpDesc(descriptor->stencilBack);
-    return depthStencilDescriptor;
 }
 
 D3D12_INDEX_BUFFER_STRIP_CUT_VALUE ComputeIndexBufferStripCutValue(
@@ -313,7 +313,7 @@ Ref<RenderPipeline> RenderPipeline::CreateUninitialized(
     return AcquireRef(new RenderPipeline(device, descriptor));
 }
 
-MaybeError RenderPipeline::Initialize() {
+MaybeError RenderPipeline::InitializeImpl() {
     Device* device = ToBackend(GetDevice());
     uint32_t compileFlags = 0;
 
@@ -326,12 +326,15 @@ MaybeError RenderPipeline::Initialize() {
         compileFlags |= D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION;
     }
 
+    if (device->IsToggleEnabled(Toggle::UseDXC) &&
+        ((compileFlags & D3DCOMPILE_OPTIMIZATION_LEVEL2) == 0)) {
+        // DXC's default opt level is /O3, unlike FXC's /O1. Set explicitly, otherwise there's no
+        // way to tell if we want /O1 as D3DCOMPILE_OPTIMIZATION_LEVEL1 is defined to 0.
+        compileFlags |= D3DCOMPILE_OPTIMIZATION_LEVEL3;
+    }
+
     // Tint does matrix multiplication expecting row major matrices
     compileFlags |= D3DCOMPILE_PACK_MATRIX_ROW_MAJOR;
-
-    if (!device->IsToggleEnabled(Toggle::D3DDisableIEEEStrictness)) {
-        compileFlags |= D3DCOMPILE_IEEE_STRICTNESS;
-    }
 
     D3D12_GRAPHICS_PIPELINE_STATE_DESC descriptorD3D12 = {};
 
@@ -353,10 +356,16 @@ MaybeError RenderPipeline::Initialize() {
 
     for (auto stage : IterateStages(GetStageMask())) {
         const ProgrammableStage& programmableStage = GetStage(stage);
-        DAWN_TRY_ASSIGN(compiledShader[stage],
-                        ToBackend(programmableStage.module)
-                            ->Compile(programmableStage, stage, ToBackend(GetLayout()),
-                                      compileFlags, usedInterstageVariables));
+        uint32_t additionalCompileFlags = 0;
+        if (programmableStage.module->GetStrictMath().value_or(
+                !device->IsToggleEnabled(Toggle::D3DDisableIEEEStrictness))) {
+            additionalCompileFlags |= D3DCOMPILE_IEEE_STRICTNESS;
+        }
+        DAWN_TRY_ASSIGN(
+            compiledShader[stage],
+            ToBackend(programmableStage.module)
+                ->Compile(programmableStage, stage, ToBackend(GetLayout()),
+                          compileFlags | additionalCompileFlags, usedInterstageVariables));
         *shaders[stage] = {compiledShader[stage].shaderBlob.Data(),
                            compiledShader[stage].shaderBlob.Size()};
     }
@@ -391,7 +400,7 @@ MaybeError RenderPipeline::Initialize() {
     descriptorD3D12.RasterizerState.ConservativeRaster = D3D12_CONSERVATIVE_RASTERIZATION_MODE_OFF;
 
     if (HasDepthStencilAttachment()) {
-        descriptorD3D12.DSVFormat = d3d::DXGITextureFormat(GetDepthStencilFormat());
+        descriptorD3D12.DSVFormat = d3d::DXGITextureFormat(device, GetDepthStencilFormat());
     }
 
     static_assert(kMaxColorAttachments == 8);
@@ -402,7 +411,7 @@ MaybeError RenderPipeline::Initialize() {
     auto highestColorAttachmentIndexPlusOne = GetHighestBitIndexPlusOne(GetColorAttachmentsMask());
     for (auto i : IterateBitSet(GetColorAttachmentsMask())) {
         descriptorD3D12.RTVFormats[static_cast<uint8_t>(i)] =
-            d3d::DXGITextureFormat(GetColorAttachmentFormat(i));
+            d3d::DXGITextureFormat(device, GetColorAttachmentFormat(i));
         descriptorD3D12.BlendState.RenderTarget[static_cast<uint8_t>(i)] =
             ComputeColorDesc(device, GetColorTargetState(i));
     }
@@ -412,7 +421,7 @@ MaybeError RenderPipeline::Initialize() {
     descriptorD3D12.BlendState.AlphaToCoverageEnable = IsAlphaToCoverageEnabled();
     descriptorD3D12.BlendState.IndependentBlendEnable = TRUE;
 
-    descriptorD3D12.DepthStencilState = ComputeDepthStencilDesc(GetDepthStencilState());
+    descriptorD3D12.DepthStencilState = ComputeDepthStencilDesc();
 
     descriptorD3D12.SampleMask = GetSampleMask();
     descriptorD3D12.PrimitiveTopologyType = D3D12PrimitiveTopologyType(GetPrimitiveTopology());
@@ -453,9 +462,11 @@ MaybeError RenderPipeline::Initialize() {
         // Cache misses, need to get pipeline cached blob and store.
         cacheTimer.RecordMicroseconds("D3D12.CreateGraphicsPipelineState.CacheMiss");
         ComPtr<ID3DBlob> d3dBlob;
-        DAWN_TRY(CheckHRESULT(GetPipelineState()->GetCachedBlob(&d3dBlob),
-                              "D3D12 render pipeline state get cached blob"));
-        device->StoreCachedBlob(GetCacheKey(), CreateBlob(std::move(d3dBlob)));
+        if (!device->GetInstance()->ConsumedError(
+                CheckHRESULT(GetPipelineState()->GetCachedBlob(&d3dBlob),
+                             "D3D12 render pipeline state get cached blob"))) {
+            device->StoreCachedBlob(GetCacheKey(), CreateBlob(std::move(d3dBlob)));
+        }
     } else {
         cacheTimer.RecordMicroseconds("D3D12.CreateGraphicsPipelineState.CacheHit");
     }
@@ -537,13 +548,27 @@ D3D12_INPUT_LAYOUT_DESC RenderPipeline::ComputeInputLayout(
     return inputLayoutDescriptor;
 }
 
-void RenderPipeline::InitializeAsync(Ref<RenderPipelineBase> renderPipeline,
-                                     WGPUCreateRenderPipelineAsyncCallback callback,
-                                     void* userdata) {
-    std::unique_ptr<CreateRenderPipelineAsyncTask> asyncTask =
-        std::make_unique<CreateRenderPipelineAsyncTask>(std::move(renderPipeline), callback,
-                                                        userdata);
-    CreateRenderPipelineAsyncTask::RunAsync(std::move(asyncTask));
+D3D12_DEPTH_STENCIL_DESC RenderPipeline::ComputeDepthStencilDesc() {
+    const DepthStencilState* descriptor = GetDepthStencilState();
+
+    D3D12_DEPTH_STENCIL_DESC depthStencilDescriptor = {};
+    depthStencilDescriptor.DepthEnable =
+        (descriptor->depthCompare == wgpu::CompareFunction::Always &&
+         descriptor->depthWriteEnabled != wgpu::OptionalBool::True)
+            ? FALSE
+            : TRUE;
+    depthStencilDescriptor.DepthWriteMask =
+        descriptor->depthWriteEnabled == wgpu::OptionalBool::True ? D3D12_DEPTH_WRITE_MASK_ALL
+                                                                  : D3D12_DEPTH_WRITE_MASK_ZERO;
+    depthStencilDescriptor.DepthFunc = ToD3D12ComparisonFunc(descriptor->depthCompare);
+
+    depthStencilDescriptor.StencilEnable = UsesStencil() ? TRUE : FALSE;
+    depthStencilDescriptor.StencilReadMask = static_cast<UINT8>(descriptor->stencilReadMask);
+    depthStencilDescriptor.StencilWriteMask = static_cast<UINT8>(descriptor->stencilWriteMask);
+
+    depthStencilDescriptor.FrontFace = StencilOpDesc(descriptor->stencilFront);
+    depthStencilDescriptor.BackFace = StencilOpDesc(descriptor->stencilBack);
+    return depthStencilDescriptor;
 }
 
 }  // namespace dawn::native::d3d12

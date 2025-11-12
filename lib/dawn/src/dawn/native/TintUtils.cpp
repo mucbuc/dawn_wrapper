@@ -57,38 +57,56 @@ bool InitializeTintErrorReporter() {
 
 tint::ast::transform::VertexFormat ToTintVertexFormat(wgpu::VertexFormat format) {
     switch (format) {
+        case wgpu::VertexFormat::Uint8:
+            return tint::ast::transform::VertexFormat::kUint8;
         case wgpu::VertexFormat::Uint8x2:
             return tint::ast::transform::VertexFormat::kUint8x2;
         case wgpu::VertexFormat::Uint8x4:
             return tint::ast::transform::VertexFormat::kUint8x4;
+        case wgpu::VertexFormat::Sint8:
+            return tint::ast::transform::VertexFormat::kSint8;
         case wgpu::VertexFormat::Sint8x2:
             return tint::ast::transform::VertexFormat::kSint8x2;
         case wgpu::VertexFormat::Sint8x4:
             return tint::ast::transform::VertexFormat::kSint8x4;
+        case wgpu::VertexFormat::Unorm8:
+            return tint::ast::transform::VertexFormat::kUnorm8;
         case wgpu::VertexFormat::Unorm8x2:
             return tint::ast::transform::VertexFormat::kUnorm8x2;
         case wgpu::VertexFormat::Unorm8x4:
             return tint::ast::transform::VertexFormat::kUnorm8x4;
+        case wgpu::VertexFormat::Snorm8:
+            return tint::ast::transform::VertexFormat::kSnorm8;
         case wgpu::VertexFormat::Snorm8x2:
             return tint::ast::transform::VertexFormat::kSnorm8x2;
         case wgpu::VertexFormat::Snorm8x4:
             return tint::ast::transform::VertexFormat::kSnorm8x4;
+        case wgpu::VertexFormat::Uint16:
+            return tint::ast::transform::VertexFormat::kUint16;
         case wgpu::VertexFormat::Uint16x2:
             return tint::ast::transform::VertexFormat::kUint16x2;
         case wgpu::VertexFormat::Uint16x4:
             return tint::ast::transform::VertexFormat::kUint16x4;
+        case wgpu::VertexFormat::Sint16:
+            return tint::ast::transform::VertexFormat::kSint16;
         case wgpu::VertexFormat::Sint16x2:
             return tint::ast::transform::VertexFormat::kSint16x2;
         case wgpu::VertexFormat::Sint16x4:
             return tint::ast::transform::VertexFormat::kSint16x4;
+        case wgpu::VertexFormat::Unorm16:
+            return tint::ast::transform::VertexFormat::kUnorm16;
         case wgpu::VertexFormat::Unorm16x2:
             return tint::ast::transform::VertexFormat::kUnorm16x2;
         case wgpu::VertexFormat::Unorm16x4:
             return tint::ast::transform::VertexFormat::kUnorm16x4;
+        case wgpu::VertexFormat::Snorm16:
+            return tint::ast::transform::VertexFormat::kSnorm16;
         case wgpu::VertexFormat::Snorm16x2:
             return tint::ast::transform::VertexFormat::kSnorm16x2;
         case wgpu::VertexFormat::Snorm16x4:
             return tint::ast::transform::VertexFormat::kSnorm16x4;
+        case wgpu::VertexFormat::Float16:
+            return tint::ast::transform::VertexFormat::kFloat16;
         case wgpu::VertexFormat::Float16x2:
             return tint::ast::transform::VertexFormat::kFloat16x2;
         case wgpu::VertexFormat::Float16x4:
@@ -119,9 +137,8 @@ tint::ast::transform::VertexFormat ToTintVertexFormat(wgpu::VertexFormat format)
             return tint::ast::transform::VertexFormat::kSint32x4;
         case wgpu::VertexFormat::Unorm10_10_10_2:
             return tint::ast::transform::VertexFormat::kUnorm10_10_10_2;
-
-        case wgpu::VertexFormat::Undefined:
-            break;
+        case wgpu::VertexFormat::Unorm8x4BGRA:
+            return tint::ast::transform::VertexFormat::kUnorm8x4BGRA;
     }
     DAWN_UNREACHABLE();
 }
@@ -133,6 +150,7 @@ tint::ast::transform::VertexStepMode ToTintVertexStepMode(wgpu::VertexStepMode m
         case wgpu::VertexStepMode::Instance:
             return tint::ast::transform::VertexStepMode::kInstance;
         case wgpu::VertexStepMode::VertexBufferNotUsed:
+        case wgpu::VertexStepMode::Undefined:
             break;
     }
     DAWN_UNREACHABLE();
@@ -154,21 +172,6 @@ ScopedTintICEHandler::ScopedTintICEHandler(DeviceBase* device) {
 
 ScopedTintICEHandler::~ScopedTintICEHandler() {
     tlDevice = nullptr;
-}
-
-tint::ExternalTextureOptions BuildExternalTextureTransformBindings(
-    const PipelineLayoutBase* layout) {
-    tint::ExternalTextureOptions options;
-    for (BindGroupIndex i : IterateBitSet(layout->GetBindGroupLayoutsMask())) {
-        const BindGroupLayoutInternalBase* bgl = layout->GetBindGroupLayout(i);
-        for (const auto& [_, expansion] : bgl->GetExternalTextureBindingExpansionMap()) {
-            options.bindings_map[{static_cast<uint32_t>(i),
-                                  static_cast<uint32_t>(expansion.plane0)}] = {
-                {static_cast<uint32_t>(i), static_cast<uint32_t>(expansion.plane1)},
-                {static_cast<uint32_t>(i), static_cast<uint32_t>(expansion.params)}};
-        }
-    }
-    return options;
 }
 
 tint::ast::transform::VertexPulling::Config BuildVertexPullingTransformConfig(

@@ -44,6 +44,8 @@ tint_add_target(tint_lang_core_constant lib
   lang/core/constant/composite.h
   lang/core/constant/eval.cc
   lang/core/constant/eval.h
+  lang/core/constant/invalid.cc
+  lang/core/constant/invalid.h
   lang/core/constant/manager.cc
   lang/core/constant/manager.h
   lang/core/constant/node.cc
@@ -66,11 +68,16 @@ tint_target_add_dependencies(tint_lang_core_constant lib
   tint_utils_macros
   tint_utils_math
   tint_utils_memory
+  tint_utils_reflection
   tint_utils_result
   tint_utils_rtti
   tint_utils_symbol
   tint_utils_text
   tint_utils_traits
+)
+
+tint_target_add_external_dependencies(tint_lang_core_constant lib
+  "src_utils"
 )
 
 ################################################################################
@@ -90,6 +97,7 @@ tint_add_target(tint_lang_core_constant_test test
   lang/core/constant/eval_test.h
   lang/core/constant/eval_unary_op_test.cc
   lang/core/constant/helper_test.h
+  lang/core/constant/invalid_test.cc
   lang/core/constant/manager_test.cc
   lang/core/constant/scalar_test.cc
   lang/core/constant/splat_test.cc
@@ -130,6 +138,7 @@ tint_target_add_dependencies(tint_lang_core_constant_test test
 
 tint_target_add_external_dependencies(tint_lang_core_constant_test test
   "gtest"
+  "src_utils"
 )
 
 if(TINT_BUILD_WGSL_READER)

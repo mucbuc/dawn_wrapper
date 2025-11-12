@@ -1,5 +1,5 @@
 uint3 tint_ftou(float3 v) {
-  return ((v < (4294967040.0f).xxx) ? ((v < (0.0f).xxx) ? (0u).xxx : uint3(v)) : (4294967295u).xxx);
+  return ((v <= (4294967040.0f).xxx) ? ((v < (0.0f).xxx) ? (0u).xxx : uint3(v)) : (4294967295u).xxx);
 }
 
 cbuffer cbuffer_uniforms : register(b0) {
@@ -139,7 +139,7 @@ void main_create_lut_inner(uint3 GlobalInvocationID) {
   uint numTriangles = countersatomicLoad((4u * voxelIndex));
   int offset = -1;
   if ((numTriangles > 0u)) {
-    const uint tint_symbol = dbgatomicAdd(0u, numTriangles);
+    uint tint_symbol = dbgatomicAdd(0u, numTriangles);
     offset = int(tint_symbol);
   }
   LUTatomicStore((4u * voxelIndex), offset);

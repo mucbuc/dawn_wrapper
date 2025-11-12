@@ -1,10 +1,6 @@
 #version 310 es
 precision highp float;
-
-void f() {
-}
+precision highp int;
 
 void main() {
-  f();
-  return;
 }

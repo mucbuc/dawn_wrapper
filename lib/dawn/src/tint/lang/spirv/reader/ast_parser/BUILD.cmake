@@ -68,7 +68,6 @@ tint_target_add_dependencies(tint_lang_spirv_reader_ast_parser lib
   tint_lang_core
   tint_lang_core_constant
   tint_lang_core_type
-  tint_lang_spirv_reader_common
   tint_lang_wgsl
   tint_lang_wgsl_ast
   tint_lang_wgsl_ast_transform
@@ -92,9 +91,14 @@ tint_target_add_dependencies(tint_lang_spirv_reader_ast_parser lib
   tint_utils_traits
 )
 
+tint_target_add_external_dependencies(tint_lang_spirv_reader_ast_parser lib
+  "src_utils"
+)
+
 if(TINT_BUILD_SPV_READER)
   tint_target_add_dependencies(tint_lang_spirv_reader_ast_parser lib
     tint_lang_spirv_reader_ast_lower
+    tint_lang_spirv_reader_common
   )
 endif(TINT_BUILD_SPV_READER)
 
@@ -142,6 +146,7 @@ tint_add_target(tint_lang_spirv_reader_ast_parser_test test
   lang/spirv/reader/ast_parser/named_types_test.cc
   lang/spirv/reader/ast_parser/namer_test.cc
   lang/spirv/reader/ast_parser/parser_test.cc
+  lang/spirv/reader/ast_parser/row_major_matrix_test.cc
   lang/spirv/reader/ast_parser/spirv_tools_helpers_test.cc
   lang/spirv/reader/ast_parser/spirv_tools_helpers_test.h
   lang/spirv/reader/ast_parser/type_test.cc
@@ -154,13 +159,13 @@ tint_target_add_dependencies(tint_lang_spirv_reader_ast_parser_test test
   tint_lang_core
   tint_lang_core_constant
   tint_lang_core_type
-  tint_lang_spirv_reader_common
   tint_lang_wgsl
   tint_lang_wgsl_ast
   tint_lang_wgsl_common
   tint_lang_wgsl_features
   tint_lang_wgsl_program
   tint_lang_wgsl_sem
+  tint_lang_wgsl_writer_ir_to_program
   tint_utils_containers
   tint_utils_diagnostic
   tint_utils_generator
@@ -179,11 +184,13 @@ tint_target_add_dependencies(tint_lang_spirv_reader_ast_parser_test test
 
 tint_target_add_external_dependencies(tint_lang_spirv_reader_ast_parser_test test
   "gtest"
+  "src_utils"
 )
 
 if(TINT_BUILD_SPV_READER)
   tint_target_add_dependencies(tint_lang_spirv_reader_ast_parser_test test
     tint_lang_spirv_reader_ast_parser
+    tint_lang_spirv_reader_common
   )
 endif(TINT_BUILD_SPV_READER)
 
@@ -197,6 +204,7 @@ endif(TINT_BUILD_SPV_READER OR TINT_BUILD_SPV_WRITER)
 
 if(TINT_BUILD_WGSL_WRITER)
   tint_target_add_dependencies(tint_lang_spirv_reader_ast_parser_test test
+    tint_lang_wgsl_writer
     tint_lang_wgsl_writer_ast_printer
   )
 endif(TINT_BUILD_WGSL_WRITER)

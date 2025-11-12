@@ -25,13 +25,15 @@
 // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+#include <webgpu/webgpu_cpp.h>
+
 #include <memory>
 #include <utility>
 
 #include "dawn/common/GPUInfo.h"
+#include "dawn/common/StringViewUtils.h"
 #include "dawn/dawn_proc.h"
 #include "dawn/native/DawnNative.h"
-#include "dawn/webgpu_cpp.h"
 
 #if defined(DAWN_ENABLE_BACKEND_VULKAN)
 #include "dawn/native/VulkanBackend.h"
@@ -44,10 +46,6 @@
 #if defined(DAWN_ENABLE_BACKEND_D3D12)
 #include "dawn/native/D3D12Backend.h"
 #endif  // defined(DAWN_ENABLE_BACKEND_D3D12)
-
-#if defined(DAWN_ENABLE_BACKEND_METAL)
-#include "dawn/native/MetalBackend.h"
-#endif  // defined(DAWN_ENABLE_BACKEND_METAL)
 
 #if defined(DAWN_ENABLE_BACKEND_OPENGL)
 #include "dawn/native/OpenGLBackend.h"
@@ -71,12 +69,12 @@ TEST_F(AdapterEnumerationTests, OnlyFallback) {
 
     const auto& adapters = instance.EnumerateAdapters(&adapterOptions);
     for (const auto& adapter : adapters) {
-        wgpu::AdapterProperties properties;
-        adapter.GetProperties(&properties);
+        wgpu::AdapterInfo info;
+        adapter.GetInfo(&info);
 
-        EXPECT_EQ(properties.backendType, wgpu::BackendType::Vulkan);
-        EXPECT_EQ(properties.adapterType, wgpu::AdapterType::CPU);
-        EXPECT_TRUE(gpu_info::IsGoogleSwiftshader(properties.vendorID, properties.deviceID));
+        EXPECT_EQ(info.backendType, wgpu::BackendType::Vulkan);
+        EXPECT_EQ(info.adapterType, wgpu::AdapterType::CPU);
+        EXPECT_TRUE(gpu_info::IsGoogleSwiftshader(info.vendorID, info.deviceID));
     }
 }
 
@@ -89,10 +87,10 @@ TEST_F(AdapterEnumerationTests, OnlyVulkan) {
 
     const auto& adapters = instance.EnumerateAdapters(&adapterOptions);
     for (const auto& adapter : adapters) {
-        wgpu::AdapterProperties properties;
-        adapter.GetProperties(&properties);
+        wgpu::AdapterInfo info;
+        adapter.GetInfo(&info);
 
-        EXPECT_EQ(properties.backendType, wgpu::BackendType::Vulkan);
+        EXPECT_EQ(info.backendType, wgpu::BackendType::Vulkan);
     }
 }
 
@@ -105,10 +103,10 @@ TEST_F(AdapterEnumerationTests, OnlyD3D11) {
 
     const auto& adapters = instance.EnumerateAdapters(&adapterOptions);
     for (const auto& adapter : adapters) {
-        wgpu::AdapterProperties properties;
-        adapter.GetProperties(&properties);
+        wgpu::AdapterInfo info;
+        adapter.GetInfo(&info);
 
-        EXPECT_EQ(properties.backendType, wgpu::BackendType::D3D11);
+        EXPECT_EQ(info.backendType, wgpu::BackendType::D3D11);
     }
 }
 
@@ -146,26 +144,26 @@ TEST_F(AdapterEnumerationTests, MatchingDXGIAdapterD3D11) {
         }
         ASSERT_EQ(adapters.size(), 1u);
 
-        wgpu::AdapterProperties properties;
-        adapters[0].GetProperties(&properties);
-        EXPECT_EQ(properties.backendType, wgpu::BackendType::D3D11);
+        wgpu::AdapterInfo info;
+        adapters[0].GetInfo(&info);
+        EXPECT_EQ(info.backendType, wgpu::BackendType::D3D11);
 
         // Test that enumeration again yields the same adapter device.
         const auto& adaptersAgain = instance.EnumerateAdapters(&adapterOptions);
         ASSERT_EQ(adaptersAgain.size(), 1u);
 
-        wgpu::AdapterProperties propertiesAgain;
-        adaptersAgain[0].GetProperties(&propertiesAgain);
+        wgpu::AdapterInfo infoAgain;
+        adaptersAgain[0].GetInfo(&infoAgain);
 
-        EXPECT_EQ(properties.vendorID, propertiesAgain.vendorID);
-        EXPECT_STREQ(properties.vendorName, propertiesAgain.vendorName);
-        EXPECT_STREQ(properties.architecture, propertiesAgain.architecture);
-        EXPECT_EQ(properties.deviceID, propertiesAgain.deviceID);
-        EXPECT_STREQ(properties.name, propertiesAgain.name);
-        EXPECT_STREQ(properties.driverDescription, propertiesAgain.driverDescription);
-        EXPECT_EQ(properties.adapterType, propertiesAgain.adapterType);
-        EXPECT_EQ(properties.backendType, propertiesAgain.backendType);
-        EXPECT_EQ(properties.compatibilityMode, propertiesAgain.compatibilityMode);
+        EXPECT_EQ(info.vendor, infoAgain.vendor);
+        EXPECT_EQ(info.architecture, infoAgain.architecture);
+        EXPECT_EQ(info.device, infoAgain.device);
+        EXPECT_EQ(info.description, infoAgain.description);
+        EXPECT_EQ(info.backendType, infoAgain.backendType);
+        EXPECT_EQ(info.adapterType, infoAgain.adapterType);
+        EXPECT_EQ(info.vendorID, infoAgain.vendorID);
+        EXPECT_EQ(info.deviceID, infoAgain.deviceID);
+        EXPECT_EQ(info.compatibilityMode, infoAgain.compatibilityMode);
     }
 }
 #endif  // defined(DAWN_ENABLE_BACKEND_D3D11)
@@ -179,10 +177,10 @@ TEST_F(AdapterEnumerationTests, OnlyD3D12) {
 
     const auto& adapters = instance.EnumerateAdapters(&adapterOptions);
     for (const auto& adapter : adapters) {
-        wgpu::AdapterProperties properties;
-        adapter.GetProperties(&properties);
+        wgpu::AdapterInfo info;
+        adapter.GetInfo(&info);
 
-        EXPECT_EQ(properties.backendType, wgpu::BackendType::D3D12);
+        EXPECT_EQ(info.backendType, wgpu::BackendType::D3D12);
     }
 }
 
@@ -220,26 +218,26 @@ TEST_F(AdapterEnumerationTests, MatchingDXGIAdapterD3D12) {
         }
         ASSERT_EQ(adapters.size(), 1u);
 
-        wgpu::AdapterProperties properties;
-        adapters[0].GetProperties(&properties);
-        EXPECT_EQ(properties.backendType, wgpu::BackendType::D3D12);
+        wgpu::AdapterInfo info;
+        adapters[0].GetInfo(&info);
+        EXPECT_EQ(info.backendType, wgpu::BackendType::D3D12);
 
         // Test that enumeration again yields the same adapter device.
         const auto& adaptersAgain = instance.EnumerateAdapters(&adapterOptions);
         ASSERT_EQ(adaptersAgain.size(), 1u);
 
-        wgpu::AdapterProperties propertiesAgain;
-        adaptersAgain[0].GetProperties(&propertiesAgain);
+        wgpu::AdapterInfo infoAgain;
+        adaptersAgain[0].GetInfo(&infoAgain);
 
-        EXPECT_EQ(properties.vendorID, propertiesAgain.vendorID);
-        EXPECT_STREQ(properties.vendorName, propertiesAgain.vendorName);
-        EXPECT_STREQ(properties.architecture, propertiesAgain.architecture);
-        EXPECT_EQ(properties.deviceID, propertiesAgain.deviceID);
-        EXPECT_STREQ(properties.name, propertiesAgain.name);
-        EXPECT_STREQ(properties.driverDescription, propertiesAgain.driverDescription);
-        EXPECT_EQ(properties.adapterType, propertiesAgain.adapterType);
-        EXPECT_EQ(properties.backendType, propertiesAgain.backendType);
-        EXPECT_EQ(properties.compatibilityMode, propertiesAgain.compatibilityMode);
+        EXPECT_EQ(info.vendor, infoAgain.vendor);
+        EXPECT_EQ(info.architecture, infoAgain.architecture);
+        EXPECT_EQ(info.device, infoAgain.device);
+        EXPECT_EQ(info.description, infoAgain.description);
+        EXPECT_EQ(info.backendType, infoAgain.backendType);
+        EXPECT_EQ(info.adapterType, infoAgain.adapterType);
+        EXPECT_EQ(info.vendorID, infoAgain.vendorID);
+        EXPECT_EQ(info.deviceID, infoAgain.deviceID);
+        EXPECT_EQ(info.compatibilityMode, infoAgain.compatibilityMode);
     }
 }
 #endif  // defined(DAWN_ENABLE_BACKEND_D3D12)
@@ -253,10 +251,10 @@ TEST_F(AdapterEnumerationTests, OnlyMetal) {
 
     const auto& adapters = instance.EnumerateAdapters(&adapterOptions);
     for (const auto& adapter : adapters) {
-        wgpu::AdapterProperties properties;
-        adapter.GetProperties(&properties);
+        wgpu::AdapterInfo info;
+        adapter.GetInfo(&info);
 
-        EXPECT_EQ(properties.backendType, wgpu::BackendType::Metal);
+        EXPECT_EQ(info.backendType, wgpu::BackendType::Metal);
     }
 }
 
@@ -274,10 +272,10 @@ TEST_F(AdapterEnumerationTests, OneBackendThenTheOther) {
         const auto& adapters = instance.EnumerateAdapters(&adapterOptions);
         metalAdapterCount = adapters.size();
         for (const auto& adapter : adapters) {
-            wgpu::AdapterProperties properties;
-            adapter.GetProperties(&properties);
+            wgpu::AdapterInfo info;
+            adapter.GetInfo(&info);
 
-            ASSERT_EQ(properties.backendType, wgpu::BackendType::Metal);
+            ASSERT_EQ(info.backendType, wgpu::BackendType::Metal);
         }
     }
     // Enumerate vulkan adapters. We should only see vulkan adapters.
@@ -286,10 +284,10 @@ TEST_F(AdapterEnumerationTests, OneBackendThenTheOther) {
 
         const auto& adapters = instance.EnumerateAdapters(&adapterOptions);
         for (const auto& adapter : adapters) {
-            wgpu::AdapterProperties properties;
-            adapter.GetProperties(&properties);
+            wgpu::AdapterInfo info;
+            adapter.GetInfo(&info);
 
-            ASSERT_EQ(properties.backendType, wgpu::BackendType::Vulkan);
+            ASSERT_EQ(info.backendType, wgpu::BackendType::Vulkan);
         }
     }
 
@@ -300,10 +298,10 @@ TEST_F(AdapterEnumerationTests, OneBackendThenTheOther) {
         const auto& adapters = instance.EnumerateAdapters(&adapterOptions);
         uint32_t metalAdapterCount2 = adapters.size();
         for (const auto& adapter : adapters) {
-            wgpu::AdapterProperties properties;
-            adapter.GetProperties(&properties);
+            wgpu::AdapterInfo info;
+            adapter.GetInfo(&info);
 
-            ASSERT_EQ(properties.backendType, wgpu::BackendType::Metal);
+            ASSERT_EQ(info.backendType, wgpu::BackendType::Metal);
         }
         EXPECT_EQ(metalAdapterCount, metalAdapterCount2);
     }

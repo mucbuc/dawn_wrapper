@@ -29,24 +29,25 @@
 #define SRC_DAWN_NATIVE_OPENGL_DEVICEGL_H_
 
 #include <memory>
+#include <vector>
 
 #include "dawn/native/dawn_platform.h"
 
 #include "dawn/common/Platform.h"
 #include "dawn/native/Device.h"
 #include "dawn/native/QuerySet.h"
+#include "dawn/native/opengl/EGLFunctions.h"
 #include "dawn/native/opengl/Forward.h"
 #include "dawn/native/opengl/GLFormat.h"
 #include "dawn/native/opengl/OpenGLFunctions.h"
 
-// Remove windows.h macros after glad's include of windows.h
-#if DAWN_PLATFORM_IS(WINDOWS)
-#include "dawn/common/windows_with_undefs.h"
-#endif
-
-using EGLImage = void*;
+namespace dawn::native {
+class AHBFunctions;
+}  // namespace dawn::native
 
 namespace dawn::native::opengl {
+
+class ContextEGL;
 
 class Device final : public DeviceBase {
   public:
@@ -54,23 +55,30 @@ class Device final : public DeviceBase {
     static ResultOrError<Ref<Device>> Create(AdapterBase* adapter,
                                              const UnpackedPtr<DeviceDescriptor>& descriptor,
                                              const OpenGLFunctions& functions,
-                                             std::unique_ptr<Context> context,
-                                             const TogglesState& deviceToggles);
+                                             std::unique_ptr<ContextEGL> context,
+                                             const TogglesState& deviceToggles,
+                                             Ref<DeviceBase::DeviceLostEvent>&& lostEvent);
     ~Device() override;
 
     MaybeError Initialize(const UnpackedPtr<DeviceDescriptor>& descriptor);
 
-    // Returns all the OpenGL entry points and ensures that the associated
-    // Context is current.
+    // Returns all the OpenGL entry points and ensures that the associated GL context is current.
     const OpenGLFunctions& GetGL() const;
+
+    // Helper functions to get access to relevant EGL objects.
+    const EGLFunctions& GetEGL(bool makeCurrent) const;
+    EGLDisplay GetEGLDisplay() const;
+    ContextEGL* GetContext() const;
 
     const GLFormat& GetGLFormat(const Format& format);
 
+    int GetMaxTextureMaxAnisotropy() const;
+
     MaybeError ValidateTextureCanBeWrapped(const UnpackedPtr<TextureDescriptor>& descriptor);
-    TextureBase* CreateTextureWrappingEGLImage(const ExternalImageDescriptor* descriptor,
-                                               ::EGLImage image);
-    TextureBase* CreateTextureWrappingGLTexture(const ExternalImageDescriptor* descriptor,
-                                                GLuint texture);
+    Ref<TextureBase> CreateTextureWrappingEGLImage(const ExternalImageDescriptor* descriptor,
+                                                   ::EGLImage image);
+    Ref<TextureBase> CreateTextureWrappingGLTexture(const ExternalImageDescriptor* descriptor,
+                                                    GLuint texture);
 
     ResultOrError<Ref<CommandBufferBase>> CreateCommandBuffer(
         CommandEncoder* encoder,
@@ -94,18 +102,18 @@ class Device final : public DeviceBase {
 
     float GetTimestampPeriodInNS() const override;
 
-    class Context {
-      public:
-        virtual ~Context() {}
-        virtual void MakeCurrent() = 0;
-    };
+    bool MayRequireDuplicationOfIndirectParameters() const override;
+    bool ShouldApplyIndexBufferOffsetToFirstIndex() const override;
+
+    const AHBFunctions* GetOrLoadAHBFunctions();
 
   private:
     Device(AdapterBase* adapter,
            const UnpackedPtr<DeviceDescriptor>& descriptor,
            const OpenGLFunctions& functions,
-           std::unique_ptr<Context> context,
-           const TogglesState& deviceToggless);
+           std::unique_ptr<ContextEGL> context,
+           const TogglesState& deviceToggles,
+           Ref<DeviceBase::DeviceLostEvent>&& lostEvent);
 
     ResultOrError<Ref<BindGroupBase>> CreateBindGroupImpl(
         const BindGroupDescriptor* descriptor) override;
@@ -120,24 +128,26 @@ class Device final : public DeviceBase {
     ResultOrError<Ref<SamplerBase>> CreateSamplerImpl(const SamplerDescriptor* descriptor) override;
     ResultOrError<Ref<ShaderModuleBase>> CreateShaderModuleImpl(
         const UnpackedPtr<ShaderModuleDescriptor>& descriptor,
+        const std::vector<tint::wgsl::Extension>& internalExtensions,
         ShaderModuleParseResult* parseResult,
         OwnedCompilationMessages* compilationMessages) override;
     ResultOrError<Ref<SwapChainBase>> CreateSwapChainImpl(
         Surface* surface,
         SwapChainBase* previousSwapChain,
-        const SwapChainDescriptor* descriptor) override;
+        const SurfaceConfiguration* config) override;
     ResultOrError<Ref<TextureBase>> CreateTextureImpl(
         const UnpackedPtr<TextureDescriptor>& descriptor) override;
     ResultOrError<Ref<TextureViewBase>> CreateTextureViewImpl(
         TextureBase* texture,
-        const TextureViewDescriptor* descriptor) override;
+        const UnpackedPtr<TextureViewDescriptor>& descriptor) override;
     Ref<ComputePipelineBase> CreateUninitializedComputePipelineImpl(
         const UnpackedPtr<ComputePipelineDescriptor>& descriptor) override;
     Ref<RenderPipelineBase> CreateUninitializedRenderPipelineImpl(
         const UnpackedPtr<RenderPipelineDescriptor>& descriptor) override;
-
-    ResultOrError<wgpu::TextureUsage> GetSupportedSurfaceUsageImpl(
-        const Surface* surface) const override;
+    ResultOrError<Ref<SharedTextureMemoryBase>> ImportSharedTextureMemoryImpl(
+        const SharedTextureMemoryDescriptor* descriptor) override;
+    ResultOrError<Ref<SharedFenceBase>> ImportSharedFenceImpl(
+        const SharedFenceDescriptor* descriptor) override;
 
     GLenum GetBGRAInternalFormat(const OpenGLFunctions& gl) const;
     void DestroyImpl() override;
@@ -145,7 +155,12 @@ class Device final : public DeviceBase {
     const OpenGLFunctions mGL;
 
     GLFormatTable mFormatTable;
-    std::unique_ptr<Context> mContext = nullptr;
+    std::unique_ptr<ContextEGL> mContext;
+    int mMaxTextureMaxAnisotropy = 0;
+
+#if DAWN_PLATFORM_IS(ANDROID)
+    std::unique_ptr<AHBFunctions> mAHBFunctions;
+#endif  // DAWN_PLATFORM_IS(ANDROID)
 };
 
 }  // namespace dawn::native::opengl

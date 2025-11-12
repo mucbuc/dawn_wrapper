@@ -51,10 +51,11 @@
 #include "src/tint/lang/spirv/writer/raise/handle_matrix_arithmetic.h"
 #include "src/tint/lang/spirv/writer/raise/merge_return.h"
 #include "src/tint/lang/spirv/writer/raise/pass_matrix_by_pointer.h"
+#include "src/tint/lang/spirv/writer/raise/remove_unreachable_in_loop_continuing.h"
 #include "src/tint/lang/spirv/writer/raise/shader_io.h"
 #include "src/tint/lang/spirv/writer/raise/var_for_dynamic_index.h"
 
-namespace tint::spirv::writer::raise {
+namespace tint::spirv::writer {
 
 Result<SuccessType> Raise(core::ir::Module& module, const Options& options) {
 #define RUN_TRANSFORM(name, ...)         \
@@ -65,15 +66,15 @@ Result<SuccessType> Raise(core::ir::Module& module, const Options& options) {
         }                                \
     } while (false)
 
-    ExternalTextureOptions external_texture_options{};
+    tint::transform::multiplanar::BindingsMap multiplanar_map{};
     RemapperData remapper_data{};
-    PopulateRemapperAndMultiplanarOptions(options, remapper_data, external_texture_options);
+    PopulateRemapperAndMultiplanarOptions(options, remapper_data, multiplanar_map);
 
     RUN_TRANSFORM(core::ir::transform::BindingRemapper, module, remapper_data);
 
     core::ir::transform::BinaryPolyfillConfig binary_polyfills;
     binary_polyfills.bitshift_modulo = true;
-    binary_polyfills.int_div_mod = true;
+    binary_polyfills.int_div_mod = !options.disable_polyfill_integer_div_mod;
     RUN_TRANSFORM(core::ir::transform::BinaryPolyfill, module, binary_polyfills);
 
     core::ir::transform::BuiltinPolyfillConfig core_polyfills;
@@ -86,7 +87,9 @@ Result<SuccessType> Raise(core::ir::Module& module, const Options& options) {
     core_polyfills.insert_bits = core::ir::transform::BuiltinPolyfillLevel::kClampOrRangeCheck;
     core_polyfills.saturate = true;
     core_polyfills.texture_sample_base_clamp_to_edge_2d_f32 = true;
+    core_polyfills.dot_4x8_packed = options.polyfill_dot_4x8_packed;
     core_polyfills.pack_unpack_4x8 = true;
+    core_polyfills.pack_4xu8_clamp = true;
     RUN_TRANSFORM(core::ir::transform::BuiltinPolyfill, module, core_polyfills);
 
     core::ir::transform::ConversionPolyfillConfig conversion_polyfills;
@@ -103,8 +106,7 @@ Result<SuccessType> Raise(core::ir::Module& module, const Options& options) {
         RUN_TRANSFORM(core::ir::transform::Robustness, module, config);
     }
 
-    RUN_TRANSFORM(core::ir::transform::MultiplanarExternalTexture, module,
-                  external_texture_options);
+    RUN_TRANSFORM(core::ir::transform::MultiplanarExternalTexture, module, multiplanar_map);
 
     if (!options.disable_workgroup_init &&
         !options.use_zero_initialize_workgroup_memory_extension) {
@@ -121,7 +123,7 @@ Result<SuccessType> Raise(core::ir::Module& module, const Options& options) {
 
     if (options.pass_matrix_by_pointer) {
         // PassMatrixByPointer must come after PreservePadding+DirectVariableAccess.
-        RUN_TRANSFORM(PassMatrixByPointer, module);
+        RUN_TRANSFORM(raise::PassMatrixByPointer, module);
     }
 
     RUN_TRANSFORM(core::ir::transform::AddEmptyEntryPoint, module);
@@ -137,16 +139,18 @@ Result<SuccessType> Raise(core::ir::Module& module, const Options& options) {
     // DemoteToHelper must come before any transform that introduces non-core instructions.
     RUN_TRANSFORM(core::ir::transform::DemoteToHelper, module);
 
-    RUN_TRANSFORM(BuiltinPolyfill, module);
-    RUN_TRANSFORM(ExpandImplicitSplats, module);
-    RUN_TRANSFORM(HandleMatrixArithmetic, module);
-    RUN_TRANSFORM(MergeReturn, module);
-    RUN_TRANSFORM(ShaderIO, module,
-                  ShaderIOConfig{options.clamp_frag_depth, options.emit_vertex_point_size});
+    RUN_TRANSFORM(raise::BuiltinPolyfill, module, options.use_vulkan_memory_model);
+    RUN_TRANSFORM(raise::ExpandImplicitSplats, module);
+    RUN_TRANSFORM(raise::HandleMatrixArithmetic, module);
+    RUN_TRANSFORM(raise::MergeReturn, module);
+    RUN_TRANSFORM(raise::RemoveUnreachableInLoopContinuing, module);
+    RUN_TRANSFORM(raise::ShaderIO, module,
+                  raise::ShaderIOConfig{options.clamp_frag_depth, options.emit_vertex_point_size,
+                                        !options.use_storage_input_output_16});
     RUN_TRANSFORM(core::ir::transform::Std140, module);
-    RUN_TRANSFORM(VarForDynamicIndex, module);
+    RUN_TRANSFORM(raise::VarForDynamicIndex, module);
 
     return Success;
 }
 
-}  // namespace tint::spirv::writer::raise
+}  // namespace tint::spirv::writer

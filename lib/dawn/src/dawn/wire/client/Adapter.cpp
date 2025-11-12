@@ -27,26 +27,122 @@
 
 #include "dawn/wire/client/Adapter.h"
 
+#include <memory>
+#include <string>
+#include <utility>
+
+#include "absl/types/span.h"  // TODO(343500108): Use std::span when we have C++20.
 #include "dawn/common/Log.h"
+#include "dawn/common/StringViewUtils.h"
 #include "dawn/wire/client/Client.h"
+#include "dawn/wire/client/webgpu.h"
+#include "partition_alloc/pointers/raw_ptr.h"
 
 namespace dawn::wire::client {
+namespace {
 
-Adapter::~Adapter() {
-    mRequestDeviceRequests.CloseAll([](RequestDeviceData* request) {
-        request->callback(WGPURequestDeviceStatus_Unknown, nullptr,
-                          "Adapter destroyed before callback", request->userdata);
-    });
+class RequestDeviceEvent : public TrackedEvent {
+  public:
+    static constexpr EventType kType = EventType::RequestDevice;
+
+    RequestDeviceEvent(const WGPURequestDeviceCallbackInfo& callbackInfo, Ref<Device> device)
+        : TrackedEvent(callbackInfo.mode),
+          mCallback(callbackInfo.callback),
+          mUserdata1(callbackInfo.userdata),
+          mDevice(std::move(device)) {}
+
+    RequestDeviceEvent(const WGPURequestDeviceCallbackInfo2& callbackInfo, Ref<Device> device)
+        : TrackedEvent(callbackInfo.mode),
+          mCallback2(callbackInfo.callback),
+          mUserdata1(callbackInfo.userdata1),
+          mUserdata2(callbackInfo.userdata2),
+          mDevice(std::move(device)) {}
+
+    EventType GetType() override { return kType; }
+
+    WireResult ReadyHook(FutureID futureID,
+                         WGPURequestDeviceStatus status,
+                         WGPUStringView message,
+                         const WGPUSupportedLimits* limits,
+                         uint32_t featuresCount,
+                         const WGPUFeatureName* features) {
+        DAWN_ASSERT(mDevice != nullptr);
+        mStatus = status;
+        mMessage = ToString(message);
+        if (status == WGPURequestDeviceStatus_Success) {
+            mDevice->SetLimits(limits);
+            mDevice->SetFeatures(features, featuresCount);
+        }
+        return WireResult::Success;
+    }
+
+  private:
+    void CompleteImpl(FutureID futureID, EventCompletionType completionType) override {
+        if (completionType == EventCompletionType::Shutdown) {
+            mStatus = WGPURequestDeviceStatus_InstanceDropped;
+            mMessage = "A valid external Instance reference no longer exists.";
+        }
+
+        // Callback needs to happen before device lost handling to ensure resolution order.
+        if (mCallback) {
+            Ref<Device> device = mDevice;
+            mCallback(mStatus,
+                      mStatus == WGPURequestDeviceStatus_Success ? ReturnToAPI(std::move(device))
+                                                                 : nullptr,
+                      ToOutputStringView(mMessage), mUserdata1.ExtractAsDangling());
+        } else if (mCallback2) {
+            Ref<Device> device = mDevice;
+            mCallback2(mStatus,
+                       mStatus == WGPURequestDeviceStatus_Success ? ReturnToAPI(std::move(device))
+                                                                  : nullptr,
+                       ToOutputStringView(mMessage), mUserdata1.ExtractAsDangling(),
+                       mUserdata2.ExtractAsDangling());
+        }
+
+        if (mStatus != WGPURequestDeviceStatus_Success) {
+            // If there was an error and we didn't return a device, we need to call the device lost
+            // callback and reclaim the device allocation.
+            if (mStatus == WGPURequestDeviceStatus_InstanceDropped) {
+                mDevice->HandleDeviceLost(
+                    WGPUDeviceLostReason_InstanceDropped,
+                    ToOutputStringView("A valid external Instance reference no longer exists."));
+            } else {
+                mDevice->HandleDeviceLost(WGPUDeviceLostReason_FailedCreation,
+                                          ToOutputStringView("Device failed at creation."));
+            }
+        }
+
+        if (mCallback == nullptr && mCallback2 == nullptr) {
+            // If there's no callback, clean up the resources.
+            mUserdata1.ExtractAsDangling();
+            mUserdata2.ExtractAsDangling();
+        }
+    }
+
+    WGPURequestDeviceCallback mCallback = nullptr;
+    WGPURequestDeviceCallback2 mCallback2 = nullptr;
+    raw_ptr<void> mUserdata1;
+    raw_ptr<void> mUserdata2;
+
+    // Note that the message is optional because we want to return nullptr when it wasn't set
+    // instead of a pointer to an empty string.
+    WGPURequestDeviceStatus mStatus;
+    std::string mMessage;
+
+    // The device is created when we call RequestDevice(F). It is guaranteed to be alive
+    // throughout the duration of a RequestDeviceEvent because the Event essentially takes
+    // ownership of it until either an error occurs at which point the Event cleans it up, or it
+    // returns the device to the user who then takes ownership as the Event goes away.
+    Ref<Device> mDevice;
+};
+
+}  // anonymous namespace
+
+ObjectType Adapter::GetObjectType() const {
+    return ObjectType::Adapter;
 }
 
-void Adapter::CancelCallbacksForDisconnect() {
-    mRequestDeviceRequests.CloseAll([](RequestDeviceData* request) {
-        request->callback(WGPURequestDeviceStatus_Unknown, nullptr, "GPU connection lost",
-                          request->userdata);
-    });
-}
-
-bool Adapter::GetLimits(WGPUSupportedLimits* limits) const {
+WGPUStatus Adapter::GetLimits(WGPUSupportedLimits* limits) const {
     return mLimitsAndFeatures.GetLimits(limits);
 }
 
@@ -58,6 +154,10 @@ size_t Adapter::EnumerateFeatures(WGPUFeatureName* features) const {
     return mLimitsAndFeatures.EnumerateFeatures(features);
 }
 
+void Adapter::GetFeatures(WGPUSupportedFeatures* features) const {
+    mLimitsAndFeatures.ToSupportedFeatures(features);
+}
+
 void Adapter::SetLimits(const WGPUSupportedLimits* limits) {
     return mLimitsAndFeatures.SetLimits(limits);
 }
@@ -66,12 +166,23 @@ void Adapter::SetFeatures(const WGPUFeatureName* features, uint32_t featuresCoun
     return mLimitsAndFeatures.SetFeatures(features, featuresCount);
 }
 
-void Adapter::SetProperties(const WGPUAdapterProperties* properties) {
-    mProperties = *properties;
-    mProperties.nextInChain = nullptr;
+void Adapter::SetInfo(const WGPUAdapterInfo* info) {
+    mInfo = *info;
+
+    // Deep copy the string pointed out by info. StringViews are all explicitly sized by the wire.
+    mVendor = ToString(info->vendor);
+    mInfo.vendor = ToOutputStringView(mVendor);
+    mArchitecture = ToString(info->architecture);
+    mInfo.architecture = ToOutputStringView(mArchitecture);
+    mDeviceName = ToString(info->device);
+    mInfo.device = ToOutputStringView(mDeviceName);
+    mDescription = ToString(info->description);
+    mInfo.description = ToOutputStringView(mDescription);
+
+    mInfo.nextInChain = nullptr;
 
     // Loop through the chained struct.
-    WGPUChainedStructOut* chain = properties->nextInChain;
+    WGPUChainedStructOut* chain = info->nextInChain;
     while (chain != nullptr) {
         switch (chain->sType) {
             case WGPUSType_AdapterPropertiesMemoryHeaps: {
@@ -83,6 +194,16 @@ void Adapter::SetProperties(const WGPUAdapterProperties* properties) {
                     memoryHeapProperties->heapInfo + memoryHeapProperties->heapCount};
                 break;
             }
+            case WGPUSType_AdapterPropertiesD3D: {
+                auto* d3dProperties = reinterpret_cast<WGPUAdapterPropertiesD3D*>(chain);
+                mD3DProperties.shaderModel = d3dProperties->shaderModel;
+                break;
+            }
+            case WGPUSType_AdapterPropertiesVk: {
+                auto* vkProperties = reinterpret_cast<WGPUAdapterPropertiesVk*>(chain);
+                mVkProperties.driverVersion = vkProperties->driverVersion;
+                break;
+            }
             default:
                 DAWN_UNREACHABLE();
                 break;
@@ -91,9 +212,9 @@ void Adapter::SetProperties(const WGPUAdapterProperties* properties) {
     }
 }
 
-void Adapter::GetProperties(WGPUAdapterProperties* properties) const {
+WGPUStatus Adapter::GetInfo(WGPUAdapterInfo* info) const {
     // Loop through the chained struct.
-    WGPUChainedStructOut* chain = properties->nextInChain;
+    WGPUChainedStructOut* chain = info->nextInChain;
     while (chain != nullptr) {
         switch (chain->sType) {
             case WGPUSType_AdapterPropertiesMemoryHeaps: {
@@ -108,124 +229,137 @@ void Adapter::GetProperties(WGPUAdapterProperties* properties) const {
                 memoryHeapProperties->heapInfo = heapInfo;
                 break;
             }
+            case WGPUSType_AdapterPropertiesD3D: {
+                auto* d3dProperties = reinterpret_cast<WGPUAdapterPropertiesD3D*>(chain);
+                d3dProperties->shaderModel = mD3DProperties.shaderModel;
+                break;
+            }
+            case WGPUSType_AdapterPropertiesVk: {
+                auto* vkProperties = reinterpret_cast<WGPUAdapterPropertiesVk*>(chain);
+                vkProperties->driverVersion = mVkProperties.driverVersion;
+                break;
+            }
             default:
                 break;
         }
         chain = chain->next;
     }
 
-    *properties = mProperties;
-
-    // Get lengths, with null terminators.
-    size_t vendorNameCLen = strlen(mProperties.vendorName) + 1;
-    size_t architectureCLen = strlen(mProperties.architecture) + 1;
-    size_t nameCLen = strlen(mProperties.name) + 1;
-    size_t driverDescriptionCLen = strlen(mProperties.driverDescription) + 1;
+    *info = mInfo;
 
     // Allocate space for all strings.
-    char* ptr = new char[vendorNameCLen + architectureCLen + nameCLen + driverDescriptionCLen];
+    size_t allocSize =
+        mVendor.length() + mArchitecture.length() + mDeviceName.length() + mDescription.length();
+    absl::Span<char> outBuffer{new char[allocSize], allocSize};
 
-    properties->vendorName = ptr;
-    memcpy(ptr, mProperties.vendorName, vendorNameCLen);
-    ptr += vendorNameCLen;
+    auto AddString = [&](const std::string& in, WGPUStringView* out) {
+        DAWN_ASSERT(in.length() <= outBuffer.length());
+        memcpy(outBuffer.data(), in.data(), in.length());
+        *out = {outBuffer.data(), in.length()};
+        outBuffer = outBuffer.subspan(in.length());
+    };
 
-    properties->architecture = ptr;
-    memcpy(ptr, mProperties.architecture, architectureCLen);
-    ptr += architectureCLen;
+    AddString(mVendor, &info->vendor);
+    AddString(mArchitecture, &info->architecture);
+    AddString(mDeviceName, &info->device);
+    AddString(mDescription, &info->description);
+    DAWN_ASSERT(outBuffer.empty());
 
-    properties->name = ptr;
-    memcpy(ptr, mProperties.name, nameCLen);
-    ptr += nameCLen;
-
-    properties->driverDescription = ptr;
-    memcpy(ptr, mProperties.driverDescription, driverDescriptionCLen);
-    ptr += driverDescriptionCLen;
-}
-
-void ClientAdapterPropertiesFreeMembers(WGPUAdapterProperties properties) {
-    // This single delete is enough because everything is a single allocation.
-    delete[] properties.vendorName;
-}
-
-void ClientAdapterPropertiesMemoryHeapsFreeMembers(
-    WGPUAdapterPropertiesMemoryHeaps memoryHeapProperties) {
-    delete[] memoryHeapProperties.heapInfo;
+    return WGPUStatus_Success;
 }
 
 void Adapter::RequestDevice(const WGPUDeviceDescriptor* descriptor,
                             WGPURequestDeviceCallback callback,
                             void* userdata) {
+    WGPURequestDeviceCallbackInfo callbackInfo = {};
+    callbackInfo.mode = WGPUCallbackMode_AllowSpontaneous;
+    callbackInfo.callback = callback;
+    callbackInfo.userdata = userdata;
+    RequestDeviceF(descriptor, callbackInfo);
+}
+
+WGPUFuture Adapter::RequestDeviceF(const WGPUDeviceDescriptor* descriptor,
+                                   const WGPURequestDeviceCallbackInfo& callbackInfo) {
     Client* client = GetClient();
-    if (client->IsDisconnected()) {
-        callback(WGPURequestDeviceStatus_Error, nullptr, "GPU connection lost", userdata);
-        return;
+    Ref<Device> device = client->Make<Device>(GetEventManagerHandle(), this, descriptor);
+    auto [futureIDInternal, tracked] =
+        GetEventManager().TrackEvent(std::make_unique<RequestDeviceEvent>(callbackInfo, device));
+    if (!tracked) {
+        return {futureIDInternal};
     }
 
-    // The descriptor is passed so that the deviceLostCallback can be tracked client-side and called
-    // when the device is lost.
-    Device* device = client->Make<Device>(descriptor);
-    uint64_t serial = mRequestDeviceRequests.Add({callback, device->GetWireId(), userdata});
-
-    // Ensure the device lost callback isn't serialized as part of the command, as it cannot be
-    // passed between processes.
+    // Ensure callbacks are not serialized as part of the command, as they cannot be passed between
+    // processes.
     WGPUDeviceDescriptor wireDescriptor = {};
     if (descriptor) {
         wireDescriptor = *descriptor;
         wireDescriptor.deviceLostCallback = nullptr;
         wireDescriptor.deviceLostUserdata = nullptr;
+        wireDescriptor.deviceLostCallbackInfo.callback = nullptr;
+        wireDescriptor.deviceLostCallbackInfo.userdata = nullptr;
+        wireDescriptor.uncapturedErrorCallbackInfo.callback = nullptr;
+        wireDescriptor.uncapturedErrorCallbackInfo.userdata = nullptr;
     }
 
     AdapterRequestDeviceCmd cmd;
     cmd.adapterId = GetWireId();
-    cmd.requestSerial = serial;
+    cmd.eventManagerHandle = GetEventManagerHandle();
+    cmd.future = {futureIDInternal};
     cmd.deviceObjectHandle = device->GetWireHandle();
+    cmd.deviceLostFuture = device->GetDeviceLostFuture();
     cmd.descriptor = &wireDescriptor;
+    cmd.userdataCount = 1;
 
     client->SerializeCommand(cmd);
+    return {futureIDInternal};
 }
 
-bool Client::DoAdapterRequestDeviceCallback(Adapter* adapter,
-                                            uint64_t requestSerial,
-                                            WGPURequestDeviceStatus status,
-                                            const char* message,
-                                            const WGPUSupportedLimits* limits,
-                                            uint32_t featuresCount,
-                                            const WGPUFeatureName* features) {
-    // May have been deleted or recreated so this isn't an error.
-    if (adapter == nullptr) {
-        return true;
-    }
-    return adapter->OnRequestDeviceCallback(requestSerial, status, message, limits, featuresCount,
-                                            features);
-}
-
-bool Adapter::OnRequestDeviceCallback(uint64_t requestSerial,
-                                      WGPURequestDeviceStatus status,
-                                      const char* message,
-                                      const WGPUSupportedLimits* limits,
-                                      uint32_t featuresCount,
-                                      const WGPUFeatureName* features) {
-    RequestDeviceData request;
-    if (!mRequestDeviceRequests.Acquire(requestSerial, &request)) {
-        return false;
-    }
-
+WGPUFuture Adapter::RequestDevice2(const WGPUDeviceDescriptor* descriptor,
+                                   const WGPURequestDeviceCallbackInfo2& callbackInfo) {
     Client* client = GetClient();
-    Device* device = client->Get<Device>(request.deviceObjectId);
-
-    // If the return status is a failure we should give a null device to the callback and
-    // free the allocation.
-    if (status != WGPURequestDeviceStatus_Success) {
-        client->Free(device);
-        request.callback(status, nullptr, message, request.userdata);
-        return true;
+    Ref<Device> device = client->Make<Device>(GetEventManagerHandle(), this, descriptor);
+    auto [futureIDInternal, tracked] =
+        GetEventManager().TrackEvent(std::make_unique<RequestDeviceEvent>(callbackInfo, device));
+    if (!tracked) {
+        return {futureIDInternal};
     }
 
-    device->SetLimits(limits);
-    device->SetFeatures(features, featuresCount);
+    // Ensure callbacks are not serialized as part of the command, as they cannot be passed between
+    // processes.
+    WGPUDeviceDescriptor wireDescriptor = {};
+    if (descriptor) {
+        wireDescriptor = *descriptor;
+        wireDescriptor.deviceLostCallback = nullptr;
+        wireDescriptor.deviceLostUserdata = nullptr;
+        wireDescriptor.deviceLostCallbackInfo.callback = nullptr;
+        wireDescriptor.deviceLostCallbackInfo.userdata = nullptr;
+        wireDescriptor.uncapturedErrorCallbackInfo.callback = nullptr;
+        wireDescriptor.uncapturedErrorCallbackInfo.userdata = nullptr;
+    }
 
-    request.callback(status, ToAPI(device), message, request.userdata);
-    return true;
+    AdapterRequestDeviceCmd cmd;
+    cmd.adapterId = GetWireId();
+    cmd.eventManagerHandle = GetEventManagerHandle();
+    cmd.future = {futureIDInternal};
+    cmd.deviceObjectHandle = device->GetWireHandle();
+    cmd.deviceLostFuture = device->GetDeviceLostFuture();
+    cmd.descriptor = &wireDescriptor;
+    cmd.userdataCount = 2;
+
+    client->SerializeCommand(cmd);
+    return {futureIDInternal};
+}
+
+WireResult Client::DoAdapterRequestDeviceCallback(ObjectHandle eventManager,
+                                                  WGPUFuture future,
+                                                  WGPURequestDeviceStatus status,
+                                                  WGPUStringView message,
+                                                  const WGPUSupportedLimits* limits,
+                                                  uint32_t featuresCount,
+                                                  const WGPUFeatureName* features) {
+    return GetEventManager(eventManager)
+        .SetFutureReady<RequestDeviceEvent>(future.id, status, message, limits, featuresCount,
+                                            features);
 }
 
 WGPUInstance Adapter::GetInstance() const {
@@ -238,4 +372,30 @@ WGPUDevice Adapter::CreateDevice(const WGPUDeviceDescriptor*) {
     return nullptr;
 }
 
+WGPUStatus Adapter::GetFormatCapabilities(WGPUTextureFormat format,
+                                          WGPUFormatCapabilities* capabilities) {
+    dawn::ErrorLog() << "adapter.GetFormatCapabilities not supported with dawn_wire.";
+    return WGPUStatus_Error;
+}
+
 }  // namespace dawn::wire::client
+
+DAWN_WIRE_EXPORT void wgpuDawnWireClientAdapterInfoFreeMembers(WGPUAdapterInfo info) {
+    // This single delete is enough because everything is a single allocation.
+    delete[] info.vendor.data;
+}
+
+DAWN_WIRE_EXPORT void wgpuDawnWireClientAdapterPropertiesMemoryHeapsFreeMembers(
+    WGPUAdapterPropertiesMemoryHeaps memoryHeapProperties) {
+    delete[] memoryHeapProperties.heapInfo;
+}
+
+DAWN_WIRE_EXPORT void wgpuDawnWireClientDrmFormatCapabilitiesFreeMembers(
+    WGPUDrmFormatCapabilities capabilities) {
+    delete[] capabilities.properties;
+}
+
+DAWN_WIRE_EXPORT void wgpuDawnWireClientSupportedFeaturesFreeMembers(
+    WGPUSupportedFeatures supportedFeatures) {
+    delete[] supportedFeatures.features;
+}

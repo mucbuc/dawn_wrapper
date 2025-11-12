@@ -36,12 +36,13 @@ namespace wgpu::binding {
 ////////////////////////////////////////////////////////////////////////////////
 
 GPUSupportedFeatures::GPUSupportedFeatures(Napi::Env env,
-                                           const std::vector<wgpu::FeatureName>& features) {
+                                           const wgpu::SupportedFeatures& supportedFeatures) {
     Converter conv(env);
 
     // Add all known GPUFeatureNames that are known by dawn.node and skip the other ones are they
     // may be native-only extension, Dawn-specific or other special cases.
-    for (wgpu::FeatureName feature : features) {
+    for (uint32_t i = 0; i < supportedFeatures.featureCount; ++i) {
+        wgpu::FeatureName feature = supportedFeatures.features[i];
         interop::GPUFeatureName gpuFeature;
         if (conv(gpuFeature, feature)) {
             enabled_.emplace(gpuFeature);
@@ -65,6 +66,10 @@ std::vector<std::string> GPUSupportedFeatures::keys(Napi::Env) {
         out.push_back(interop::Converter<interop::GPUFeatureName>::ToString(feature));
     }
     return out;
+}
+
+size_t GPUSupportedFeatures::getSize(Napi::Env) {
+    return enabled_.size();
 }
 
 }  // namespace wgpu::binding

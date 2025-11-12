@@ -32,8 +32,9 @@
 #include <optional>
 #include <utility>
 
+#include "src/tint/lang/core/io_attributes.h"
+#include "src/tint/lang/core/ir/constant.h"
 #include "src/tint/lang/core/ir/function_param.h"
-#include "src/tint/lang/core/ir/location.h"
 #include "src/tint/lang/core/ir/value.h"
 #include "src/tint/lang/core/type/type.h"
 #include "src/tint/utils/containers/const_propagating_ptr.h"
@@ -71,7 +72,7 @@ class Function : public Castable<Function, Value> {
     /// @param wg_size the workgroup_size
     Function(const core::type::Type* rt,
              PipelineStage stage = PipelineStage::kUndefined,
-             std::optional<std::array<uint32_t, 3>> wg_size = {});
+             std::optional<std::array<Value*, 3>> wg_size = {});
     ~Function() override;
 
     /// @copydoc Instruction::Clone()
@@ -88,13 +89,37 @@ class Function : public Castable<Function, Value> {
     /// @param x the x size
     /// @param y the y size
     /// @param z the z size
-    void SetWorkgroupSize(uint32_t x, uint32_t y, uint32_t z) { workgroup_size_ = {x, y, z}; }
+    void SetWorkgroupSize(Value* x, Value* y, Value* z) { workgroup_size_ = {x, y, z}; }
+
+    /// Sets the workgroup size
+    /// @param size the new size
+    void SetWorkgroupSize(std::array<Value*, 3> size) { workgroup_size_ = size; }
 
     /// Clears the workgroup size.
     void ClearWorkgroupSize() { workgroup_size_ = {}; }
 
     /// @returns the workgroup size information
-    std::optional<std::array<uint32_t, 3>> WorkgroupSize() const { return workgroup_size_; }
+    std::optional<std::array<Value*, 3>> WorkgroupSize() const { return workgroup_size_; }
+
+    /// @returns the workgroup size information as `uint32_t` values. Note, this requires the values
+    /// to all be constants.
+    std::optional<std::array<uint32_t, 3>> WorkgroupSizeAsConst() const {
+        if (!workgroup_size_.has_value()) {
+            return std::nullopt;
+        }
+
+        auto& ary = workgroup_size_.value();
+        auto* x = ary[0]->As<core::ir::Constant>();
+        auto* y = ary[1]->As<core::ir::Constant>();
+        auto* z = ary[2]->As<core::ir::Constant>();
+        TINT_ASSERT(x && y && z);
+
+        return {{
+            x->Value()->ValueAs<uint32_t>(),
+            y->Value()->ValueAs<uint32_t>(),
+            z->Value()->ValueAs<uint32_t>(),
+        }};
+    }
 
     /// @param type the return type for the function
     void SetReturnType(const core::type::Type* type) { return_.type = type; }
@@ -102,41 +127,45 @@ class Function : public Castable<Function, Value> {
     /// @returns the return type for the function
     const core::type::Type* ReturnType() const { return return_.type; }
 
+    /// Sets the return IO attributes.
+    /// @param attrs the attributes
+    void SetReturnAttributes(const IOAttributes& attrs) { return_.attributes = attrs; }
+    /// @returns the return IO attributes
+    const IOAttributes& ReturnAttributes() const { return return_.attributes; }
+
     /// Sets the return attributes
     /// @param builtin the builtin to set
     void SetReturnBuiltin(BuiltinValue builtin) {
-        TINT_ASSERT(!return_.builtin.has_value());
-        return_.builtin = builtin;
+        TINT_ASSERT(!return_.attributes.builtin.has_value());
+        return_.attributes.builtin = builtin;
     }
     /// @returns the return builtin attribute
-    std::optional<BuiltinValue> ReturnBuiltin() const { return return_.builtin; }
+    std::optional<BuiltinValue> ReturnBuiltin() const { return return_.attributes.builtin; }
 
-    /// Clears the return builtin attribute.
-    void ClearReturnBuiltin() { return_.builtin = {}; }
-
-    /// Sets the return location
-    /// @param location the location to set
-    void SetReturnLocation(Location location) { return_.location = std::move(location); }
-
-    /// Sets the return location
-    /// @param loc the location to set
-    /// @param interp the interpolation
-    void SetReturnLocation(uint32_t loc, std::optional<core::Interpolation> interp) {
-        return_.location = {loc, interp};
-    }
+    /// Sets the return location.
+    /// @param loc the optional location to set
+    void SetReturnLocation(std::optional<uint32_t> loc) { return_.attributes.location = loc; }
 
     /// @returns the return location
-    std::optional<Location> ReturnLocation() const { return return_.location; }
+    std::optional<uint32_t> ReturnLocation() const { return return_.attributes.location; }
 
-    /// Clears the return location attribute.
-    void ClearReturnLocation() { return_.location = {}; }
+    /// Sets the return interpolation.
+    /// @param interp the optional interpolation
+    void SetReturnInterpolation(std::optional<core::Interpolation> interp) {
+        return_.attributes.interpolation = interp;
+    }
+
+    /// @returns the return interpolation
+    std::optional<Interpolation> ReturnInterpolation() const {
+        return return_.attributes.interpolation;
+    }
 
     /// Sets the return as invariant
     /// @param val the invariant value to set
-    void SetReturnInvariant(bool val) { return_.invariant = val; }
+    void SetReturnInvariant(bool val) { return_.attributes.invariant = val; }
 
     /// @returns the return invariant value
-    bool ReturnInvariant() const { return return_.invariant; }
+    bool ReturnInvariant() const { return return_.attributes.invariant; }
 
     /// Sets the function parameters
     /// @param params the function parameters
@@ -145,6 +174,10 @@ class Function : public Castable<Function, Value> {
     /// Sets the function parameters
     /// @param params the function parameters
     void SetParams(std::initializer_list<FunctionParam*> params);
+
+    /// Appends a new function parameter.
+    /// @param param the function parameter to append
+    void AppendParam(FunctionParam* param);
 
     /// @returns the function parameters
     const VectorRef<FunctionParam*> Params() { return params_; }
@@ -170,13 +203,11 @@ class Function : public Castable<Function, Value> {
 
   private:
     PipelineStage pipeline_stage_ = PipelineStage::kUndefined;
-    std::optional<std::array<uint32_t, 3>> workgroup_size_;
+    std::optional<std::array<Value*, 3>> workgroup_size_;
 
     struct {
         const core::type::Type* type = nullptr;
-        std::optional<BuiltinValue> builtin;
-        std::optional<Location> location;
-        bool invariant = false;
+        IOAttributes attributes = {};
     } return_;
 
     Vector<FunctionParam*, 1> params_;

@@ -1,67 +1,11 @@
-#version 310 es
+SKIP: INVALID
 
-layout(rgba16i) uniform highp writeonly iimage2D arg_0;
-layout(binding = 0, std430) buffer prevent_dce_block_ssbo {
-  uint inner;
-} prevent_dce;
+<dawn>/src/tint/lang/glsl/writer/printer/printer.cc:733 internal compiler error: TINT_UNREACHABLE invalid texel format for read-write
+********************************************************************
+*  The tint shader compiler has encountered an unexpected error.   *
+*                                                                  *
+*  Please help us fix this issue by submitting a bug report at     *
+*  crbug.com/tint with the source program that triggered the bug.  *
+********************************************************************
 
-void textureDimensions_c27466() {
-  uint res = uvec2(imageSize(arg_0)).x;
-  prevent_dce.inner = res;
-}
-
-vec4 vertex_main() {
-  textureDimensions_c27466();
-  return vec4(0.0f);
-}
-
-void main() {
-  gl_PointSize = 1.0;
-  vec4 inner_result = vertex_main();
-  gl_Position = inner_result;
-  gl_Position.y = -(gl_Position.y);
-  gl_Position.z = ((2.0f * gl_Position.z) - gl_Position.w);
-  return;
-}
-#version 310 es
-precision highp float;
-
-layout(rgba16i) uniform highp writeonly iimage2D arg_0;
-layout(binding = 0, std430) buffer prevent_dce_block_ssbo {
-  uint inner;
-} prevent_dce;
-
-void textureDimensions_c27466() {
-  uint res = uvec2(imageSize(arg_0)).x;
-  prevent_dce.inner = res;
-}
-
-void fragment_main() {
-  textureDimensions_c27466();
-}
-
-void main() {
-  fragment_main();
-  return;
-}
-#version 310 es
-
-layout(rgba16i) uniform highp writeonly iimage2D arg_0;
-layout(binding = 0, std430) buffer prevent_dce_block_ssbo {
-  uint inner;
-} prevent_dce;
-
-void textureDimensions_c27466() {
-  uint res = uvec2(imageSize(arg_0)).x;
-  prevent_dce.inner = res;
-}
-
-void compute_main() {
-  textureDimensions_c27466();
-}
-
-layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
-void main() {
-  compute_main();
-  return;
-}
+tint executable returned error: signal: trace/BPT trap

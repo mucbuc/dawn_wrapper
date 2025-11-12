@@ -36,7 +36,7 @@ LimitsAndFeatures::LimitsAndFeatures() = default;
 
 LimitsAndFeatures::~LimitsAndFeatures() = default;
 
-bool LimitsAndFeatures::GetLimits(WGPUSupportedLimits* limits) const {
+WGPUStatus LimitsAndFeatures::GetLimits(WGPUSupportedLimits* limits) const {
     DAWN_ASSERT(limits != nullptr);
     auto* originalNextInChain = limits->nextInChain;
     *limits = mLimits;
@@ -53,18 +53,25 @@ bool LimitsAndFeatures::GetLimits(WGPUSupportedLimits* limits) const {
                 *experimentalSubgroupLimits = mExperimentalSubgroupLimits;
                 break;
             }
+            case (WGPUSType_DawnExperimentalImmediateDataLimits): {
+                auto* experimentalImmediateDataLimits =
+                    reinterpret_cast<WGPUDawnExperimentalImmediateDataLimits*>(chain);
+                // This assignment break the next field of WGPUChainedStructOut head.
+                *experimentalImmediateDataLimits = mExperimentalImmediateDataLimits;
+                break;
+            }
             default:
                 // Fail if unknown sType found.
-                return false;
+                return WGPUStatus_Error;
         }
         // Restore the chain.
         *chain = originalChainedStructOut;
     }
-    return true;
+    return WGPUStatus_Success;
 }
 
 bool LimitsAndFeatures::HasFeature(WGPUFeatureName feature) const {
-    return mFeatures.count(feature) != 0;
+    return mFeatures.contains(feature);
 }
 
 size_t LimitsAndFeatures::EnumerateFeatures(WGPUFeatureName* features) const {
@@ -75,6 +82,29 @@ size_t LimitsAndFeatures::EnumerateFeatures(WGPUFeatureName* features) const {
         }
     }
     return mFeatures.size();
+}
+
+void LimitsAndFeatures::ToSupportedFeatures(WGPUSupportedFeatures* supportedFeatures) const {
+    if (!supportedFeatures) {
+        return;
+    }
+
+    const size_t count = mFeatures.size();
+    supportedFeatures->featureCount = count;
+    supportedFeatures->features = nullptr;
+
+    if (count == 0) {
+        return;
+    }
+
+    // This will be freed by wgpuSupportedFeaturesFreeMembers.
+    WGPUFeatureName* features = new WGPUFeatureName[count];
+    uint32_t index = 0;
+    for (WGPUFeatureName f : mFeatures) {
+        features[index++] = f;
+    }
+    DAWN_ASSERT(index == count);
+    supportedFeatures->features = features;
 }
 
 void LimitsAndFeatures::SetLimits(const WGPUSupportedLimits* limits) {
@@ -89,6 +119,13 @@ void LimitsAndFeatures::SetLimits(const WGPUSupportedLimits* limits) {
                     reinterpret_cast<WGPUDawnExperimentalSubgroupLimits*>(chain);
                 mExperimentalSubgroupLimits = *experimentalSubgroupLimits;
                 mExperimentalSubgroupLimits.chain.next = nullptr;
+                break;
+            }
+            case (WGPUSType_DawnExperimentalImmediateDataLimits): {
+                auto* experimentalImmediateDataLimits =
+                    reinterpret_cast<WGPUDawnExperimentalImmediateDataLimits*>(chain);
+                mExperimentalImmediateDataLimits = *experimentalImmediateDataLimits;
+                mExperimentalImmediateDataLimits.chain.next = nullptr;
                 break;
             }
             default:

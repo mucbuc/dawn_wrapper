@@ -28,6 +28,7 @@
 #include "src/dawn/node/binding/Converter.h"
 
 #include <cassert>
+#include <sstream>
 
 #include "src/dawn/node/binding/GPUBuffer.h"
 #include "src/dawn/node/binding/GPUPipelineLayout.h"
@@ -146,13 +147,13 @@ bool Converter::Convert(wgpu::TextureAspect& out, const interop::GPUTextureAspec
     return Throw("invalid value for GPUTextureAspect");
 }
 
-bool Converter::Convert(wgpu::ImageCopyTexture& out, const interop::GPUImageCopyTexture& in) {
+bool Converter::Convert(wgpu::ImageCopyTexture& out, const interop::GPUTexelCopyTextureInfo& in) {
     out = {};
     return Convert(out.texture, in.texture) && Convert(out.mipLevel, in.mipLevel) &&
            Convert(out.origin, in.origin) && Convert(out.aspect, in.aspect);
 }
 
-bool Converter::Convert(wgpu::ImageCopyBuffer& out, const interop::GPUImageCopyBuffer& in) {
+bool Converter::Convert(wgpu::ImageCopyBuffer& out, const interop::GPUTexelCopyBufferInfo& in) {
     out = {};
     out.buffer = *in.buffer.As<GPUBuffer>();
     return Convert(out.layout.offset, in.offset) &&
@@ -182,7 +183,7 @@ bool Converter::Convert(BufferSource& out, interop::BufferSource in) {
     return Throw("invalid value for BufferSource");
 }
 
-bool Converter::Convert(wgpu::TextureDataLayout& out, const interop::GPUImageDataLayout& in) {
+bool Converter::Convert(wgpu::TextureDataLayout& out, const interop::GPUTexelCopyBufferLayout& in) {
     out = {};
     return Convert(out.bytesPerRow, in.bytesPerRow) && Convert(out.offset, in.offset) &&
            Convert(out.rowsPerImage, in.rowsPerImage);
@@ -190,7 +191,7 @@ bool Converter::Convert(wgpu::TextureDataLayout& out, const interop::GPUImageDat
 
 bool Converter::Convert(wgpu::TextureFormat& out, const interop::GPUTextureFormat& in) {
     out = wgpu::TextureFormat::Undefined;
-    wgpu::FeatureName requiredFeature = wgpu::FeatureName::Undefined;
+    wgpu::FeatureName requiredFeature = wgpu::FeatureName(0u);
     switch (in) {
         case interop::GPUTextureFormat::kR8Unorm:
             out = wgpu::TextureFormat::R8Unorm;
@@ -533,12 +534,16 @@ bool Converter::Convert(wgpu::TextureFormat& out, const interop::GPUTextureForma
             break;
 
         default:
-            return Throw("invalid value for GPUTextureFormat");
+            std::stringstream err;
+            err << "unknown GPUTextureFormat(" << static_cast<int>(in) << ")";
+            return Throw(err.str());
     }
 
-    assert(requiredFeature != wgpu::FeatureName::Undefined);
+    assert(requiredFeature != wgpu::FeatureName(0u));
     if (!HasFeature(requiredFeature)) {
-        return Throw(Napi::TypeError::New(env, "invalid value for GPUTextureFormat"));
+        std::stringstream err;
+        err << "" << out << " requires feature '" << requiredFeature << "'";
+        return Throw(Napi::TypeError::New(env, err.str()));
     }
 
     return true;
@@ -648,15 +653,20 @@ bool Converter::Convert(interop::GPUTextureFormat& out, wgpu::TextureFormat in) 
         CASE(Stencil8, kStencil8);
 #undef CASE
 
-        case wgpu::TextureFormat::R10X6BG10X6Biplanar420Unorm:
         case wgpu::TextureFormat::R16Snorm:
         case wgpu::TextureFormat::R16Unorm:
         case wgpu::TextureFormat::R8BG8Biplanar420Unorm:
+        case wgpu::TextureFormat::R8BG8Biplanar422Unorm:
+        case wgpu::TextureFormat::R8BG8Biplanar444Unorm:
         case wgpu::TextureFormat::R8BG8A8Triplanar420Unorm:
+        case wgpu::TextureFormat::R10X6BG10X6Biplanar420Unorm:
+        case wgpu::TextureFormat::R10X6BG10X6Biplanar422Unorm:
+        case wgpu::TextureFormat::R10X6BG10X6Biplanar444Unorm:
         case wgpu::TextureFormat::RG16Snorm:
         case wgpu::TextureFormat::RG16Unorm:
         case wgpu::TextureFormat::RGBA16Snorm:
         case wgpu::TextureFormat::RGBA16Unorm:
+        case wgpu::TextureFormat::External:
 
         case wgpu::TextureFormat::Undefined:
             return false;
@@ -727,6 +737,8 @@ bool Converter::Convert(interop::GPUTextureDimension& out, wgpu::TextureDimensio
         case wgpu::TextureDimension::e3D:
             out = interop::GPUTextureDimension::k3D;
             return true;
+        case wgpu::TextureDimension::Undefined:
+            break;
     }
     return false;
 }
@@ -789,6 +801,7 @@ bool Converter::Convert(wgpu::BlendComponent& out, const interop::GPUBlendCompon
 
 bool Converter::Convert(wgpu::BlendFactor& out, const interop::GPUBlendFactor& in) {
     out = wgpu::BlendFactor::Zero;
+    wgpu::FeatureName requiredFeature = wgpu::FeatureName(0u);
     switch (in) {
         case interop::GPUBlendFactor::kZero:
             out = wgpu::BlendFactor::Zero;
@@ -829,10 +842,37 @@ bool Converter::Convert(wgpu::BlendFactor& out, const interop::GPUBlendFactor& i
         case interop::GPUBlendFactor::kOneMinusConstant:
             out = wgpu::BlendFactor::OneMinusConstant;
             return true;
-        default:
+        case interop::GPUBlendFactor::kSrc1:
+            out = wgpu::BlendFactor::Src1;
+            requiredFeature = wgpu::FeatureName::DualSourceBlending;
+            return true;
+        case interop::GPUBlendFactor::kOneMinusSrc1:
+            out = wgpu::BlendFactor::OneMinusSrc1;
+            requiredFeature = wgpu::FeatureName::DualSourceBlending;
+            return true;
+        case interop::GPUBlendFactor::kSrc1Alpha:
+            out = wgpu::BlendFactor::Src1Alpha;
+            requiredFeature = wgpu::FeatureName::DualSourceBlending;
+            return true;
+        case interop::GPUBlendFactor::kOneMinusSrc1Alpha:
+            out = wgpu::BlendFactor::OneMinusSrc1Alpha;
+            requiredFeature = wgpu::FeatureName::DualSourceBlending;
             break;
+
+        default:
+            std::stringstream err;
+            err << "unknown GPUBlendFactor(" << static_cast<int>(in) << ")";
+            return Throw(err.str());
     }
-    return Throw("invalid value for GPUBlendFactor");
+
+    assert(requiredFeature != wgpu::FeatureName(0u));
+    if (!HasFeature(requiredFeature)) {
+        std::stringstream err;
+        err << "" << out << " requires feature '" << requiredFeature << "'";
+        return Throw(Napi::TypeError::New(env, err.str()));
+    }
+
+    return true;
 }
 
 bool Converter::Convert(wgpu::BlendOperation& out, const interop::GPUBlendOperation& in) {
@@ -867,15 +907,10 @@ bool Converter::Convert(wgpu::BlendState& out, const interop::GPUBlendState& in)
 bool Converter::Convert(wgpu::PrimitiveState& out, const interop::GPUPrimitiveState& in) {
     out = {};
 
-    if (in.unclippedDepth) {
-        wgpu::PrimitiveDepthClipControl* depthClip = Allocate<wgpu::PrimitiveDepthClipControl>();
-        depthClip->unclippedDepth = true;
-        out.nextInChain = depthClip;
-    }
-
     return Convert(out.topology, in.topology) &&
            Convert(out.stripIndexFormat, in.stripIndexFormat) &&
-           Convert(out.frontFace, in.frontFace) && Convert(out.cullMode, in.cullMode);
+           Convert(out.frontFace, in.frontFace) && Convert(out.cullMode, in.cullMode) &&
+           Convert(out.unclippedDepth, in.unclippedDepth);
 }
 
 bool Converter::Convert(wgpu::ColorTargetState& out, const interop::GPUColorTargetState& in) {
@@ -886,10 +921,6 @@ bool Converter::Convert(wgpu::ColorTargetState& out, const interop::GPUColorTarg
 
 bool Converter::Convert(wgpu::DepthStencilState& out, const interop::GPUDepthStencilState& in) {
     out = {};
-
-    auto depthWriteDefined = Allocate<wgpu::DepthStencilStateDepthWriteDefinedDawn>();
-    depthWriteDefined->depthWriteDefined = in.depthWriteEnabled.has_value();
-    out.nextInChain = depthWriteDefined;
 
     return Convert(out.format, in.format) && Convert(out.depthWriteEnabled, in.depthWriteEnabled) &&
            Convert(out.depthCompare, in.depthCompare) &&
@@ -1104,13 +1135,18 @@ bool Converter::Convert(wgpu::VertexAttribute& out, const interop::GPUVertexAttr
 }
 
 bool Converter::Convert(wgpu::VertexFormat& out, const interop::GPUVertexFormat& in) {
-    out = wgpu::VertexFormat::Undefined;
     switch (in) {
+        case interop::GPUVertexFormat::kUint8:
+            out = wgpu::VertexFormat::Uint8;
+            return true;
         case interop::GPUVertexFormat::kUint8X2:
             out = wgpu::VertexFormat::Uint8x2;
             return true;
         case interop::GPUVertexFormat::kUint8X4:
             out = wgpu::VertexFormat::Uint8x4;
+            return true;
+        case interop::GPUVertexFormat::kSint8:
+            out = wgpu::VertexFormat::Sint8;
             return true;
         case interop::GPUVertexFormat::kSint8X2:
             out = wgpu::VertexFormat::Sint8x2;
@@ -1118,11 +1154,17 @@ bool Converter::Convert(wgpu::VertexFormat& out, const interop::GPUVertexFormat&
         case interop::GPUVertexFormat::kSint8X4:
             out = wgpu::VertexFormat::Sint8x4;
             return true;
+        case interop::GPUVertexFormat::kUnorm8:
+            out = wgpu::VertexFormat::Unorm8;
+            return true;
         case interop::GPUVertexFormat::kUnorm8X2:
             out = wgpu::VertexFormat::Unorm8x2;
             return true;
         case interop::GPUVertexFormat::kUnorm8X4:
             out = wgpu::VertexFormat::Unorm8x4;
+            return true;
+        case interop::GPUVertexFormat::kSnorm8:
+            out = wgpu::VertexFormat::Snorm8;
             return true;
         case interop::GPUVertexFormat::kSnorm8X2:
             out = wgpu::VertexFormat::Snorm8x2;
@@ -1130,11 +1172,17 @@ bool Converter::Convert(wgpu::VertexFormat& out, const interop::GPUVertexFormat&
         case interop::GPUVertexFormat::kSnorm8X4:
             out = wgpu::VertexFormat::Snorm8x4;
             return true;
+        case interop::GPUVertexFormat::kUint16:
+            out = wgpu::VertexFormat::Uint16;
+            return true;
         case interop::GPUVertexFormat::kUint16X2:
             out = wgpu::VertexFormat::Uint16x2;
             return true;
         case interop::GPUVertexFormat::kUint16X4:
             out = wgpu::VertexFormat::Uint16x4;
+            return true;
+        case interop::GPUVertexFormat::kSint16:
+            out = wgpu::VertexFormat::Sint16;
             return true;
         case interop::GPUVertexFormat::kSint16X2:
             out = wgpu::VertexFormat::Sint16x2;
@@ -1142,17 +1190,26 @@ bool Converter::Convert(wgpu::VertexFormat& out, const interop::GPUVertexFormat&
         case interop::GPUVertexFormat::kSint16X4:
             out = wgpu::VertexFormat::Sint16x4;
             return true;
+        case interop::GPUVertexFormat::kUnorm16:
+            out = wgpu::VertexFormat::Unorm16;
+            return true;
         case interop::GPUVertexFormat::kUnorm16X2:
             out = wgpu::VertexFormat::Unorm16x2;
             return true;
         case interop::GPUVertexFormat::kUnorm16X4:
             out = wgpu::VertexFormat::Unorm16x4;
             return true;
+        case interop::GPUVertexFormat::kSnorm16:
+            out = wgpu::VertexFormat::Snorm16;
+            return true;
         case interop::GPUVertexFormat::kSnorm16X2:
             out = wgpu::VertexFormat::Snorm16x2;
             return true;
         case interop::GPUVertexFormat::kSnorm16X4:
             out = wgpu::VertexFormat::Snorm16x4;
+            return true;
+        case interop::GPUVertexFormat::kFloat16:
+            out = wgpu::VertexFormat::Float16;
             return true;
         case interop::GPUVertexFormat::kFloat16X2:
             out = wgpu::VertexFormat::Float16x2;
@@ -1198,6 +1255,9 @@ bool Converter::Convert(wgpu::VertexFormat& out, const interop::GPUVertexFormat&
             return true;
         case interop::GPUVertexFormat::kUnorm1010102:
             out = wgpu::VertexFormat::Unorm10_10_10_2;
+            return true;
+        case interop::GPUVertexFormat::kUnorm8X4Bgra:
+            out = wgpu::VertexFormat::Unorm8x4BGRA;
             return true;
         default:
             break;
@@ -1451,12 +1511,36 @@ bool Converter::Convert(wgpu::FeatureName& out, interop::GPUFeatureName in) {
         case interop::GPUFeatureName::kFloat32Filterable:
             out = wgpu::FeatureName::Float32Filterable;
             return true;
+        case interop::GPUFeatureName::kFloat32Blendable:
+            out = wgpu::FeatureName::Float32Blendable;
+            return true;
+        case interop::GPUFeatureName::kSubgroups:
+            out = wgpu::FeatureName::Subgroups;
+            return true;
+        case interop::GPUFeatureName::kSubgroupsF16:
+            out = wgpu::FeatureName::SubgroupsF16;
+            return true;
+        case interop::GPUFeatureName::kMultiDrawIndirect:
+            out = wgpu::FeatureName::MultiDrawIndirect;
+            return true;
+        case interop::GPUFeatureName::kDualSourceBlending:
+            out = wgpu::FeatureName::DualSourceBlending;
+            return true;
         case interop::GPUFeatureName::kChromiumExperimentalSubgroups:
             out = wgpu::FeatureName::ChromiumExperimentalSubgroups;
             return true;
         case interop::GPUFeatureName::kChromiumExperimentalSubgroupUniformControlFlow:
             out = wgpu::FeatureName::ChromiumExperimentalSubgroupUniformControlFlow;
             return true;
+        case interop::GPUFeatureName::kChromiumExperimentalImmediateData:
+            out = wgpu::FeatureName::ChromiumExperimentalImmediateData;
+            return true;
+        case interop::GPUFeatureName::kClipDistances:
+            out = wgpu::FeatureName::ClipDistances;
+            return true;
+        case interop::GPUFeatureName::kTextureCompressionAstcSliced3D:
+        case interop::GPUFeatureName::kTextureCompressionBcSliced3D:
+            return false;
     }
     return false;
 }
@@ -1475,6 +1559,7 @@ bool Converter::Convert(interop::GPUFeatureName& out, wgpu::FeatureName in) {
         CASE(Depth32FloatStencil8, kDepth32FloatStencil8);
         CASE(DepthClipControl, kDepthClipControl);
         CASE(Float32Filterable, kFloat32Filterable);
+        CASE(Float32Blendable, kFloat32Blendable);
         CASE(IndirectFirstInstance, kIndirectFirstInstance);
         CASE(RG11B10UfloatRenderable, kRg11B10UfloatRenderable);
         CASE(ShaderF16, kShaderF16);
@@ -1482,27 +1567,51 @@ bool Converter::Convert(interop::GPUFeatureName& out, wgpu::FeatureName in) {
         CASE(TextureCompressionBC, kTextureCompressionBc);
         CASE(TextureCompressionETC2, kTextureCompressionEtc2);
         CASE(TimestampQuery, kTimestampQuery);
+        CASE(Subgroups, kSubgroups);
+        CASE(SubgroupsF16, kSubgroupsF16);
+        CASE(MultiDrawIndirect, kMultiDrawIndirect);
+        CASE(DualSourceBlending, kDualSourceBlending);
+        CASE(ClipDistances, kClipDistances);
+        CASE(ChromiumExperimentalImmediateData, kChromiumExperimentalImmediateData);
 
 #undef CASE
 
+        case wgpu::FeatureName::AdapterPropertiesD3D:
+        case wgpu::FeatureName::AdapterPropertiesMemoryHeaps:
+        case wgpu::FeatureName::AdapterPropertiesVk:
         case wgpu::FeatureName::ANGLETextureSharing:
+        case wgpu::FeatureName::BufferMapExtendedUsages:
+        case wgpu::FeatureName::ChromiumExperimentalTimestampQueryInsidePasses:
         case wgpu::FeatureName::D3D11MultithreadProtected:
         case wgpu::FeatureName::DawnInternalUsages:
         case wgpu::FeatureName::DawnMultiPlanarFormats:
         case wgpu::FeatureName::DawnNative:
-        case wgpu::FeatureName::DualSourceBlending:
+        case wgpu::FeatureName::DrmFormatCapabilities:
+        case wgpu::FeatureName::FormatCapabilities:
+        case wgpu::FeatureName::FramebufferFetch:
+        case wgpu::FeatureName::HostMappedPointer:
         case wgpu::FeatureName::ImplicitDeviceSynchronization:
         case wgpu::FeatureName::MSAARenderToSingleSampled:
         case wgpu::FeatureName::MultiPlanarFormatExtendedUsages:
         case wgpu::FeatureName::MultiPlanarFormatP010:
+        case wgpu::FeatureName::MultiPlanarFormatP210:
+        case wgpu::FeatureName::MultiPlanarFormatP410:
+        case wgpu::FeatureName::MultiPlanarFormatNv16:
+        case wgpu::FeatureName::MultiPlanarFormatNv24:
         case wgpu::FeatureName::MultiPlanarFormatNv12a:
+        case wgpu::FeatureName::MultiPlanarRenderTargets:
         case wgpu::FeatureName::Norm16TextureFormats:
+        case wgpu::FeatureName::Unorm16TextureFormats:
+        case wgpu::FeatureName::Snorm16TextureFormats:
         case wgpu::FeatureName::PixelLocalStorageCoherent:
         case wgpu::FeatureName::PixelLocalStorageNonCoherent:
+        case wgpu::FeatureName::R8UnormStorage:
+        case wgpu::FeatureName::ShaderModuleCompilationOptions:
+        case wgpu::FeatureName::SharedBufferMemoryD3D12Resource:
         case wgpu::FeatureName::SharedFenceDXGISharedHandle:
         case wgpu::FeatureName::SharedFenceMTLSharedEvent:
         case wgpu::FeatureName::SharedFenceVkSemaphoreOpaqueFD:
-        case wgpu::FeatureName::SharedFenceVkSemaphoreSyncFD:
+        case wgpu::FeatureName::SharedFenceSyncFD:
         case wgpu::FeatureName::SharedFenceVkSemaphoreZirconHandle:
         case wgpu::FeatureName::SharedTextureMemoryAHardwareBuffer:
         case wgpu::FeatureName::SharedTextureMemoryD3D11Texture2D:
@@ -1513,15 +1622,11 @@ bool Converter::Convert(interop::GPUFeatureName& out, wgpu::FeatureName in) {
         case wgpu::FeatureName::SharedTextureMemoryOpaqueFD:
         case wgpu::FeatureName::SharedTextureMemoryVkDedicatedAllocation:
         case wgpu::FeatureName::SharedTextureMemoryZirconHandle:
-        case wgpu::FeatureName::SurfaceCapabilities:
-        case wgpu::FeatureName::ChromiumExperimentalTimestampQueryInsidePasses:
+        case wgpu::FeatureName::StaticSamplers:
         case wgpu::FeatureName::TransientAttachments:
-        case wgpu::FeatureName::HostMappedPointer:
-        case wgpu::FeatureName::MultiPlanarRenderTargets:
-        case wgpu::FeatureName::FramebufferFetch:
-        case wgpu::FeatureName::BufferMapExtendedUsages:
-        case wgpu::FeatureName::AdapterPropertiesMemoryHeaps:
-        case wgpu::FeatureName::Undefined:
+        case wgpu::FeatureName::YCbCrVulkanSamplers:
+        case wgpu::FeatureName::DawnLoadResolveTexture:
+        case wgpu::FeatureName::DawnPartialLoadResolveTexture:
             return false;
     }
     return false;
@@ -1560,7 +1665,6 @@ bool Converter::Convert(interop::WGSLFeatureName& out, wgpu::WGSLFeatureName in)
             out = interop::WGSLFeatureName::kPointerCompositeAccess;
             return true;
 
-        case wgpu::WGSLFeatureName::Undefined:
         case wgpu::WGSLFeatureName::ChromiumTestingUnimplemented:
         case wgpu::WGSLFeatureName::ChromiumTestingUnsafeExperimental:
         case wgpu::WGSLFeatureName::ChromiumTestingExperimental:
@@ -1667,6 +1771,11 @@ bool Converter::Convert(wgpu::Bool& out, const bool& in) {
     return true;
 }
 
+bool Converter::Convert(wgpu::OptionalBool& out, const std::optional<bool>& in) {
+    out = in;
+    return true;
+}
+
 char* Converter::ConvertStringReplacingNull(std::string_view in) {
     char* out = Allocate<char>(in.size() + 1);
     out[in.size()] = '\0';
@@ -1689,6 +1798,14 @@ bool Converter::Throw(std::string&& message) {
 bool Converter::Throw(Napi::Error&& error) {
     error.ThrowAsJavaScriptException();
     return false;
+}
+
+std::string CopyLabel(StringView label) {
+    if (label.data == nullptr) {
+        return {};
+    }
+    size_t length = label.length == WGPU_STRLEN ? std::strlen(label.data) : label.length;
+    return {label.data, length};
 }
 
 }  // namespace wgpu::binding

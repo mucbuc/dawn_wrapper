@@ -44,6 +44,8 @@
 
 namespace dawn::native {
 
+class CommandAllocator;
+
 // Definition of the commands that are present in the CommandIterator given by the
 // CommandBufferBuilder. There are not defined in CommandBuffer.h to break some header
 // dependencies: Ref<Object> needs Object to be defined.
@@ -63,6 +65,8 @@ enum class Command {
     DrawIndexed,
     DrawIndirect,
     DrawIndexedIndirect,
+    MultiDrawIndirect,
+    MultiDrawIndexedIndirect,
     EndComputePass,
     EndOcclusionQuery,
     EndRenderPass,
@@ -256,6 +260,19 @@ struct DrawIndirectCmd {
 
 struct DrawIndexedIndirectCmd : DrawIndirectCmd {};
 
+struct MultiDrawIndirectCmd {
+    MultiDrawIndirectCmd();
+    ~MultiDrawIndirectCmd();
+
+    Ref<BufferBase> indirectBuffer;
+    uint64_t indirectOffset;
+    uint32_t maxDrawCount;
+    Ref<BufferBase> drawCountBuffer;
+    uint64_t drawCountOffset;
+};
+
+struct MultiDrawIndexedIndirectCmd : MultiDrawIndirectCmd {};
+
 struct EndComputePassCmd {
     EndComputePassCmd();
     ~EndComputePassCmd();
@@ -394,6 +411,9 @@ void FreeCommands(CommandIterator* commands);
 // Helper function to allow skipping over a command when it is unimplemented, while still
 // consuming the correct amount of data from the command iterator.
 void SkipCommand(CommandIterator* commands, Command type);
+
+// Helper function to copy a wgpu::StringView into a safely null-terminated C-string in commands.
+const char* AddNullTerminatedString(CommandAllocator* allocator, StringView s, uint32_t* length);
 
 }  // namespace dawn::native
 

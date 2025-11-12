@@ -1,22 +1,37 @@
-SKIP: FAILED
+#include <metal_stdlib>
+using namespace metal;
 
-<dawn>/src/tint/lang/msl/writer/printer/printer.cc:355 internal compiler error: %b1 = block {  # root
-  %m:ptr<private, mat4x3<f16>, read_write> = var, mat4x3<f16>(vec3<f16>(0.0h))
-  %out:ptr<storage, mat4x3<f16>, read_write> = var @binding_point(0, 0)
+template<typename T, size_t N>
+struct tint_array {
+  const constant T& operator[](size_t i) const constant { return elements[i]; }
+  device T& operator[](size_t i) device { return elements[i]; }
+  const device T& operator[](size_t i) const device { return elements[i]; }
+  thread T& operator[](size_t i) thread { return elements[i]; }
+  const thread T& operator[](size_t i) const thread { return elements[i]; }
+  threadgroup T& operator[](size_t i) threadgroup { return elements[i]; }
+  const threadgroup T& operator[](size_t i) const threadgroup { return elements[i]; }
+  T elements[N];
+};
+
+struct tint_packed_vec3_f16_array_element {
+  /* 0x0000 */ packed_half3 packed;
+  /* 0x0006 */ tint_array<int8_t, 2> tint_pad;
+};
+
+struct tint_module_vars_struct {
+  thread half4x3* m;
+  device tint_array<tint_packed_vec3_f16_array_element, 4>* out;
+};
+
+void tint_store_and_preserve_padding(device tint_array<tint_packed_vec3_f16_array_element, 4>* const target, half4x3 value_param) {
+  (*target)[0u].packed = packed_half3(value_param[0u]);
+  (*target)[1u].packed = packed_half3(value_param[1u]);
+  (*target)[2u].packed = packed_half3(value_param[2u]);
+  (*target)[3u].packed = packed_half3(value_param[3u]);
 }
 
-%f = @compute @workgroup_size(1, 1, 1) func():void -> %b2 {
-  %b2 = block {
-    %4:mat4x3<f16> = load %m
-    store %out, %4
-    ret
-  }
+kernel void f(device tint_array<tint_packed_vec3_f16_array_element, 4>* out [[buffer(0)]]) {
+  thread half4x3 m = half4x3(half3(0.0h), half3(0.0h), half3(0.0h), half3(0.0h));
+  tint_module_vars_struct const tint_module_vars = tint_module_vars_struct{.m=(&m), .out=out};
+  tint_store_and_preserve_padding(tint_module_vars.out, (*tint_module_vars.m));
 }
-
-unhandled variable address space
-********************************************************************
-*  The tint shader compiler has encountered an unexpected error.   *
-*                                                                  *
-*  Please help us fix this issue by submitting a bug report at     *
-*  crbug.com/tint with the source program that triggered the bug.  *
-********************************************************************

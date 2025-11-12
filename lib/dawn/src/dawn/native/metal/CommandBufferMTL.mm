@@ -27,11 +27,15 @@
 
 #include "dawn/native/metal/CommandBufferMTL.h"
 
+#include "absl/container/flat_hash_map.h"
+#include "dawn/common/MatchVariant.h"
+#include "dawn/common/Range.h"
 #include "dawn/native/BindGroupTracker.h"
 #include "dawn/native/CommandEncoder.h"
 #include "dawn/native/Commands.h"
 #include "dawn/native/DynamicUploader.h"
 #include "dawn/native/ExternalTexture.h"
+#include "dawn/native/Queue.h"
 #include "dawn/native/RenderBundle.h"
 #include "dawn/native/metal/BindGroupMTL.h"
 #include "dawn/native/metal/BufferMTL.h"
@@ -43,6 +47,7 @@
 #include "dawn/native/metal/SamplerMTL.h"
 #include "dawn/native/metal/TextureMTL.h"
 #include "dawn/native/metal/UtilsMetal.h"
+#include "partition_alloc/pointers/raw_ptr.h"
 
 #include <tint/tint.h>
 
@@ -195,6 +200,12 @@ NSRef<MTLRenderPassDescriptor> CreateMTLRenderPassDescriptor(
                 descriptor.colorAttachments[i].loadAction = MTLLoadActionLoad;
                 break;
 
+            case wgpu::LoadOp::ExpandResolveTexture:
+                // The loading of resolve texture -> MSAA attachment is inserted at the beginning of
+                // the render pass. We don't care about the intial value of the MSAA attachment.
+                descriptor.colorAttachments[i].loadAction = MTLLoadActionDontCare;
+                break;
+
             case wgpu::LoadOp::Undefined:
                 DAWN_UNREACHABLE();
                 break;
@@ -276,6 +287,7 @@ NSRef<MTLRenderPassDescriptor> CreateMTLRenderPassDescriptor(
                     descriptor.depthAttachment.loadAction = MTLLoadActionLoad;
                     break;
 
+                case wgpu::LoadOp::ExpandResolveTexture:
                 case wgpu::LoadOp::Undefined:
                     DAWN_UNREACHABLE();
                     break;
@@ -311,6 +323,7 @@ NSRef<MTLRenderPassDescriptor> CreateMTLRenderPassDescriptor(
                     descriptor.stencilAttachment.loadAction = MTLLoadActionLoad;
                     break;
 
+                case wgpu::LoadOp::ExpandResolveTexture:
                 case wgpu::LoadOp::Undefined:
                     DAWN_UNREACHABLE();
                     break;
@@ -377,6 +390,13 @@ NSRef<MTLRenderPassDescriptor> CreateMTLRenderPassDescriptor(
 
                 case wgpu::LoadOp::Load:
                     mtlAttachment.loadAction = MTLLoadActionLoad;
+                    break;
+
+                case wgpu::LoadOp::ExpandResolveTexture:
+                    // The loading of resolve texture -> MSAA attachment is inserted at the
+                    // beginning of the render pass. We don't care about the intial value of the
+                    // MSAA attachment.
+                    mtlAttachment.loadAction = MTLLoadActionDontCare;
                     break;
 
                 case wgpu::LoadOp::Undefined:
@@ -540,8 +560,7 @@ class BindGroupTracker : public BindGroupTrackerBase<true, uint64_t> {
         // TODO(crbug.com/dawn/854): Maintain buffers and offsets arrays in BindGroup
         // so that we only have to do one setVertexBuffers and one setFragmentBuffers
         // call here.
-        for (BindingIndex bindingIndex{0}; bindingIndex < group->GetLayout()->GetBindingCount();
-             ++bindingIndex) {
+        for (BindingIndex bindingIndex : Range(group->GetLayout()->GetBindingCount())) {
             const BindingInfo& bindingInfo = group->GetLayout()->GetBindingInfo(bindingIndex);
 
             bool hasVertStage =
@@ -568,8 +587,29 @@ class BindGroupTracker : public BindGroupTrackerBase<true, uint64_t> {
                     SingleShaderStage::Compute)[index][bindingIndex];
             }
 
-            switch (bindingInfo.bindingType) {
-                case BindingInfoType::Buffer: {
+            auto HandleTextureBinding = [&]() {
+                auto textureView = ToBackend(group->GetBindingAsTextureView(bindingIndex));
+                id<MTLTexture> texture = textureView->GetMTLTexture();
+                if (hasVertStage &&
+                    mBoundTextures[SingleShaderStage::Vertex][vertIndex] != texture) {
+                    mBoundTextures[SingleShaderStage::Vertex][vertIndex] = texture;
+                    [render setVertexTexture:texture atIndex:vertIndex];
+                }
+                if (hasFragStage &&
+                    mBoundTextures[SingleShaderStage::Fragment][fragIndex] != texture) {
+                    mBoundTextures[SingleShaderStage::Fragment][fragIndex] = texture;
+                    [render setFragmentTexture:texture atIndex:fragIndex];
+                }
+                if (hasComputeStage &&
+                    mBoundTextures[SingleShaderStage::Compute][computeIndex] != texture) {
+                    mBoundTextures[SingleShaderStage::Compute][computeIndex] = texture;
+                    [compute setTexture:texture atIndex:computeIndex];
+                }
+            };
+
+            MatchVariant(
+                bindingInfo.bindingLayout,
+                [&](const BufferBindingInfo& layout) {
                     const BufferBinding& binding = group->GetBindingAsBufferBinding(bindingIndex);
                     ToBackend(binding.buffer)->TrackUsage();
                     const id<MTLBuffer> buffer = ToBackend(binding.buffer)->GetMTLBuffer();
@@ -577,7 +617,7 @@ class BindGroupTracker : public BindGroupTrackerBase<true, uint64_t> {
 
                     // TODO(crbug.com/dawn/854): Record bound buffer status to use
                     // setBufferOffset to achieve better performance.
-                    if (bindingInfo.buffer.hasDynamicOffset) {
+                    if (layout.hasDynamicOffset) {
                         // Dynamic buffers are packed at the front of BindingIndices.
                         offset += dynamicOffsets[bindingIndex];
                     }
@@ -604,45 +644,36 @@ class BindGroupTracker : public BindGroupTrackerBase<true, uint64_t> {
                                     offsets:&offset
                                   withRange:NSMakeRange(computeIndex, 1)];
                     }
-
-                    break;
-                }
-
-                case BindingInfoType::Sampler: {
+                },
+                [&](const SamplerBindingInfo&) {
                     auto sampler = ToBackend(group->GetBindingAsSampler(bindingIndex));
-                    if (hasVertStage) {
-                        [render setVertexSamplerState:sampler->GetMTLSamplerState()
-                                              atIndex:vertIndex];
+                    id<MTLSamplerState> samplerState = sampler->GetMTLSamplerState();
+                    if (hasVertStage &&
+                        mBoundSamplers[SingleShaderStage::Vertex][vertIndex] != samplerState) {
+                        mBoundSamplers[SingleShaderStage::Vertex][vertIndex] = samplerState;
+                        [render setVertexSamplerState:samplerState atIndex:vertIndex];
                     }
-                    if (hasFragStage) {
-                        [render setFragmentSamplerState:sampler->GetMTLSamplerState()
-                                                atIndex:fragIndex];
+                    if (hasFragStage &&
+                        mBoundSamplers[SingleShaderStage::Fragment][fragIndex] != samplerState) {
+                        mBoundSamplers[SingleShaderStage::Fragment][fragIndex] = samplerState;
+                        [render setFragmentSamplerState:samplerState atIndex:fragIndex];
                     }
-                    if (hasComputeStage) {
+                    if (hasComputeStage &&
+                        mBoundSamplers[SingleShaderStage::Compute][computeIndex] != samplerState) {
+                        mBoundSamplers[SingleShaderStage::Compute][computeIndex] = samplerState;
                         [compute setSamplerState:sampler->GetMTLSamplerState()
                                          atIndex:computeIndex];
                     }
-                    break;
-                }
-
-                case BindingInfoType::Texture:
-                case BindingInfoType::StorageTexture: {
-                    auto textureView = ToBackend(group->GetBindingAsTextureView(bindingIndex));
-                    if (hasVertStage) {
-                        [render setVertexTexture:textureView->GetMTLTexture() atIndex:vertIndex];
-                    }
-                    if (hasFragStage) {
-                        [render setFragmentTexture:textureView->GetMTLTexture() atIndex:fragIndex];
-                    }
-                    if (hasComputeStage) {
-                        [compute setTexture:textureView->GetMTLTexture() atIndex:computeIndex];
-                    }
-                    break;
-                }
-
-                case BindingInfoType::ExternalTexture:
+                },
+                [&](const StaticSamplerBindingInfo&) {
+                    // Static samplers are handled in the frontend.
+                    // TODO(crbug.com/dawn/2482): Implement static samplers in the
+                    // Metal backend.
                     DAWN_UNREACHABLE();
-            }
+                },
+                [&](const TextureBindingInfo&) { HandleTextureBinding(); },
+                [&](const StorageTextureBindingInfo&) { HandleTextureBinding(); },
+                [](const InputAttachmentBindingInfo&) { DAWN_UNREACHABLE(); });
         }
     }
 
@@ -656,7 +687,13 @@ class BindGroupTracker : public BindGroupTrackerBase<true, uint64_t> {
         ApplyBindGroupImpl(nullptr, encoder, std::forward<Args&&>(args)...);
     }
 
-    StorageBufferLengthTracker* mLengthTracker;
+    raw_ptr<StorageBufferLengthTracker> mLengthTracker;
+
+    // Keep track of current texture and sampler bindings to minimize state changes even when bind
+    // groups are dirtied. It's safe to keep raw pointers here since if an entry is set here, the
+    // texture/sampler is bound in Metal and the Metal runtime will keep them alive.
+    PerStage<absl::flat_hash_map<uint32_t, id<MTLTexture>>> mBoundTextures;
+    PerStage<absl::flat_hash_map<uint32_t, id<MTLSamplerState>>> mBoundSamplers;
 };
 
 // Keeps track of the dirty vertex buffer values so they can be lazily applied when we know
@@ -718,7 +755,7 @@ class VertexBufferTracker {
     PerVertexBuffer<NSUInteger> mVertexBufferOffsets;
     PerVertexBuffer<uint32_t> mVertexBufferBindingSizes;
 
-    StorageBufferLengthTracker* mLengthTracker;
+    raw_ptr<StorageBufferLengthTracker> mLengthTracker;
 };
 
 }  // anonymous namespace
@@ -742,6 +779,8 @@ void RecordCopyBufferToTexture(CommandRecordingContext* commandContext,
     for (const auto& copyInfo : splitCopies) {
         uint64_t bufferOffset = copyInfo.bufferOffset;
         switch (texture->GetDimension()) {
+            case wgpu::TextureDimension::Undefined:
+                DAWN_UNREACHABLE();
             case wgpu::TextureDimension::e1D: {
                 [commandContext->EnsureBlit()
                          copyFromBuffer:mtlBuffer
@@ -882,6 +921,23 @@ MaybeError CommandBuffer::FillCommands(CommandRecordingContext* commandContext) 
                                             commandContext));
                 commandContext->EndBlit();
 
+                // Before beginning, we encode a compute pass that converts multi draws into an ICB
+                // if they exist.
+                auto& indirectMetadata = GetIndirectDrawMetadata();
+                const IndirectDrawMetadata& metadata = indirectMetadata[nextRenderPassNumber];
+                const auto& multiDraws = metadata.GetIndirectMultiDraws();
+
+                std::vector<MultiDrawExecutionData> multiDrawExecutions;
+
+                if (!multiDraws.empty()) {
+                    id<MTLComputeCommandEncoder> computeEnc = commandContext->BeginCompute();
+
+                    DAWN_TRY_ASSIGN(multiDrawExecutions,
+                                    PrepareMultiDraws(GetDevice(), computeEnc, multiDraws));
+
+                    commandContext->EndCompute();
+                }
+
                 LazyClearRenderPassAttachments(cmd);
                 if (cmd->attachmentState->HasDepthStencilAttachment() &&
                     ToBackend(cmd->depthStencilAttachment.view->GetTexture())
@@ -905,7 +961,8 @@ MaybeError CommandBuffer::FillCommands(CommandRecordingContext* commandContext) 
                             encoder, cmd,
                             device->IsToggleEnabled(Toggle::MetalFillEmptyOcclusionQueriesWithZero)
                                 ? &emptyOcclusionQueries
-                                : nullptr);
+                                : nullptr,
+                            multiDrawExecutions);
                     },
                     cmd));
                 for (const auto& [querySet, queryIndex] : emptyOcclusionQueries) {
@@ -996,6 +1053,8 @@ MaybeError CommandBuffer::FillCommands(CommandRecordingContext* commandContext) 
                     uint64_t bufferOffset = copyInfo.bufferOffset;
 
                     switch (texture->GetDimension()) {
+                        case wgpu::TextureDimension::Undefined:
+                            DAWN_UNREACHABLE();
                         case wgpu::TextureDimension::e1D: {
                             [commandContext->EnsureBlit()
                                          copyFromTexture:texture->GetMTLTexture(src.aspect)
@@ -1242,9 +1301,10 @@ MaybeError CommandBuffer::FillCommands(CommandRecordingContext* commandContext) 
                 Device* device = ToBackend(GetDevice());
 
                 UploadHandle uploadHandle;
-                DAWN_TRY_ASSIGN(uploadHandle, device->GetDynamicUploader()->Allocate(
-                                                  size, device->GetPendingCommandSerial(),
-                                                  kCopyBufferToBufferOffsetAlignment));
+                DAWN_TRY_ASSIGN(uploadHandle,
+                                device->GetDynamicUploader()->Allocate(
+                                    size, device->GetQueue()->GetPendingCommandSerial(),
+                                    kCopyBufferToBufferOffsetAlignment));
                 DAWN_ASSERT(uploadHandle.mappedBuffer != nullptr);
                 memcpy(uploadHandle.mappedBuffer, data, size);
 
@@ -1266,6 +1326,7 @@ MaybeError CommandBuffer::FillCommands(CommandRecordingContext* commandContext) 
     }
 
     commandContext->EndBlit();
+
     return {};
 }
 
@@ -1438,15 +1499,18 @@ MaybeError CommandBuffer::EncodeComputePass(CommandRecordingContext* commandCont
     DAWN_UNREACHABLE();
 }
 
-MaybeError CommandBuffer::EncodeRenderPass(id<MTLRenderCommandEncoder> encoder,
-                                           BeginRenderPassCmd* renderPassCmd,
-                                           EmptyOcclusionQueries* emptyOcclusionQueries) {
+MaybeError CommandBuffer::EncodeRenderPass(
+    id<MTLRenderCommandEncoder> encoder,
+    BeginRenderPassCmd* renderPassCmd,
+    EmptyOcclusionQueries* emptyOcclusionQueries,
+    const std::vector<MultiDrawExecutionData>& multiDrawExecutions) {
     bool enableVertexPulling = GetDevice()->IsToggleEnabled(Toggle::MetalEnableVertexPulling);
     RenderPipeline* lastPipeline = nullptr;
     id<MTLBuffer> indexBuffer = nullptr;
     uint32_t indexBufferBaseOffset = 0;
     MTLIndexType indexBufferType;
     uint64_t indexFormatSize = 0;
+    uint32_t multiDrawIndex = 0;
 
     bool didDrawInCurrentOcclusionQuery = false;
 
@@ -1574,6 +1638,29 @@ MaybeError CommandBuffer::EncodeRenderPass(id<MTLRenderCommandEncoder> encoder,
                                 indirectBuffer:indirectBuffer
                           indirectBufferOffset:draw->indirectOffset];
                 didDrawInCurrentOcclusionQuery = true;
+                break;
+            }
+
+            case Command::MultiDrawIndirect: {
+                iter->NextCommand<MultiDrawIndirectCmd>();
+
+                vertexBuffers.Apply(encoder, lastPipeline, enableVertexPulling);
+                bindGroups.Apply(encoder);
+                storageBufferLengths.Apply(encoder, lastPipeline, enableVertexPulling);
+
+                ExecuteMultiDraw(multiDrawExecutions[multiDrawIndex], encoder);
+                multiDrawIndex++;
+                break;
+            }
+            case Command::MultiDrawIndexedIndirect: {
+                iter->NextCommand<MultiDrawIndexedIndirectCmd>();
+
+                vertexBuffers.Apply(encoder, lastPipeline, enableVertexPulling);
+                bindGroups.Apply(encoder);
+                storageBufferLengths.Apply(encoder, lastPipeline, enableVertexPulling);
+
+                ExecuteMultiDraw(multiDrawExecutions[multiDrawIndex], encoder);
+                multiDrawIndex++;
                 break;
             }
 

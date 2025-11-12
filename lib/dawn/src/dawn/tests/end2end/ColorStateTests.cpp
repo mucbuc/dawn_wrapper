@@ -51,10 +51,6 @@ class ColorStateTest : public DawnTest {
             device, {{0, wgpu::ShaderStage::Fragment, wgpu::BufferBindingType::Uniform}});
         pipelineLayout = utils::MakePipelineLayout(device, {bindGroupLayout});
 
-        // TODO(crbug.com/dawn/489): D3D12_Microsoft_Basic_Render_Driver_CPU
-        // produces invalid results for these tests.
-        DAWN_SUPPRESS_TEST_IF(IsD3D12() && IsWARP());
-
         vsModule = utils::CreateShaderModule(device, R"(
                 @vertex
                 fn main(@builtin(vertex_index) VertexIndex : u32) -> @builtin(position) vec4f {
@@ -321,9 +317,10 @@ constexpr std::array<utils::RGBA8, 8> kColors = {{
 // Test compilation and usage of the fixture
 TEST_P(ColorStateTest, Basic) {
     wgpu::BlendComponent blendComponent;
-    blendComponent.operation = wgpu::BlendOperation::Add;
-    blendComponent.srcFactor = wgpu::BlendFactor::One;
-    blendComponent.dstFactor = wgpu::BlendFactor::Zero;
+    // Spot-test for defaulting of these three fields.
+    blendComponent.operation = wgpu::BlendOperation::Undefined;  // add
+    blendComponent.srcFactor = wgpu::BlendFactor::Undefined;     // one
+    blendComponent.dstFactor = wgpu::BlendFactor::Undefined;     // zero
 
     wgpu::BlendState blend;
     blend.color = blendComponent;
@@ -798,10 +795,10 @@ TEST_P(ColorStateTest, ColorWriteMaskBlendingDisabled) {
 
 // Test that independent color states on render targets works
 TEST_P(ColorStateTest, IndependentColorState) {
-    DAWN_TEST_UNSUPPORTED_IF(HasToggleEnabled("disable_indexed_draw_buffers"));
+    // Compatibility mode doesn't support per-draw-buffer blending
+    DAWN_TEST_UNSUPPORTED_IF(IsCompatibilityMode());
 
-    // TODO(crbug.com/dawn/2295): diagnose this failure on Pixel 4 OpenGLES
-    DAWN_SUPPRESS_TEST_IF(IsOpenGLES() && IsAndroid() && IsQualcomm());
+    DAWN_TEST_UNSUPPORTED_IF(HasToggleEnabled("disable_indexed_draw_buffers"));
 
     std::array<wgpu::Texture, 4> renderTargets;
     std::array<wgpu::TextureView, 4> renderTargetViews;
@@ -1130,8 +1127,10 @@ TEST_P(ColorStateTest, ColorWriteMaskDoesNotAffectRenderPassLoadOpClear) {
 }
 
 TEST_P(ColorStateTest, SparseAttachmentsDifferentColorMask) {
+    // Compatibility mode doesn't support per-draw-buffer color mask
+    DAWN_TEST_UNSUPPORTED_IF(IsCompatibilityMode());
+
     DAWN_TEST_UNSUPPORTED_IF(HasToggleEnabled("disable_indexed_draw_buffers"));
-    DAWN_SUPPRESS_TEST_IF(IsOpenGLES() && IsAndroid() && IsQualcomm());
 
     wgpu::ShaderModule fsModule = utils::CreateShaderModule(device, R"(
         struct Outputs {

@@ -29,13 +29,14 @@
 #include <gbm.h>
 #include <unistd.h>
 #include <vulkan/vulkan.h>
+#include <webgpu/webgpu_cpp.h>
+
 #include <memory>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "dawn/tests/white_box/SharedTextureMemoryTests.h"
-#include "dawn/webgpu_cpp.h"
 
 namespace dawn {
 namespace {
@@ -52,7 +53,7 @@ class Backend : public SharedTextureMemoryTestVulkanBackend {
         switch (FenceFeature) {
             case wgpu::FeatureName::SharedFenceVkSemaphoreOpaqueFD:
                 return "dma buf, opaque fd";
-            case wgpu::FeatureName::SharedFenceVkSemaphoreSyncFD:
+            case wgpu::FeatureName::SharedFenceSyncFD:
                 return "dma buf, sync fd";
             default:
                 DAWN_UNREACHABLE();
@@ -113,7 +114,8 @@ class Backend : public SharedTextureMemoryTestVulkanBackend {
     }
 
     // Create one basic shared texture memory. It should support most operations.
-    wgpu::SharedTextureMemory CreateSharedTextureMemory(const wgpu::Device& device) override {
+    wgpu::SharedTextureMemory CreateSharedTextureMemory(const wgpu::Device& device,
+                                                        int layerCount) override {
         auto format = GBM_FORMAT_ABGR8888;
         auto usage = GBM_BO_USE_LINEAR;
 
@@ -126,7 +128,8 @@ class Backend : public SharedTextureMemoryTestVulkanBackend {
     }
 
     std::vector<std::vector<wgpu::SharedTextureMemory>> CreatePerDeviceSharedTextureMemories(
-        const std::vector<wgpu::Device>& devices) override {
+        const std::vector<wgpu::Device>& devices,
+        int layerCount) override {
         std::vector<std::vector<wgpu::SharedTextureMemory>> memories;
         for (uint32_t format : {
                  GBM_FORMAT_R8,
@@ -144,11 +147,6 @@ class Backend : public SharedTextureMemoryTestVulkanBackend {
                      GBM_BO_USE_RENDERING,
                      gbm_bo_flags(GBM_BO_USE_RENDERING | GBM_BO_USE_LINEAR),
                  }) {
-                if (format == GBM_FORMAT_NV12 && (usage & GBM_BO_USE_LINEAR)) {
-                    // TODO(crbug.com/dawn/1548): Linear multiplanar formats require disjoint
-                    // planes which are not supported yet.
-                    continue;
-                }
                 if (!gbm_device_is_format_supported(mGbmDevice, format, usage)) {
                     continue;
                 }
@@ -224,14 +222,16 @@ DAWN_INSTANTIATE_PREFIXED_TEST_P(
     SharedTextureMemoryNoFeatureTests,
     {VulkanBackend()},
     {Backend<wgpu::FeatureName::SharedFenceVkSemaphoreOpaqueFD>::GetInstance(),
-     Backend<wgpu::FeatureName::SharedFenceVkSemaphoreSyncFD>::GetInstance()});
+     Backend<wgpu::FeatureName::SharedFenceSyncFD>::GetInstance()},
+    {1});
 
 DAWN_INSTANTIATE_PREFIXED_TEST_P(
     Vulkan,
     SharedTextureMemoryTests,
     {VulkanBackend()},
     {Backend<wgpu::FeatureName::SharedFenceVkSemaphoreOpaqueFD>::GetInstance(),
-     Backend<wgpu::FeatureName::SharedFenceVkSemaphoreSyncFD>::GetInstance()});
+     Backend<wgpu::FeatureName::SharedFenceSyncFD>::GetInstance()},
+    {1});
 
 }  // anonymous namespace
 }  // namespace dawn

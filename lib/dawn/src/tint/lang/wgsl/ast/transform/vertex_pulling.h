@@ -40,22 +40,31 @@ namespace tint::ast::transform {
 
 /// Describes the format of data in a vertex buffer
 enum class VertexFormat {
+    kUint8,            // uint8
     kUint8x2,          // uint8x2
     kUint8x4,          // uint8x4
+    kSint8,            // sint8
     kSint8x2,          // sint8x2
     kSint8x4,          // sint8x4
+    kUnorm8,           // unorm8
     kUnorm8x2,         // unorm8x2
     kUnorm8x4,         // unorm8x4
+    kSnorm8,           // snorm8
     kSnorm8x2,         // snorm8x2
     kSnorm8x4,         // snorm8x4
+    kUint16,           // uint16
     kUint16x2,         // uint16x2
     kUint16x4,         // uint16x4
+    kSint16,           // sint16
     kSint16x2,         // sint16x2
     kSint16x4,         // sint16x4
+    kUnorm16,          // unorm16
     kUnorm16x2,        // unorm16x2
     kUnorm16x4,        // unorm16x4
+    kSnorm16,          // snorm16
     kSnorm16x2,        // snorm16x2
     kSnorm16x4,        // snorm16x4
+    kFloat16,          // float16
     kFloat16x2,        // float16x2
     kFloat16x4,        // float16x4
     kFloat32,          // float32
@@ -71,13 +80,12 @@ enum class VertexFormat {
     kSint32x3,         // sint32x3
     kSint32x4,         // sint32x4
     kUnorm10_10_10_2,  // unorm10-10-10-2
-
-    kLastEntry = kSint32x4,
+    kUnorm8x4BGRA,     // unorm8x4-bgra
 };
 
 /// Describes if a vertex attributes increments with vertex index or instance
 /// index
-enum class VertexStepMode { kVertex, kInstance, kLastEntry = kInstance };
+enum class VertexStepMode { kVertex, kInstance };
 
 /// Describes a vertex attribute within a buffer
 struct VertexAttributeDescriptor {
@@ -89,7 +97,7 @@ struct VertexAttributeDescriptor {
     uint32_t shader_location;
 
     /// Reflect the fields of this class so that it can be used by tint::ForeachField()
-    TINT_REFLECT(format, offset, shader_location);
+    TINT_REFLECT(VertexAttributeDescriptor, format, offset, shader_location);
 };
 
 /// Describes a buffer containing multiple vertex attributes
@@ -122,7 +130,7 @@ struct VertexBufferLayoutDescriptor {
     std::vector<VertexAttributeDescriptor> attributes;
 
     /// Reflect the fields of this class so that it can be used by tint::ForeachField()
-    TINT_REFLECT(array_stride, step_mode, attributes);
+    TINT_REFLECT(VertexBufferLayoutDescriptor, array_stride, step_mode, attributes);
 };
 
 /// Describes vertex state, which consists of many buffers containing vertex
@@ -176,7 +184,7 @@ class VertexPulling final : public Castable<VertexPulling, Transform> {
         uint32_t pulling_group = 4u;
 
         /// Reflect the fields of this class so that it can be used by tint::ForeachField()
-        TINT_REFLECT(vertex_state, pulling_group);
+        TINT_REFLECT(Config, vertex_state, pulling_group);
     };
 
     /// Constructor
@@ -197,5 +205,15 @@ class VertexPulling final : public Castable<VertexPulling, Transform> {
 };
 
 }  // namespace tint::ast::transform
+
+namespace tint {
+
+/// Reflection for VertexFormat
+TINT_REFLECT_ENUM_RANGE(tint::ast::transform::VertexFormat, kUint8x2, kUnorm10_10_10_2);
+
+/// Reflection for VertexStepMode
+TINT_REFLECT_ENUM_RANGE(tint::ast::transform::VertexStepMode, kVertex, kInstance);
+
+}  // namespace tint
 
 #endif  // SRC_TINT_LANG_WGSL_AST_TRANSFORM_VERTEX_PULLING_H_

@@ -464,6 +464,67 @@ fn f() {
     EXPECT_EQ(expect, str(got));
 }
 
+TEST_P(RobustnessTest, Read_ConstantSizedArrayRef_IndexWithRuntimeArrayIndexViaPointerIndex) {
+    auto* src = R"(
+var<private> a : array<f32, 3>;
+
+var<private> b : array<i32, 5>;
+
+var<private> i : u32;
+
+fn f() {
+  let p1 = &(a);
+  let p2 = &(b);
+  var c : f32 = p1[p2[i]];
+}
+)";
+
+    auto* expect = Expect(GetParam(),
+                          /* ignore */ src,
+                          /* clamp */ R"(
+var<private> a : array<f32, 3>;
+
+var<private> b : array<i32, 5>;
+
+var<private> i : u32;
+
+fn f() {
+  let p1 = &(a);
+  let p2 = &(b);
+  var c : f32 = p1[min(u32(p2[min(i, 4u)]), 2u)];
+}
+)",
+                          /* predicate */ R"(
+var<private> a : array<f32, 3>;
+
+var<private> b : array<i32, 5>;
+
+var<private> i : u32;
+
+fn f() {
+  let p1 = &(a);
+  let p2 = &(b);
+  let index = i;
+  let predicate = (u32(index) <= 4u);
+  var predicated_expr : i32;
+  if (predicate) {
+    predicated_expr = p2[index];
+  }
+  let index_1 = predicated_expr;
+  let predicate_1 = (u32(index_1) <= 2u);
+  var predicated_expr_1 : f32;
+  if (predicate_1) {
+    predicated_expr_1 = p1[index_1];
+  }
+  var c : f32 = predicated_expr_1;
+}
+)");
+
+    auto got = Run<Robustness>(src, Config(GetParam()));
+
+    EXPECT_EQ(expect, str(got));
+}
+
 TEST_P(RobustnessTest, Read_ConstantSizedArrayRef_IndexWithRuntimeExpression) {
     auto* src = R"(
 var<private> a : array<f32, 3>;
@@ -1379,6 +1440,52 @@ fn f() {
     EXPECT_EQ(expect, str(got));
 }
 
+TEST_P(RobustnessTest, Read_Vector_IndexWithRuntimeExpression_ViaPointerIndex) {
+    auto* src = R"(
+var<private> a : vec3<f32>;
+
+var<private> c : i32;
+
+fn f() {
+  let p = &(a);
+  var b : f32 = p[((c + 2) - 3)];
+}
+)";
+
+    auto* expect = Expect(GetParam(),
+                          /* ignore */ src,
+                          /* clamp */ R"(
+var<private> a : vec3<f32>;
+
+var<private> c : i32;
+
+fn f() {
+  let p = &(a);
+  var b : f32 = p[min(u32(((c + 2) - 3)), 2u)];
+}
+)",
+                          /* predicate */ R"(
+var<private> a : vec3<f32>;
+
+var<private> c : i32;
+
+fn f() {
+  let p = &(a);
+  let index = ((c + 2) - 3);
+  let predicate = (u32(index) <= 2u);
+  var predicated_expr : f32;
+  if (predicate) {
+    predicated_expr = p[index];
+  }
+  var b : f32 = predicated_expr;
+}
+)");
+
+    auto got = Run<Robustness>(src, Config(GetParam()));
+
+    EXPECT_EQ(expect, str(got));
+}
+
 TEST_P(RobustnessTest, Read_Vector_SwizzleIndexWithGlobalVar) {
     auto* src = R"(
 var<private> a : vec3<f32>;
@@ -1455,6 +1562,52 @@ fn f() {
   var predicated_expr : f32;
   if (predicate) {
     predicated_expr = a.xy[index];
+  }
+  var b : f32 = predicated_expr;
+}
+)");
+
+    auto got = Run<Robustness>(src, Config(GetParam()));
+
+    EXPECT_EQ(expect, str(got));
+}
+
+TEST_P(RobustnessTest, Read_Vector_SwizzleIndexWithRuntimeExpression_ViaPointerDot) {
+    auto* src = R"(
+var<private> a : vec3<f32>;
+
+var<private> c : i32;
+
+fn f() {
+  let p = &(a);
+  var b : f32 = p.xy[((c + 2) - 3)];
+}
+)";
+
+    auto* expect = Expect(GetParam(),
+                          /* ignore */ src,
+                          /* clamp */ R"(
+var<private> a : vec3<f32>;
+
+var<private> c : i32;
+
+fn f() {
+  let p = &(a);
+  var b : f32 = p.xy[min(u32(((c + 2) - 3)), 1u)];
+}
+)",
+                          /* predicate */ R"(
+var<private> a : vec3<f32>;
+
+var<private> c : i32;
+
+fn f() {
+  let p = &(a);
+  let index = ((c + 2) - 3);
+  let predicate = (u32(index) <= 1u);
+  var predicated_expr : f32;
+  if (predicate) {
+    predicated_expr = p.xy[index];
   }
   var b : f32 = predicated_expr;
 }
@@ -3211,295 +3364,6 @@ fn sample_base_clamp_to_edge(coords : vec2f) {
     EXPECT_EQ(expect, str(got));
 }
 
-TEST_P(RobustnessTest, TextureStore_1D) {
-    auto* src = R"(
-@group(0) @binding(0) var t : texture_storage_1d<rgba8sint, write>;
-
-fn store_signed(coords : i32, value : vec4i) {
-  textureStore(t, coords, value);
-}
-
-fn store_unsigned(coords : u32, value : vec4i) {
-  textureStore(t, coords, value);
-}
-
-@fragment
-fn main(@builtin(position) non_uniform : vec4f) {
-  store_signed(i32(non_uniform.x), vec4i(non_uniform));
-  store_unsigned(u32(non_uniform.x), vec4i(non_uniform));
-}
-)";
-
-    auto* expect = Expect(GetParam(),
-                          /* ignore */ src,
-                          /* clamp */ R"(
-@group(0) @binding(0) var t : texture_storage_1d<rgba8sint, write>;
-
-fn store_signed(coords : i32, value : vec4i) {
-  textureStore(t, clamp(coords, 0, i32((textureDimensions(t) - 1))), value);
-}
-
-fn store_unsigned(coords : u32, value : vec4i) {
-  textureStore(t, min(coords, (textureDimensions(t) - 1)), value);
-}
-
-@fragment
-fn main(@builtin(position) non_uniform : vec4f) {
-  store_signed(i32(non_uniform.x), vec4i(non_uniform));
-  store_unsigned(u32(non_uniform.x), vec4i(non_uniform));
-}
-)",
-                          /* predicate */ R"(
-@group(0) @binding(0) var t : texture_storage_1d<rgba8sint, write>;
-
-fn store_signed(coords : i32, value : vec4i) {
-  let coords_1 = u32(coords);
-  if (all((coords_1 < textureDimensions(t)))) {
-    textureStore(t, coords_1, value);
-  }
-}
-
-fn store_unsigned(coords : u32, value : vec4i) {
-  let coords_2 = u32(coords);
-  if (all((coords_2 < textureDimensions(t)))) {
-    textureStore(t, coords_2, value);
-  }
-}
-
-@fragment
-fn main(@builtin(position) non_uniform : vec4f) {
-  store_signed(i32(non_uniform.x), vec4i(non_uniform));
-  store_unsigned(u32(non_uniform.x), vec4i(non_uniform));
-}
-)");
-
-    auto got = Run<Robustness>(src, Config(GetParam()));
-
-    EXPECT_EQ(expect, str(got));
-}
-
-TEST_P(RobustnessTest, TextureStore_2D) {
-    auto* src = R"(
-@group(0) @binding(0) var t : texture_storage_2d<rgba8sint, write>;
-
-fn store_signed(coords : vec2i, value : vec4i) {
-  textureStore(t, coords, value);
-}
-
-fn store_unsigned(coords : vec2u, value : vec4i) {
-  textureStore(t, coords, value);
-}
-
-@fragment
-fn main(@builtin(position) non_uniform : vec4f) {
-  store_signed(vec2i(non_uniform.xy), vec4i(non_uniform));
-  store_unsigned(vec2u(non_uniform.xy), vec4i(non_uniform));
-}
-)";
-
-    auto* expect = Expect(GetParam(),
-                          /* ignore */ src,
-                          /* clamp */ R"(
-@group(0) @binding(0) var t : texture_storage_2d<rgba8sint, write>;
-
-fn store_signed(coords : vec2i, value : vec4i) {
-  textureStore(t, clamp(coords, vec2(0), vec2<i32>((textureDimensions(t) - vec2(1)))), value);
-}
-
-fn store_unsigned(coords : vec2u, value : vec4i) {
-  textureStore(t, min(coords, (textureDimensions(t) - vec2(1))), value);
-}
-
-@fragment
-fn main(@builtin(position) non_uniform : vec4f) {
-  store_signed(vec2i(non_uniform.xy), vec4i(non_uniform));
-  store_unsigned(vec2u(non_uniform.xy), vec4i(non_uniform));
-}
-)",
-                          /* predicate */ R"(
-@group(0) @binding(0) var t : texture_storage_2d<rgba8sint, write>;
-
-fn store_signed(coords : vec2i, value : vec4i) {
-  let coords_1 = vec2<u32>(coords);
-  if (all((coords_1 < textureDimensions(t)))) {
-    textureStore(t, coords_1, value);
-  }
-}
-
-fn store_unsigned(coords : vec2u, value : vec4i) {
-  let coords_2 = vec2<u32>(coords);
-  if (all((coords_2 < textureDimensions(t)))) {
-    textureStore(t, coords_2, value);
-  }
-}
-
-@fragment
-fn main(@builtin(position) non_uniform : vec4f) {
-  store_signed(vec2i(non_uniform.xy), vec4i(non_uniform));
-  store_unsigned(vec2u(non_uniform.xy), vec4i(non_uniform));
-}
-)");
-
-    auto got = Run<Robustness>(src, Config(GetParam()));
-
-    EXPECT_EQ(expect, str(got));
-}
-
-TEST_P(RobustnessTest, TextureStore_2DArray) {
-    auto* src = R"(
-@group(0) @binding(0) var t : texture_storage_2d_array<rgba8sint, write>;
-
-fn store_signed(coords : vec2i, array : i32, value : vec4i) {
-  textureStore(t, coords, array, value);
-}
-
-fn store_unsigned(coords : vec2u, array : u32, value : vec4i) {
-  textureStore(t, coords, array, value);
-}
-
-fn store_mixed(coords : vec2i, array : u32, value : vec4i) {
-  textureStore(t, coords, array, value);
-}
-
-@fragment
-fn main(@builtin(position) non_uniform : vec4f) {
-  store_signed(vec2i(non_uniform.xy), i32(non_uniform.x), vec4i(non_uniform));
-  store_unsigned(vec2u(non_uniform.xy), u32(non_uniform.x), vec4i(non_uniform));
-  store_mixed(vec2i(non_uniform.xy), u32(non_uniform.x), vec4i(non_uniform));
-}
-)";
-
-    auto* expect = Expect(GetParam(),
-                          /* ignore */ src,
-                          /* clamp */ R"(
-@group(0) @binding(0) var t : texture_storage_2d_array<rgba8sint, write>;
-
-fn store_signed(coords : vec2i, array : i32, value : vec4i) {
-  textureStore(t, clamp(coords, vec2(0), vec2<i32>((textureDimensions(t) - vec2(1)))), clamp(array, 0, i32((textureNumLayers(t) - 1))), value);
-}
-
-fn store_unsigned(coords : vec2u, array : u32, value : vec4i) {
-  textureStore(t, min(coords, (textureDimensions(t) - vec2(1))), min(array, (textureNumLayers(t) - 1)), value);
-}
-
-fn store_mixed(coords : vec2i, array : u32, value : vec4i) {
-  textureStore(t, clamp(coords, vec2(0), vec2<i32>((textureDimensions(t) - vec2(1)))), min(array, (textureNumLayers(t) - 1)), value);
-}
-
-@fragment
-fn main(@builtin(position) non_uniform : vec4f) {
-  store_signed(vec2i(non_uniform.xy), i32(non_uniform.x), vec4i(non_uniform));
-  store_unsigned(vec2u(non_uniform.xy), u32(non_uniform.x), vec4i(non_uniform));
-  store_mixed(vec2i(non_uniform.xy), u32(non_uniform.x), vec4i(non_uniform));
-}
-)",
-                          /* predicate */ R"(
-@group(0) @binding(0) var t : texture_storage_2d_array<rgba8sint, write>;
-
-fn store_signed(coords : vec2i, array : i32, value : vec4i) {
-  let coords_1 = vec2<u32>(coords);
-  let array_idx = u32(array);
-  if ((all((coords_1 < textureDimensions(t))) & (array_idx < textureNumLayers(t)))) {
-    textureStore(t, coords_1, array_idx, value);
-  }
-}
-
-fn store_unsigned(coords : vec2u, array : u32, value : vec4i) {
-  let coords_2 = vec2<u32>(coords);
-  let array_idx_1 = u32(array);
-  if ((all((coords_2 < textureDimensions(t))) & (array_idx_1 < textureNumLayers(t)))) {
-    textureStore(t, coords_2, array_idx_1, value);
-  }
-}
-
-fn store_mixed(coords : vec2i, array : u32, value : vec4i) {
-  let coords_3 = vec2<u32>(coords);
-  let array_idx_2 = u32(array);
-  if ((all((coords_3 < textureDimensions(t))) & (array_idx_2 < textureNumLayers(t)))) {
-    textureStore(t, coords_3, array_idx_2, value);
-  }
-}
-
-@fragment
-fn main(@builtin(position) non_uniform : vec4f) {
-  store_signed(vec2i(non_uniform.xy), i32(non_uniform.x), vec4i(non_uniform));
-  store_unsigned(vec2u(non_uniform.xy), u32(non_uniform.x), vec4i(non_uniform));
-  store_mixed(vec2i(non_uniform.xy), u32(non_uniform.x), vec4i(non_uniform));
-}
-)");
-
-    auto got = Run<Robustness>(src, Config(GetParam()));
-
-    EXPECT_EQ(expect, str(got));
-}
-
-TEST_P(RobustnessTest, TextureStore_3D) {
-    auto* src = R"(
-@group(0) @binding(0) var t : texture_storage_3d<rgba8sint, write>;
-
-fn store_signed(coords : vec3i, value : vec4i) {
-  textureStore(t, coords, value);
-}
-
-fn store_unsigned(coords : vec3u, value : vec4i) {
-  textureStore(t, coords, value);
-}
-
-@fragment
-fn main(@builtin(position) non_uniform : vec4f) {
-  store_signed(vec3i(non_uniform.xyz), vec4i(non_uniform));
-  store_unsigned(vec3u(non_uniform.xyz), vec4i(non_uniform));
-}
-)";
-
-    auto* expect = Expect(GetParam(),
-                          /* ignore */ src,
-                          /* clamp */ R"(
-@group(0) @binding(0) var t : texture_storage_3d<rgba8sint, write>;
-
-fn store_signed(coords : vec3i, value : vec4i) {
-  textureStore(t, clamp(coords, vec3(0), vec3<i32>((textureDimensions(t) - vec3(1)))), value);
-}
-
-fn store_unsigned(coords : vec3u, value : vec4i) {
-  textureStore(t, min(coords, (textureDimensions(t) - vec3(1))), value);
-}
-
-@fragment
-fn main(@builtin(position) non_uniform : vec4f) {
-  store_signed(vec3i(non_uniform.xyz), vec4i(non_uniform));
-  store_unsigned(vec3u(non_uniform.xyz), vec4i(non_uniform));
-}
-)",
-                          /* predicate */ R"(
-@group(0) @binding(0) var t : texture_storage_3d<rgba8sint, write>;
-
-fn store_signed(coords : vec3i, value : vec4i) {
-  let coords_1 = vec3<u32>(coords);
-  if (all((coords_1 < textureDimensions(t)))) {
-    textureStore(t, coords_1, value);
-  }
-}
-
-fn store_unsigned(coords : vec3u, value : vec4i) {
-  let coords_2 = vec3<u32>(coords);
-  if (all((coords_2 < textureDimensions(t)))) {
-    textureStore(t, coords_2, value);
-  }
-}
-
-@fragment
-fn main(@builtin(position) non_uniform : vec4f) {
-  store_signed(vec3i(non_uniform.xyz), vec4i(non_uniform));
-  store_unsigned(vec3u(non_uniform.xyz), vec4i(non_uniform));
-}
-)");
-
-    auto got = Run<Robustness>(src, Config(GetParam()));
-
-    EXPECT_EQ(expect, str(got));
-}
-
 ////////////////////////////////////////////////////////////////////////////////
 // Other
 ////////////////////////////////////////////////////////////////////////////////
@@ -4170,125 +4034,6 @@ fn f() {
     EXPECT_EQ(expect, str(got));
 }
 
-TEST_P(RobustnessTest, TextureStore_ForLoopInit) {
-    auto* src = R"(
-@group(0) @binding(0) var t : texture_storage_1d<rgba8sint, write>;
-
-fn f() {
-  var coords = 1;
-  var value = vec4(1);
-  var i = 0;
-  for(textureStore(t, coords, value); (i < 3); i++) {
-    var in_loop = 42;
-  }
-}
-)";
-
-    auto* expect = Expect(GetParam(),
-                          /* ignore */ src,
-                          /* clamp */ R"(
-@group(0) @binding(0) var t : texture_storage_1d<rgba8sint, write>;
-
-fn f() {
-  var coords = 1;
-  var value = vec4(1);
-  var i = 0;
-  for(textureStore(t, clamp(coords, 0, i32((textureDimensions(t) - 1))), value); (i < 3); i++) {
-    var in_loop = 42;
-  }
-}
-)",
-                          /* predicate */ R"(
-@group(0) @binding(0) var t : texture_storage_1d<rgba8sint, write>;
-
-fn f() {
-  var coords = 1;
-  var value = vec4(1);
-  var i = 0;
-  {
-    let coords_1 = u32(coords);
-    if (all((coords_1 < textureDimensions(t)))) {
-      textureStore(t, coords_1, value);
-    }
-    loop {
-      if (!((i < 3))) {
-        break;
-      }
-      {
-        var in_loop = 42;
-      }
-
-      continuing {
-        i++;
-      }
-    }
-  }
-}
-)");
-
-    auto got = Run<Robustness>(src, Config(GetParam()));
-
-    EXPECT_EQ(expect, str(got));
-}
-
-TEST_P(RobustnessTest, TextureStore_ForLoopCont) {
-    auto* src = R"(
-@group(0) @binding(0) var t : texture_storage_1d<rgba8sint, write>;
-
-fn f() {
-  var level = 1;
-  var value = vec4(1);
-  for(var i = 0; (i < 3); textureStore(t, i, value)) {
-    var in_loop = 42;
-  }
-}
-)";
-
-    auto* expect = Expect(GetParam(),
-                          /* ignore */ src,
-                          /* clamp */ R"(
-@group(0) @binding(0) var t : texture_storage_1d<rgba8sint, write>;
-
-fn f() {
-  var level = 1;
-  var value = vec4(1);
-  for(var i = 0; (i < 3); textureStore(t, clamp(i, 0, i32((textureDimensions(t) - 1))), value)) {
-    var in_loop = 42;
-  }
-}
-)",
-                          /* predicate */ R"(
-@group(0) @binding(0) var t : texture_storage_1d<rgba8sint, write>;
-
-fn f() {
-  var level = 1;
-  var value = vec4(1);
-  {
-    var i = 0;
-    loop {
-      if (!((i < 3))) {
-        break;
-      }
-      {
-        var in_loop = 42;
-      }
-
-      continuing {
-        let coords = u32(i);
-        if (all((coords < textureDimensions(t)))) {
-          textureStore(t, coords, value);
-        }
-      }
-    }
-  }
-}
-)");
-
-    auto got = Run<Robustness>(src, Config(GetParam()));
-
-    EXPECT_EQ(expect, str(got));
-}
-
 TEST_P(RobustnessTest, AtomicXor_ForLoopInit) {
     auto* src = R"(
 @group(0) @binding(0) var<storage, read_write> a : array<atomic<i32>, 4>;
@@ -4461,8 +4206,6 @@ fn f() {
 
 TEST_P(RobustnessTest, Read_PrivatePointerParameter_IndexWithConstant) {
     auto* src = R"(
-enable chromium_experimental_full_ptr_parameters;
-
 var<private> a : array<i32, 4>;
 
 fn x(pre : i32, p : ptr<private, i32>, post : i32) -> i32 {
@@ -4482,8 +4225,6 @@ fn z() {
                           /* ignore */ src,
                           /* clamp */ src,
                           /* predicate */ R"(
-enable chromium_experimental_full_ptr_parameters;
-
 var<private> a : array<i32, 4>;
 
 fn x(pre : i32, p : ptr<private, i32>, p_predicate : bool, post : i32) -> i32 {
@@ -4510,8 +4251,6 @@ fn z() {
 
 TEST_P(RobustnessTest, Read_WorkgroupPointerParameter_IndexWithConstant) {
     auto* src = R"(
-enable chromium_experimental_full_ptr_parameters;
-
 var<workgroup> a : array<i32, 4>;
 
 fn x(pre : i32, p : ptr<workgroup, i32>, post : i32) -> i32 {
@@ -4531,8 +4270,6 @@ fn z() {
                           /* ignore */ src,
                           /* clamp */ src,
                           /* predicate */ R"(
-enable chromium_experimental_full_ptr_parameters;
-
 var<workgroup> a : array<i32, 4>;
 
 fn x(pre : i32, p : ptr<workgroup, i32>, p_predicate : bool, post : i32) -> i32 {
@@ -4559,8 +4296,6 @@ fn z() {
 
 TEST_P(RobustnessTest, Read_UniformPointerParameter_IndexWithConstant) {
     auto* src = R"(
-enable chromium_experimental_full_ptr_parameters;
-
 @group(0) @binding(0) var<uniform> a : array<vec4i, 4>;
 
 fn x(pre : vec4i, p : ptr<uniform, vec4i>, post : vec4i) -> vec4i {
@@ -4580,8 +4315,6 @@ fn z() {
                           /* ignore */ src,
                           /* clamp */ src,
                           /* predicate */ R"(
-enable chromium_experimental_full_ptr_parameters;
-
 @group(0) @binding(0) var<uniform> a : array<vec4i, 4>;
 
 fn x(pre : vec4i, p : ptr<uniform, vec4i>, p_predicate : bool, post : vec4i) -> vec4i {
@@ -4608,8 +4341,6 @@ fn z() {
 
 TEST_P(RobustnessTest, Read_StoragePointerParameter_IndexWithConstant) {
     auto* src = R"(
-enable chromium_experimental_full_ptr_parameters;
-
 @group(0) @binding(0) var<storage> a : array<vec4i, 4>;
 
 fn x(pre : vec4i, p : ptr<storage, vec4i>, post : vec4i) -> vec4i {
@@ -4629,8 +4360,6 @@ fn z() {
                           /* ignore */ src,
                           /* clamp */ src,
                           /* predicate */ R"(
-enable chromium_experimental_full_ptr_parameters;
-
 @group(0) @binding(0) var<storage> a : array<vec4i, 4>;
 
 fn x(pre : vec4i, p : ptr<storage, vec4i>, p_predicate : bool, post : vec4i) -> vec4i {
@@ -4657,8 +4386,6 @@ fn z() {
 
 TEST_P(RobustnessTest, Read_FunctionPointerParameter_IndexWithConstant) {
     auto* src = R"(
-enable chromium_experimental_full_ptr_parameters;
-
 fn x(pre : i32, p : ptr<function, i32>, post : i32) -> i32 {
   return ((pre + *(p)) + post);
 }
@@ -4677,8 +4404,6 @@ fn z() {
                           /* ignore */ src,
                           /* clamp */ src,
                           /* predicate */ R"(
-enable chromium_experimental_full_ptr_parameters;
-
 fn x(pre : i32, p : ptr<function, i32>, p_predicate : bool, post : i32) -> i32 {
   var predicated_expr : i32;
   if (p_predicate) {
@@ -4704,8 +4429,6 @@ fn z() {
 
 TEST_P(RobustnessTest, Read_PrivatePointerParameter_IndexWithLet) {
     auto* src = R"(
-enable chromium_experimental_full_ptr_parameters;
-
 var<private> a : array<i32, 4>;
 
 fn x(pre : i32, p : ptr<private, i32>, post : i32) -> i32 {
@@ -4725,8 +4448,6 @@ fn z() {
     auto* expect = Expect(GetParam(),
                           /* ignore */ src,
                           /* clamp */ R"(
-enable chromium_experimental_full_ptr_parameters;
-
 var<private> a : array<i32, 4>;
 
 fn x(pre : i32, p : ptr<private, i32>, post : i32) -> i32 {
@@ -4743,8 +4464,6 @@ fn z() {
 }
 )",
                           /* predicate */ R"(
-enable chromium_experimental_full_ptr_parameters;
-
 var<private> a : array<i32, 4>;
 
 fn x(pre : i32, p : ptr<private, i32>, p_predicate : bool, post : i32) -> i32 {
@@ -4774,8 +4493,6 @@ fn z() {
 
 TEST_P(RobustnessTest, Read_WorkgroupPointerParameter_IndexWithLet) {
     auto* src = R"(
-enable chromium_experimental_full_ptr_parameters;
-
 var<workgroup> a : array<i32, 4>;
 
 fn x(pre : i32, p : ptr<workgroup, i32>, post : i32) -> i32 {
@@ -4795,8 +4512,6 @@ fn z() {
     auto* expect = Expect(GetParam(),
                           /* ignore */ src,
                           /* clamp */ R"(
-enable chromium_experimental_full_ptr_parameters;
-
 var<workgroup> a : array<i32, 4>;
 
 fn x(pre : i32, p : ptr<workgroup, i32>, post : i32) -> i32 {
@@ -4813,8 +4528,6 @@ fn z() {
 }
 )",
                           /* predicate */ R"(
-enable chromium_experimental_full_ptr_parameters;
-
 var<workgroup> a : array<i32, 4>;
 
 fn x(pre : i32, p : ptr<workgroup, i32>, p_predicate : bool, post : i32) -> i32 {
@@ -4844,8 +4557,6 @@ fn z() {
 
 TEST_P(RobustnessTest, Read_UniformPointerParameter_IndexWithLet) {
     auto* src = R"(
-enable chromium_experimental_full_ptr_parameters;
-
 @group(0) @binding(0) var<uniform> a : array<vec4i, 4>;
 
 fn x(pre : vec4i, p : ptr<uniform, vec4i>, post : vec4i) -> vec4i {
@@ -4865,8 +4576,6 @@ fn z() {
     auto* expect = Expect(GetParam(),
                           /* ignore */ src,
                           /* clamp */ R"(
-enable chromium_experimental_full_ptr_parameters;
-
 @group(0) @binding(0) var<uniform> a : array<vec4i, 4>;
 
 fn x(pre : vec4i, p : ptr<uniform, vec4i>, post : vec4i) -> vec4i {
@@ -4883,8 +4592,6 @@ fn z() {
 }
 )",
                           /* predicate */ R"(
-enable chromium_experimental_full_ptr_parameters;
-
 @group(0) @binding(0) var<uniform> a : array<vec4i, 4>;
 
 fn x(pre : vec4i, p : ptr<uniform, vec4i>, p_predicate : bool, post : vec4i) -> vec4i {
@@ -4914,8 +4621,6 @@ fn z() {
 
 TEST_P(RobustnessTest, Read_StoragePointerParameter_IndexWithLet) {
     auto* src = R"(
-enable chromium_experimental_full_ptr_parameters;
-
 @group(0) @binding(0) var<storage> a : array<vec4i, 4>;
 
 fn x(pre : vec4i, p : ptr<storage, vec4i>, post : vec4i) -> vec4i {
@@ -4935,8 +4640,6 @@ fn z() {
     auto* expect = Expect(GetParam(),
                           /* ignore */ src,
                           /* clamp */ R"(
-enable chromium_experimental_full_ptr_parameters;
-
 @group(0) @binding(0) var<storage> a : array<vec4i, 4>;
 
 fn x(pre : vec4i, p : ptr<storage, vec4i>, post : vec4i) -> vec4i {
@@ -4953,8 +4656,6 @@ fn z() {
 }
 )",
                           /* predicate */ R"(
-enable chromium_experimental_full_ptr_parameters;
-
 @group(0) @binding(0) var<storage> a : array<vec4i, 4>;
 
 fn x(pre : vec4i, p : ptr<storage, vec4i>, p_predicate : bool, post : vec4i) -> vec4i {
@@ -4984,8 +4685,6 @@ fn z() {
 
 TEST_P(RobustnessTest, Read_FunctionPointerParameter_IndexWithLet) {
     auto* src = R"(
-enable chromium_experimental_full_ptr_parameters;
-
 fn x(pre : i32, p : ptr<function, i32>, post : i32) -> i32 {
   return ((pre + *(p)) + post);
 }
@@ -5004,8 +4703,6 @@ fn z() {
     auto* expect = Expect(GetParam(),
                           /* ignore */ src,
                           /* clamp */ R"(
-enable chromium_experimental_full_ptr_parameters;
-
 fn x(pre : i32, p : ptr<function, i32>, post : i32) -> i32 {
   return ((pre + *(p)) + post);
 }
@@ -5021,8 +4718,6 @@ fn z() {
 }
 )",
                           /* predicate */ R"(
-enable chromium_experimental_full_ptr_parameters;
-
 fn x(pre : i32, p : ptr<function, i32>, p_predicate : bool, post : i32) -> i32 {
   var predicated_expr : i32;
   if (p_predicate) {
@@ -5051,8 +4746,6 @@ fn z() {
 
 TEST_P(RobustnessTest, Write_PrivatePointerParameter_IndexWithConstant) {
     auto* src = R"(
-enable chromium_experimental_full_ptr_parameters;
-
 var<private> a : array<i32, 4>;
 
 fn x(pre : i32, p : ptr<private, i32>, post : i32) {
@@ -5072,8 +4765,6 @@ fn z() {
                           /* ignore */ src,
                           /* clamp */ src,
                           /* predicate */ R"(
-enable chromium_experimental_full_ptr_parameters;
-
 var<private> a : array<i32, 4>;
 
 fn x(pre : i32, p : ptr<private, i32>, p_predicate : bool, post : i32) {
@@ -5098,8 +4789,6 @@ fn z() {
 
 TEST_P(RobustnessTest, Write_WorkgroupPointerParameter_IndexWithConstant) {
     auto* src = R"(
-enable chromium_experimental_full_ptr_parameters;
-
 var<workgroup> a : array<i32, 4>;
 
 fn x(pre : i32, p : ptr<workgroup, i32>, post : i32) {
@@ -5119,8 +4808,6 @@ fn z() {
                           /* ignore */ src,
                           /* clamp */ src,
                           /* predicate */ R"(
-enable chromium_experimental_full_ptr_parameters;
-
 var<workgroup> a : array<i32, 4>;
 
 fn x(pre : i32, p : ptr<workgroup, i32>, p_predicate : bool, post : i32) {
@@ -5145,8 +4832,6 @@ fn z() {
 
 TEST_P(RobustnessTest, Write_StoragePointerParameter_IndexWithConstant) {
     auto* src = R"(
-enable chromium_experimental_full_ptr_parameters;
-
 @group(0) @binding(0) var<storage, read_write> a : array<i32, 4>;
 
 fn x(pre : i32, p : ptr<storage, i32, read_write>, post : i32) {
@@ -5166,8 +4851,6 @@ fn z() {
                           /* ignore */ src,
                           /* clamp */ src,
                           /* predicate */ R"(
-enable chromium_experimental_full_ptr_parameters;
-
 @group(0) @binding(0) var<storage, read_write> a : array<i32, 4>;
 
 fn x(pre : i32, p : ptr<storage, i32, read_write>, p_predicate : bool, post : i32) {
@@ -5192,8 +4875,6 @@ fn z() {
 
 TEST_P(RobustnessTest, Write_FunctionPointerParameter_IndexWithConstant) {
     auto* src = R"(
-enable chromium_experimental_full_ptr_parameters;
-
 fn x(pre : i32, p : ptr<function, i32>, post : i32) {
   *(p) = (pre + post);
 }
@@ -5212,8 +4893,6 @@ fn z() {
                           /* ignore */ src,
                           /* clamp */ src,
                           /* predicate */ R"(
-enable chromium_experimental_full_ptr_parameters;
-
 fn x(pre : i32, p : ptr<function, i32>, p_predicate : bool, post : i32) {
   if (p_predicate) {
     *(p) = (pre + post);
@@ -5237,8 +4916,6 @@ fn z() {
 
 TEST_P(RobustnessTest, Write_PrivatePointerParameter_IndexWithLet) {
     auto* src = R"(
-enable chromium_experimental_full_ptr_parameters;
-
 var<private> a : array<i32, 4>;
 
 fn x(pre : i32, p : ptr<private, i32>, post : i32) {
@@ -5258,8 +4935,6 @@ fn z() {
     auto* expect = Expect(GetParam(),
                           /* ignore */ src,
                           /* clamp */ R"(
-enable chromium_experimental_full_ptr_parameters;
-
 var<private> a : array<i32, 4>;
 
 fn x(pre : i32, p : ptr<private, i32>, post : i32) {
@@ -5276,8 +4951,6 @@ fn z() {
 }
 )",
                           /* predicate */ R"(
-enable chromium_experimental_full_ptr_parameters;
-
 var<private> a : array<i32, 4>;
 
 fn x(pre : i32, p : ptr<private, i32>, p_predicate : bool, post : i32) {
@@ -5305,8 +4978,6 @@ fn z() {
 
 TEST_P(RobustnessTest, Write_WorkgroupPointerParameter_IndexWithLet) {
     auto* src = R"(
-enable chromium_experimental_full_ptr_parameters;
-
 var<workgroup> a : array<i32, 4>;
 
 fn x(pre : i32, p : ptr<workgroup, i32>, post : i32) {
@@ -5326,8 +4997,6 @@ fn z() {
     auto* expect = Expect(GetParam(),
                           /* ignore */ src,
                           /* clamp */ R"(
-enable chromium_experimental_full_ptr_parameters;
-
 var<workgroup> a : array<i32, 4>;
 
 fn x(pre : i32, p : ptr<workgroup, i32>, post : i32) {
@@ -5344,8 +5013,6 @@ fn z() {
 }
 )",
                           /* predicate */ R"(
-enable chromium_experimental_full_ptr_parameters;
-
 var<workgroup> a : array<i32, 4>;
 
 fn x(pre : i32, p : ptr<workgroup, i32>, p_predicate : bool, post : i32) {
@@ -5373,8 +5040,6 @@ fn z() {
 
 TEST_P(RobustnessTest, Write_StoragePointerParameter_IndexWithLet) {
     auto* src = R"(
-enable chromium_experimental_full_ptr_parameters;
-
 @group(0) @binding(0) var<storage, read_write> a : array<i32, 4>;
 
 fn x(pre : i32, p : ptr<storage, i32, read_write>, post : i32) {
@@ -5394,8 +5059,6 @@ fn z() {
     auto* expect = Expect(GetParam(),
                           /* ignore */ src,
                           /* clamp */ R"(
-enable chromium_experimental_full_ptr_parameters;
-
 @group(0) @binding(0) var<storage, read_write> a : array<i32, 4>;
 
 fn x(pre : i32, p : ptr<storage, i32, read_write>, post : i32) {
@@ -5412,8 +5075,6 @@ fn z() {
 }
 )",
                           /* predicate */ R"(
-enable chromium_experimental_full_ptr_parameters;
-
 @group(0) @binding(0) var<storage, read_write> a : array<i32, 4>;
 
 fn x(pre : i32, p : ptr<storage, i32, read_write>, p_predicate : bool, post : i32) {
@@ -5441,8 +5102,6 @@ fn z() {
 
 TEST_P(RobustnessTest, Write_FunctionPointerParameter_IndexWithLet) {
     auto* src = R"(
-enable chromium_experimental_full_ptr_parameters;
-
 fn x(pre : i32, p : ptr<function, i32>, post : i32) {
   *(p) = (pre + post);
 }
@@ -5461,8 +5120,6 @@ fn z() {
     auto* expect = Expect(GetParam(),
                           /* ignore */ src,
                           /* clamp */ R"(
-enable chromium_experimental_full_ptr_parameters;
-
 fn x(pre : i32, p : ptr<function, i32>, post : i32) {
   *(p) = (pre + post);
 }
@@ -5478,8 +5135,6 @@ fn z() {
 }
 )",
                           /* predicate */ R"(
-enable chromium_experimental_full_ptr_parameters;
-
 fn x(pre : i32, p : ptr<function, i32>, p_predicate : bool, post : i32) {
   if (p_predicate) {
     *(p) = (pre + post);
@@ -5571,6 +5226,30 @@ fn f() {
     EXPECT_EQ(expect, str(got));
 }
 
+TEST_P(RobustnessTest, Read_disable_unsized_array_index_clamping_abstract_int_ViaPointerIndex) {
+    auto* src = R"(
+@group(0) @binding(0) var<storage, read> s : array<f32>;
+
+fn f() {
+  let p = &(s);
+  var d : f32 = p[25];
+}
+)";
+
+    auto* expect = R"(
+@group(0) @binding(0) var<storage, read> s : array<f32>;
+
+fn f() {
+  let p = &(s);
+  var d : f32 = p[u32(25)];
+}
+)";
+
+    auto got = Run<Robustness>(src, Config(GetParam(), true));
+
+    EXPECT_EQ(expect, str(got));
+}
+
 TEST_P(RobustnessTest, Assign_disable_unsized_array_index_clamping_i32) {
     auto* src = R"(
 @group(0) @binding(0) var<storage, read_write> s : array<f32>;
@@ -5626,6 +5305,30 @@ fn f() {
 
 fn f() {
   s[u32(25)] = 0.5f;
+}
+)";
+
+    auto got = Run<Robustness>(src, Config(GetParam(), true));
+
+    EXPECT_EQ(expect, str(got));
+}
+
+TEST_P(RobustnessTest, Assign_disable_unsized_array_index_clamping_abstract_int_ViaPointerIndex) {
+    auto* src = R"(
+@group(0) @binding(0) var<storage, read_write> s : array<f32>;
+
+fn f() {
+  let p = &(s);
+  p[25] = 0.5f;
+}
+)";
+
+    auto* expect = R"(
+@group(0) @binding(0) var<storage, read_write> s : array<f32>;
+
+fn f() {
+  let p = &(s);
+  p[u32(25)] = 0.5f;
 }
 )";
 

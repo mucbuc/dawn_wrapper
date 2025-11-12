@@ -56,7 +56,6 @@ TEST_F(ComputePipelineValidationTest, Success) {
 
     wgpu::ComputePipelineDescriptor csDesc;
     csDesc.compute.module = computeModule;
-    csDesc.compute.entryPoint = "main";
     device.CreateComputePipeline(&csDesc);
 }
 
@@ -77,7 +76,6 @@ TEST_F(ComputePipelineValidationTest, UnexpectedDawnComputePipelineFullSubgroups
 
     wgpu::ComputePipelineDescriptor csDesc;
     csDesc.compute.module = computeModule;
-    csDesc.compute.entryPoint = "main";
 
     wgpu::DawnComputePipelineFullSubgroups subgroupOptions;
     subgroupOptions.requiresFullSubgroups = false;
@@ -86,17 +84,14 @@ TEST_F(ComputePipelineValidationTest, UnexpectedDawnComputePipelineFullSubgroups
     ASSERT_DEVICE_ERROR(device.CreateComputePipeline(&csDesc));
 }
 
-class ComputePipelineValidationTestWithSubgroupFeaturesEnabled
+// Tests that requiring ChromiumExperimentalSubgroups feature, for DawnComputePipelineFullSubgroups
+// testing.
+// TODO(349125474): Revisit these tests when removing deprecated ChromiumExperimentalSubgroups.
+class ComputePipelineValidationTestWithChromiumExperimentalSubgroupsFeatureEnabled
     : public ComputePipelineValidationTest {
   protected:
-    WGPUDevice CreateTestDevice(native::Adapter dawnAdapter,
-                                wgpu::DeviceDescriptor descriptor) override {
-        std::vector<wgpu::FeatureName> requiredFeatures = {
-            wgpu::FeatureName::ChromiumExperimentalSubgroups};
-        descriptor.requiredFeatures = requiredFeatures.data();
-        descriptor.requiredFeatureCount = requiredFeatures.size();
-
-        return dawnAdapter.CreateDevice(&descriptor);
+    std::vector<wgpu::FeatureName> GetRequiredFeatures() override {
+        return {wgpu::FeatureName::ChromiumExperimentalSubgroups};
     }
 
     // Helper function that create a shader module with compute entry point named main and
@@ -117,7 +112,7 @@ class ComputePipelineValidationTestWithSubgroupFeaturesEnabled
 
 // Test that creating a compute pipeline with basic shader module and chained
 // DawnComputePipelineFullSubgroups not requiring fullSubgroups succeeds.
-TEST_F(ComputePipelineValidationTestWithSubgroupFeaturesEnabled,
+TEST_F(ComputePipelineValidationTestWithChromiumExperimentalSubgroupsFeatureEnabled,
        DawnComputePipelineFullSubgroupsNotRequired) {
     auto computeModule = CreateShaderModule();
 
@@ -126,7 +121,6 @@ TEST_F(ComputePipelineValidationTestWithSubgroupFeaturesEnabled,
     wgpu::ComputePipelineDescriptor csDesc;
     csDesc.layout = pl;
     csDesc.compute.module = computeModule;
-    csDesc.compute.entryPoint = "main";
 
     wgpu::DawnComputePipelineFullSubgroups subgroupOptions;
     subgroupOptions.requiresFullSubgroups = false;
@@ -139,14 +133,13 @@ TEST_F(ComputePipelineValidationTestWithSubgroupFeaturesEnabled,
 // DawnComputePipelineFullSubgroups requiring fullSubgroups fails if x dimension of workgroup size
 // is not a multiple of maxSubgroupSize. Note that ValidationTest use Null backend, which assume a
 // maxSubgroupSize of 128.
-TEST_F(ComputePipelineValidationTestWithSubgroupFeaturesEnabled,
+TEST_F(ComputePipelineValidationTestWithChromiumExperimentalSubgroupsFeatureEnabled,
        DawnComputePipelineFullSubgroupsRequired_WorkgroupSizeInvalid) {
     // Can not require full subgroups with workgroup size {127, 1, 1}
     auto computeModule = CreateShaderModule(127);
 
     wgpu::ComputePipelineDescriptor csDesc;
     csDesc.compute.module = computeModule;
-    csDesc.compute.entryPoint = "main";
 
     wgpu::DawnComputePipelineFullSubgroups subgroupOptions;
     subgroupOptions.requiresFullSubgroups = true;
@@ -159,14 +152,13 @@ TEST_F(ComputePipelineValidationTestWithSubgroupFeaturesEnabled,
 // DawnComputePipelineFullSubgroups requiring fullSubgroups succeeds if x dimension of workgroup
 // size is a multiple of maxSubgroupSize. Note that ValidationTest use Null backend, which assume a
 // maxSubgroupSize of 128.
-TEST_F(ComputePipelineValidationTestWithSubgroupFeaturesEnabled,
+TEST_F(ComputePipelineValidationTestWithChromiumExperimentalSubgroupsFeatureEnabled,
        DawnComputePipelineFullSubgroupsRequired_WorkgroupSizeValid) {
     // Can require full subgroups with workgroup size {128, 1, 1}
     auto computeModule = CreateShaderModule(128);
 
     wgpu::ComputePipelineDescriptor csDesc;
     csDesc.compute.module = computeModule;
-    csDesc.compute.entryPoint = "main";
 
     wgpu::DawnComputePipelineFullSubgroups subgroupOptions;
     subgroupOptions.requiresFullSubgroups = true;
@@ -179,7 +171,7 @@ TEST_F(ComputePipelineValidationTestWithSubgroupFeaturesEnabled,
 // DawnComputePipelineFullSubgroups requiring fullSubgroups fails if x dimension of workgroup size
 // is not a multiple of maxSubgroupSize. Note that ValidationTest use Null backend, which assume a
 // maxSubgroupSize of 128.
-TEST_F(ComputePipelineValidationTestWithSubgroupFeaturesEnabled,
+TEST_F(ComputePipelineValidationTestWithChromiumExperimentalSubgroupsFeatureEnabled,
        DawnComputePipelineFullSubgroupsRequired_OverrideWorkgroupSizeInvalid) {
     auto computeModule = CreateShaderModuleWithOverrideWorkgroupSize();
 
@@ -192,7 +184,6 @@ TEST_F(ComputePipelineValidationTestWithSubgroupFeaturesEnabled,
 
     wgpu::ComputePipelineDescriptor csDesc;
     csDesc.compute.module = computeModule;
-    csDesc.compute.entryPoint = "main";
     csDesc.compute.constants = constants.data();
     csDesc.compute.constantCount = constants.size();
 
@@ -207,7 +198,7 @@ TEST_F(ComputePipelineValidationTestWithSubgroupFeaturesEnabled,
 // DawnComputePipelineFullSubgroups requiring fullSubgroups succeeds if x dimension of workgroup
 // size is a multiple of maxSubgroupSize. Note that ValidationTest use Null backend, which assume a
 // maxSubgroupSize of 128.
-TEST_F(ComputePipelineValidationTestWithSubgroupFeaturesEnabled,
+TEST_F(ComputePipelineValidationTestWithChromiumExperimentalSubgroupsFeatureEnabled,
        DawnComputePipelineFullSubgroupsRequired_OverrideWorkgroupSizeValid) {
     auto computeModule = CreateShaderModuleWithOverrideWorkgroupSize();
 
@@ -220,7 +211,6 @@ TEST_F(ComputePipelineValidationTestWithSubgroupFeaturesEnabled,
 
     wgpu::ComputePipelineDescriptor csDesc;
     csDesc.compute.module = computeModule;
-    csDesc.compute.entryPoint = "main";
     csDesc.compute.constants = constants.data();
     csDesc.compute.constantCount = constants.size();
 
@@ -231,7 +221,7 @@ TEST_F(ComputePipelineValidationTestWithSubgroupFeaturesEnabled,
     device.CreateComputePipeline(&csDesc);
 }
 
-// TODO(cwallez@chromium.org): Add a regression test for Disptach validation trying to acces the
+// TODO(cwallez@chromium.org): Add a regression test for Disptach validation trying to access the
 // input state.
 
 class ComputeDispatchValidationTest : public ValidationTest {
@@ -249,7 +239,6 @@ class ComputeDispatchValidationTest : public ValidationTest {
         wgpu::ComputePipelineDescriptor csDesc;
         csDesc.layout = pl;
         csDesc.compute.module = computeModule;
-        csDesc.compute.entryPoint = "main";
         pipeline = device.CreateComputePipeline(&csDesc);
     }
 

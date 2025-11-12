@@ -594,7 +594,6 @@ TEST_F(LabelTest, ComputePipeline) {
     wgpu::ComputePipelineDescriptor descriptor;
     descriptor.layout = pl;
     descriptor.compute.module = computeModule;
-    descriptor.compute.entryPoint = "main";
 
     // The label should be empty if one was not set.
     {
@@ -627,7 +626,7 @@ TEST_F(LabelTest, ShaderModule) {
     @compute @workgroup_size(1) fn main() {
     })";
 
-    wgpu::ShaderModuleWGSLDescriptor wgslDesc;
+    wgpu::ShaderSourceWGSL wgslDesc;
     wgslDesc.code = source;
     wgpu::ShaderModuleDescriptor descriptor;
     descriptor.nextInChain = &wgslDesc;

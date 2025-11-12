@@ -63,7 +63,6 @@ class ComputeDispatchTests : public DawnTest {
 
         wgpu::ComputePipelineDescriptor csDesc;
         csDesc.compute.module = module;
-        csDesc.compute.entryPoint = "main";
         pipeline = device.CreateComputePipeline(&csDesc);
 
         // Test the use of the compute pipelines without using @num_workgroups
@@ -227,7 +226,6 @@ TEST_P(ComputeDispatchTests, IndirectBasic) {
     // TODO(crbug.com/dawn/1196): Fails on Chromium's Quadro P400 bots
     DAWN_SUPPRESS_TEST_IF(IsD3D12() && IsNvidia());
 #endif
-
     IndirectTest({2, 3, 4}, 0);
 }
 
@@ -257,7 +255,6 @@ TEST_P(ComputeDispatchTests, IndirectOffset) {
     // TODO(crbug.com/dawn/1196): Fails on Chromium's Quadro P400 bots
     DAWN_SUPPRESS_TEST_IF(IsD3D12() && IsNvidia());
 #endif
-
     IndirectTest({0, 0, 0, 2, 3, 4}, 3 * sizeof(uint32_t));
 }
 
@@ -272,10 +269,8 @@ TEST_P(ComputeDispatchTests, MaxWorkgroups) {
     // TODO(crbug.com/dawn/1196): Fails on Chromium's Quadro P400 bots
     DAWN_SUPPRESS_TEST_IF(IsD3D12() && IsNvidia());
 #endif
-
     // TODO(crbug.com/dawn/1165): Fails with WARP
     DAWN_SUPPRESS_TEST_IF(IsWARP());
-
     uint32_t max = GetSupportedLimits().limits.maxComputeWorkgroupsPerDimension;
 
     // Test that the maximum works in each dimension.
@@ -375,7 +370,6 @@ class ComputeMultipleDispatchesTests : public DawnTestWithParams<Params> {
         wgpu::ComputePipelineDescriptor csDesc;
         //
         csDesc.compute.module = module;
-        csDesc.compute.entryPoint = "main";
         csDesc.layout = pipelineLayout;
         pipeline = device.CreateComputePipeline(&csDesc);
 
@@ -400,7 +394,6 @@ class ComputeMultipleDispatchesTests : public DawnTestWithParams<Params> {
                 }
             })");
         csDesc.compute.module = moduleWithoutNumWorkgroups;
-        csDesc.compute.entryPoint = "main";
         csDesc.layout = pipelineLayout;
         pipelineWithoutNumWorkgroups = device.CreateComputePipeline(&csDesc);
     }

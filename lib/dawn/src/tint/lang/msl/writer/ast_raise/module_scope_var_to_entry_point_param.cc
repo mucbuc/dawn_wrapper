@@ -30,7 +30,6 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
-#include <vector>
 
 #include "src/tint/lang/wgsl/ast/disable_validation_attribute.h"
 #include "src/tint/lang/wgsl/program/clone_context.h"
@@ -200,8 +199,7 @@ struct ModuleScopeVarToEntryPointParam::State {
                     // Create a function-scope variable that is a pointer to the member.
                     auto* member_ptr = ctx.dst->AddressOf(
                         ctx.dst->MemberAccessor(ctx.dst->Deref(workgroup_param()), member));
-                    auto* local_var = ctx.dst->Let(
-                        new_var_symbol, ctx.dst->ty.ptr<workgroup>(store_type()), member_ptr);
+                    auto* local_var = ctx.dst->Let(new_var_symbol, member_ptr);
                     ctx.InsertFront(func->body->statements, ctx.dst->Decl(local_var));
                     is_pointer = true;
                 } else {
@@ -218,7 +216,6 @@ struct ModuleScopeVarToEntryPointParam::State {
                 break;  // Ignore
             default: {
                 TINT_ICE() << "unhandled module-scope address space (" << sc << ")";
-                break;
             }
         }
     }
@@ -246,9 +243,8 @@ struct ModuleScopeVarToEntryPointParam::State {
             case core::AddressSpace::kWorkgroup:
                 break;
             case core::AddressSpace::kPushConstant: {
-                ctx.dst->Diagnostics().add_error(
-                    diag::System::Transform,
-                    "unhandled module-scope address space (" + tint::ToString(sc) + ")");
+                ctx.dst->Diagnostics().AddError(Source{})
+                    << "unhandled module-scope address space (" << sc << ")";
                 break;
             }
             default: {
@@ -258,7 +254,7 @@ struct ModuleScopeVarToEntryPointParam::State {
 
         // Use a pointer for non-handle types.
         tint::Vector<const ast::Attribute*, 2> attributes;
-        if (!ty->is_handle()) {
+        if (!ty->IsHandle()) {
             param_type = sc == core::AddressSpace::kStorage
                              ? ctx.dst->ty.ptr(sc, param_type, var->Access())
                              : ctx.dst->ty.ptr(sc, param_type);
@@ -375,9 +371,6 @@ struct ModuleScopeVarToEntryPointParam::State {
         if (!private_struct_members.IsEmpty()) {
             // Create the private variable struct.
             ctx.dst->Structure(PrivateStructName(), std::move(private_struct_members));
-            // Passing a pointer to a private variable will now involve passing a pointer to the
-            // member of a structure, so enable the extension that allows this.
-            ctx.dst->Enable(wgsl::Extension::kChromiumExperimentalFullPtrParameters);
         }
 
         // Build a list of `&ident` expressions. We'll use this later to avoid generating
@@ -538,14 +531,14 @@ struct ModuleScopeVarToEntryPointParam::State {
                     }
 
                     auto new_var = it->second;
-                    bool is_handle = target_var->Type()->UnwrapRef()->is_handle();
+                    bool IsHandle = target_var->Type()->UnwrapRef()->IsHandle();
                     const ast::Expression* arg = ctx.dst->Expr(new_var.symbol);
                     if (new_var.is_wrapped) {
                         // The variable is wrapped in a struct, so we need to pass a pointer to the
                         // struct member instead.
                         arg = ctx.dst->AddressOf(
                             ctx.dst->MemberAccessor(ctx.dst->Deref(arg), kWrappedArrayMemberName));
-                    } else if (is_entry_point && !is_handle && !new_var.is_pointer) {
+                    } else if (is_entry_point && !IsHandle && !new_var.is_pointer) {
                         // We need to pass a pointer and we don't already have one, so take
                         // the address of the new variable.
                         arg = ctx.dst->AddressOf(arg);

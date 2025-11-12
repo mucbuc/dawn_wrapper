@@ -1,79 +1,79 @@
 ; SPIR-V
 ; Version: 1.3
-; Generator: Google Tint Compiler; 0
-; Bound: 40
+; Generator: Google Tint Compiler; 1
+; Bound: 41
 ; Schema: 0
                OpCapability Shader
                OpCapability Float16
                OpCapability UniformAndStorageBuffer16BitAccess
                OpCapability StorageBuffer16BitAccess
-               OpCapability StorageInputOutput16
                OpMemoryModel Logical GLSL450
-               OpEntryPoint GLCompute %compute_main "compute_main" %local_invocation_index_1
+               OpEntryPoint GLCompute %compute_main "compute_main" %compute_main_local_invocation_index_Input
                OpExecutionMode %compute_main LocalSize 1 1 1
-               OpName %local_invocation_index_1 "local_invocation_index_1"
-               OpName %arg_0 "arg_0"
-               OpName %prevent_dce_block "prevent_dce_block"
                OpMemberName %prevent_dce_block 0 "inner"
-               OpName %prevent_dce "prevent_dce"
-               OpName %tint_workgroupUniformLoad_arg_0 "tint_workgroupUniformLoad_arg_0"
+               OpName %prevent_dce_block "prevent_dce_block"
+               OpName %arg_0 "arg_0"
+               OpName %compute_main_local_invocation_index_Input "compute_main_local_invocation_index_Input"
                OpName %workgroupUniformLoad_e07d08 "workgroupUniformLoad_e07d08"
                OpName %res "res"
                OpName %compute_main_inner "compute_main_inner"
-               OpName %local_invocation_index "local_invocation_index"
+               OpName %tint_local_index "tint_local_index"
                OpName %compute_main "compute_main"
-               OpDecorate %local_invocation_index_1 BuiltIn LocalInvocationIndex
-               OpDecorate %prevent_dce_block Block
                OpMemberDecorate %prevent_dce_block 0 Offset 0
-               OpDecorate %prevent_dce DescriptorSet 2
-               OpDecorate %prevent_dce Binding 0
-       %uint = OpTypeInt 32 0
-%_ptr_Input_uint = OpTypePointer Input %uint
-%local_invocation_index_1 = OpVariable %_ptr_Input_uint Input
+               OpDecorate %prevent_dce_block Block
+               OpDecorate %1 DescriptorSet 0
+               OpDecorate %1 Binding 0
+               OpDecorate %1 Coherent
+               OpDecorate %compute_main_local_invocation_index_Input BuiltIn LocalInvocationIndex
        %half = OpTypeFloat 16
-%_ptr_Workgroup_half = OpTypePointer Workgroup %half
-      %arg_0 = OpVariable %_ptr_Workgroup_half Workgroup
 %prevent_dce_block = OpTypeStruct %half
 %_ptr_StorageBuffer_prevent_dce_block = OpTypePointer StorageBuffer %prevent_dce_block
-%prevent_dce = OpVariable %_ptr_StorageBuffer_prevent_dce_block StorageBuffer
-         %10 = OpTypeFunction %half
+          %1 = OpVariable %_ptr_StorageBuffer_prevent_dce_block StorageBuffer
+%_ptr_Workgroup_half = OpTypePointer Workgroup %half
+      %arg_0 = OpVariable %_ptr_Workgroup_half Workgroup
+       %uint = OpTypeInt 32 0
+%_ptr_Input_uint = OpTypePointer Input %uint
+%compute_main_local_invocation_index_Input = OpVariable %_ptr_Input_uint Input
+         %11 = OpTypeFunction %half
        %void = OpTypeVoid
      %uint_2 = OpConstant %uint 2
    %uint_264 = OpConstant %uint 264
-         %19 = OpTypeFunction %void
 %_ptr_Function_half = OpTypePointer Function %half
-         %25 = OpConstantNull %half
+         %24 = OpTypeFunction %void %uint
      %uint_0 = OpConstant %uint 0
+       %bool = OpTypeBool
+%half_0x0p_0 = OpConstant %half 0x0p+0
 %_ptr_StorageBuffer_half = OpTypePointer StorageBuffer %half
-         %30 = OpTypeFunction %void %uint
-%tint_workgroupUniformLoad_arg_0 = OpFunction %half None %10
+         %37 = OpTypeFunction %void
+%workgroupUniformLoad_e07d08 = OpFunction %half None %11
          %12 = OpLabel
+        %res = OpVariable %_ptr_Function_half Function
                OpControlBarrier %uint_2 %uint_2 %uint_264
-         %17 = OpLoad %half %arg_0
+         %17 = OpLoad %half %arg_0 None
                OpControlBarrier %uint_2 %uint_2 %uint_264
-               OpReturnValue %17
+               OpStore %res %17
+         %21 = OpLoad %half %res None
+               OpReturnValue %21
                OpFunctionEnd
-%workgroupUniformLoad_e07d08 = OpFunction %void None %19
-         %21 = OpLabel
-        %res = OpVariable %_ptr_Function_half Function %25
-         %22 = OpFunctionCall %half %tint_workgroupUniformLoad_arg_0
-               OpStore %res %22
-         %28 = OpAccessChain %_ptr_StorageBuffer_half %prevent_dce %uint_0
-         %29 = OpLoad %half %res
-               OpStore %28 %29
+%compute_main_inner = OpFunction %void None %24
+%tint_local_index = OpFunctionParameter %uint
+         %25 = OpLabel
+         %26 = OpIEqual %bool %tint_local_index %uint_0
+               OpSelectionMerge %29 None
+               OpBranchConditional %26 %30 %29
+         %30 = OpLabel
+               OpStore %arg_0 %half_0x0p_0 None
+               OpBranch %29
+         %29 = OpLabel
+               OpControlBarrier %uint_2 %uint_2 %uint_264
+         %33 = OpFunctionCall %half %workgroupUniformLoad_e07d08
+         %34 = OpAccessChain %_ptr_StorageBuffer_half %1 %uint_0
+               OpStore %34 %33 None
                OpReturn
                OpFunctionEnd
-%compute_main_inner = OpFunction %void None %30
-%local_invocation_index = OpFunctionParameter %uint
-         %33 = OpLabel
-               OpStore %arg_0 %25
-               OpControlBarrier %uint_2 %uint_2 %uint_264
-         %35 = OpFunctionCall %void %workgroupUniformLoad_e07d08
-               OpReturn
-               OpFunctionEnd
-%compute_main = OpFunction %void None %19
-         %37 = OpLabel
-         %39 = OpLoad %uint %local_invocation_index_1
-         %38 = OpFunctionCall %void %compute_main_inner %39
+%compute_main = OpFunction %void None %37
+         %38 = OpLabel
+         %39 = OpLoad %uint %compute_main_local_invocation_index_Input None
+         %40 = OpFunctionCall %void %compute_main_inner %39
                OpReturn
                OpFunctionEnd

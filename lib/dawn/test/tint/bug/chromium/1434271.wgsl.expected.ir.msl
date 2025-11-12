@@ -1,211 +1,191 @@
-SKIP: FAILED
+#include <metal_stdlib>
+using namespace metal;
 
-<dawn>/src/tint/lang/msl/writer/printer/printer.cc:355 internal compiler error: RenderParams = struct @align(16) {
-  modelViewProjectionMatrix:mat4x4<f32> @offset(0)
-  right:vec3<f32> @offset(64)
-  up:vec3<f32> @offset(80)
+struct VertexOutput {
+  float4 position;
+  float4 color;
+  float2 quad_pos;
+};
+
+struct VertexInput {
+  float3 position;
+  float4 color;
+  float2 quad_pos;
+};
+
+template<typename T, size_t N>
+struct tint_array {
+  const constant T& operator[](size_t i) const constant { return elements[i]; }
+  device T& operator[](size_t i) device { return elements[i]; }
+  const device T& operator[](size_t i) const device { return elements[i]; }
+  thread T& operator[](size_t i) thread { return elements[i]; }
+  const thread T& operator[](size_t i) const thread { return elements[i]; }
+  threadgroup T& operator[](size_t i) threadgroup { return elements[i]; }
+  const threadgroup T& operator[](size_t i) const threadgroup { return elements[i]; }
+  T elements[N];
+};
+
+struct RenderParams_packed_vec3 {
+  /* 0x0000 */ float4x4 modelViewProjectionMatrix;
+  /* 0x0040 */ packed_float3 right;
+  /* 0x004c */ tint_array<int8_t, 4> tint_pad;
+  /* 0x0050 */ packed_float3 up;
+  /* 0x005c */ tint_array<int8_t, 4> tint_pad_1;
+};
+
+struct SimulationParams {
+  /* 0x0000 */ float deltaTime;
+  /* 0x0004 */ tint_array<int8_t, 12> tint_pad_2;
+  /* 0x0010 */ float4 seed;
+};
+
+struct Particle_packed_vec3 {
+  /* 0x0000 */ packed_float3 position;
+  /* 0x000c */ float lifetime;
+  /* 0x0010 */ float4 color;
+  /* 0x0020 */ float2 velocity;
+  /* 0x0028 */ tint_array<int8_t, 8> tint_pad_3;
+};
+
+struct Particles_packed_vec3 {
+  /* 0x0000 */ tint_array<Particle_packed_vec3, 1> particles;
+};
+
+struct UBO {
+  /* 0x0000 */ uint width;
+};
+
+struct Buffer {
+  /* 0x0000 */ tint_array<float, 1> weights;
+};
+
+struct tint_module_vars_struct {
+  thread float2* rand_seed;
+  const constant RenderParams_packed_vec3* render_params;
+  const constant SimulationParams* sim_params;
+  device Particles_packed_vec3* data;
+  texture1d<float, access::sample> tint_symbol;
+  const constant UBO* ubo;
+  const device Buffer* buf_in;
+  device Buffer* buf_out;
+  texture2d<float, access::sample> tex_in;
+  texture2d<float, access::write> tex_out;
+};
+
+struct Particle {
+  float3 position;
+  float lifetime;
+  float4 color;
+  float2 velocity;
+};
+
+struct vertex_main_outputs {
+  float4 tint_symbol_1 [[position]];
+};
+
+struct vs_main_outputs {
+  float4 VertexOutput_position [[position]];
+  float4 VertexOutput_color [[user(locn0)]];
+  float2 VertexOutput_quad_pos [[user(locn1)]];
+};
+
+struct vs_main_inputs {
+  float3 VertexInput_position [[attribute(0)]];
+  float4 VertexInput_color [[attribute(1)]];
+  float2 VertexInput_quad_pos [[attribute(2)]];
+};
+
+void asinh_468a48() {
+  half arg_0 = 0.0h;
+  half res = asinh(arg_0);
 }
 
-VertexOutput = struct @align(16) {
-  position:vec4<f32> @offset(0), @builtin(position)
-  color:vec4<f32> @offset(16), @location(0)
-  quad_pos:vec2<f32> @offset(32), @location(1)
+float4 vertex_main_inner() {
+  asinh_468a48();
+  return float4(0.0f);
 }
 
-VertexInput = struct @align(16) {
-  position:vec3<f32> @offset(0), @location(0)
-  color:vec4<f32> @offset(16), @location(1)
-  quad_pos:vec2<f32> @offset(32), @location(2)
+fragment void fragment_main() {
+  asinh_468a48();
 }
 
-SimulationParams = struct @align(16) {
-  deltaTime:f32 @offset(0)
-  seed:vec4<f32> @offset(16)
+kernel void rgba32uintin() {
+  asinh_468a48();
 }
 
-Particle = struct @align(16) {
-  position:vec3<f32> @offset(0)
-  lifetime:f32 @offset(12)
-  color:vec4<f32> @offset(16)
-  velocity:vec2<f32> @offset(32)
+VertexOutput vs_main_inner(VertexInput in, tint_module_vars_struct tint_module_vars) {
+  float3 const v = float3((*tint_module_vars.render_params).right);
+  float3 quad_pos = (float2x3(v, float3((*tint_module_vars.render_params).up)) * in.quad_pos);
+  float3 position = (in.position - (quad_pos + 0.00999999977648258209f));
+  VertexOutput out = {};
+  float4x4 const v_1 = (*tint_module_vars.render_params).modelViewProjectionMatrix;
+  out.position = (v_1 * float4(position, 1.0f));
+  out.color = in.color;
+  out.quad_pos = in.quad_pos;
+  return out;
 }
 
-Particles = struct @align(16) {
-  particles:array<Particle> @offset(0)
+void tint_store_and_preserve_padding(device Particle_packed_vec3* const target, Particle value_param) {
+  (*target).position = packed_float3(value_param.position);
+  (*target).lifetime = value_param.lifetime;
+  (*target).color = value_param.color;
+  (*target).velocity = value_param.velocity;
 }
 
-UBO = struct @align(4) {
-  width:u32 @offset(0)
+Particle tint_load_struct_packed_vec3(device Particle_packed_vec3* const from) {
+  float3 const v_2 = float3((*from).position);
+  return Particle{.position=v_2, .lifetime=(*from).lifetime, .color=(*from).color, .velocity=(*from).velocity};
 }
 
-Buffer = struct @align(4) {
-  weights:array<f32> @offset(0)
+void simulate_inner(uint3 GlobalInvocationID, tint_module_vars_struct tint_module_vars) {
+  float2 const v_3 = (*tint_module_vars.sim_params).seed.xy;
+  float2 const v_4 = (v_3 * float2(GlobalInvocationID.xy));
+  (*tint_module_vars.rand_seed) = (v_4 * (*tint_module_vars.sim_params).seed.zw);
+  uint const idx = GlobalInvocationID[0u];
+  Particle particle = tint_load_struct_packed_vec3((&(*tint_module_vars.data).particles[idx]));
+  tint_store_and_preserve_padding((&(*tint_module_vars.data).particles[idx]), particle);
 }
 
-%b1 = block {  # root
-  %rand_seed:ptr<private, vec2<f32>, read_write> = var
-  %render_params:ptr<uniform, RenderParams, read> = var @binding_point(0, 5)
-  %sim_params:ptr<uniform, SimulationParams, read> = var @binding_point(0, 0)
-  %data:ptr<storage, Particles, read_write> = var @binding_point(0, 1)
-  %tint_symbol:ptr<handle, texture_1d<f32>, read> = var @binding_point(0, 2)
-  %ubo:ptr<uniform, UBO, read> = var @binding_point(0, 3)
-  %buf_in:ptr<storage, Buffer, read> = var @binding_point(0, 4)
-  %buf_out:ptr<storage, Buffer, read_write> = var @binding_point(0, 5)
-  %tex_in:ptr<handle, texture_2d<f32>, read> = var @binding_point(0, 6)
-  %tex_out:ptr<handle, texture_storage_2d<rgba8unorm, write>, read> = var @binding_point(0, 7)
-}
-
-%asinh_468a48 = func():void -> %b2 {
-  %b2 = block {
-    %arg_0:ptr<function, f16, read_write> = var, 0.0h
-    %13:f16 = load %arg_0
-    %14:f16 = asinh %13
-    %res:ptr<function, f16, read_write> = var, %14
-    ret
-  }
-}
-%vertex_main = @vertex func():vec4<f32> [@position] -> %b3 {
-  %b3 = block {
-    %17:void = call %asinh_468a48
-    ret vec4<f32>(0.0f)
-  }
-}
-%fragment_main = @fragment func():void -> %b4 {
-  %b4 = block {
-    %19:void = call %asinh_468a48
-    ret
-  }
-}
-%rgba32uintin = @compute @workgroup_size(1, 1, 1) func():void -> %b5 {
-  %b5 = block {
-    %21:void = call %asinh_468a48
-    ret
-  }
-}
-%vs_main = @vertex func(%in:VertexInput):VertexOutput -> %b6 {
-  %b6 = block {
-    %24:ptr<uniform, vec3<f32>, read> = access %render_params, 1u
-    %25:vec3<f32> = load %24
-    %26:ptr<uniform, vec3<f32>, read> = access %render_params, 2u
-    %27:vec3<f32> = load %26
-    %28:mat2x3<f32> = construct %25, %27
-    %29:vec2<f32> = access %in, 2u
-    %30:vec3<f32> = mul %28, %29
-    %quad_pos:ptr<function, vec3<f32>, read_write> = var, %30
-    %32:vec3<f32> = access %in, 0u
-    %33:vec3<f32> = load %quad_pos
-    %34:vec3<f32> = add %33, 0.00999999977648258209f
-    %35:vec3<f32> = sub %32, %34
-    %position:ptr<function, vec3<f32>, read_write> = var, %35
-    %out:ptr<function, VertexOutput, read_write> = var
-    %38:ptr<function, vec4<f32>, read_write> = access %out, 0u
-    %39:ptr<uniform, mat4x4<f32>, read> = access %render_params, 0u
-    %40:mat4x4<f32> = load %39
-    %41:vec3<f32> = load %position
-    %42:vec4<f32> = construct %41, 1.0f
-    %43:vec4<f32> = mul %40, %42
-    store %38, %43
-    %44:ptr<function, vec4<f32>, read_write> = access %out, 1u
-    %45:vec4<f32> = access %in, 1u
-    store %44, %45
-    %46:ptr<function, vec2<f32>, read_write> = access %out, 2u
-    %47:vec2<f32> = access %in, 2u
-    store %46, %47
-    %48:VertexOutput = load %out
-    ret %48
-  }
-}
-%simulate = @compute @workgroup_size(64, 1, 1) func(%GlobalInvocationID:vec3<u32> [@global_invocation_id]):void -> %b7 {
-  %b7 = block {
-    %51:ptr<uniform, vec4<f32>, read> = access %sim_params, 1u
-    %52:vec4<f32> = load %51
-    %53:vec2<f32> = swizzle %52, xy
-    %54:vec2<u32> = swizzle %GlobalInvocationID, xy
-    %55:vec2<f32> = convert %54
-    %56:vec2<f32> = mul %53, %55
-    %57:ptr<uniform, vec4<f32>, read> = access %sim_params, 1u
-    %58:vec4<f32> = load %57
-    %59:vec2<f32> = swizzle %58, zw
-    %60:vec2<f32> = mul %56, %59
-    store %rand_seed, %60
-    %idx:u32 = access %GlobalInvocationID, 0u
-    %62:ptr<storage, Particle, read_write> = access %data, 0u, %idx
-    %63:Particle = load %62
-    %particle:ptr<function, Particle, read_write> = var, %63
-    %65:ptr<storage, Particle, read_write> = access %data, 0u, %idx
-    %66:Particle = load %particle
-    store %65, %66
-    ret
-  }
-}
-%export_level = @compute @workgroup_size(64, 1, 1) func(%coord:vec3<u32> [@global_invocation_id]):void -> %b8 {
-  %b8 = block {
-    %69:vec2<u32> = swizzle %coord, xy
-    %70:texture_storage_2d<rgba8unorm, write> = load %tex_out
-    %71:vec2<u32> = textureDimensions %70
-    %72:vec2<u32> = construct %71
-    %73:vec2<bool> = lt %69, %72
-    %74:bool = all %73
-    if %74 [t: %b9] {  # if_1
-      %b9 = block {  # true
-        %75:u32 = access %coord, 0u
-        %76:u32 = access %coord, 1u
-        %77:ptr<uniform, u32, read> = access %ubo, 0u
-        %78:u32 = load %77
-        %79:u32 = mul %76, %78
-        %dst_offset:u32 = shiftl %75, %79
-        %81:u32 = access %coord, 0u
-        %82:u32 = sub %81, 2u
-        %83:u32 = access %coord, 1u
-        %84:u32 = shiftr %83, 2u
-        %85:ptr<uniform, u32, read> = access %ubo, 0u
-        %86:u32 = load %85
-        %87:u32 = mul %84, %86
-        %src_offset:u32 = add %82, %87
-        %89:u32 = shiftl %src_offset, 0u
-        %90:ptr<storage, f32, read> = access %buf_in, 0u, %89
-        %a:f32 = load %90
-        %92:u32 = add %src_offset, 1u
-        %93:ptr<storage, f32, read> = access %buf_in, 0u, %92
-        %b:f32 = load %93
-        %95:u32 = add %src_offset, 1u
-        %96:ptr<uniform, u32, read> = access %ubo, 0u
-        %97:u32 = load %96
-        %98:u32 = add %95, %97
-        %99:ptr<storage, f32, read> = access %buf_in, 0u, %98
-        %c:f32 = load %99
-        %101:u32 = add %src_offset, 1u
-        %102:ptr<uniform, u32, read> = access %ubo, 0u
-        %103:u32 = load %102
-        %104:u32 = add %101, %103
-        %105:ptr<storage, f32, read> = access %buf_in, 0u, %104
-        %d:f32 = load %105
-        %107:vec4<f32> = construct %a, %b, %c, %d
-        %sum:f32 = dot %107, vec4<f32>(1.0f)
-        %109:ptr<storage, f32, read_write> = access %buf_out, 0u, %dst_offset
-        %110:f32 = mod %sum, 4.0f
-        store %109, %110
-        %111:f32 = mul %a, %b
-        %112:f32 = div %a, %b
-        %113:f32 = add %112, %c
-        %114:vec4<f32> = construct %a, %111, %113, %sum
-        %115:f32 = max %sum, 0.0f
-        %probabilities:vec4<f32> = add %114, %115
-        %117:texture_storage_2d<rgba8unorm, write> = load %tex_out
-        %118:vec2<u32> = swizzle %coord, xy
-        %119:vec2<i32> = convert %118
-        %120:void = textureStore %117, %119, %probabilities
-        exit_if  # if_1
-      }
-    }
-    ret
+void export_level_inner(uint3 coord, tint_module_vars_struct tint_module_vars) {
+  uint const v_5 = tint_module_vars.tex_out.get_width(0u);
+  if (all((coord.xy < uint2(uint2(v_5, tint_module_vars.tex_out.get_height(0u)))))) {
+    uint const dst_offset = (coord[0u] << ((coord[1u] * (*tint_module_vars.ubo).width) & 31u));
+    uint const src_offset = ((coord[0u] - 2u) + ((coord[1u] >> (2u & 31u)) * (*tint_module_vars.ubo).width));
+    float const a = (*tint_module_vars.buf_in).weights[(src_offset << (0u & 31u))];
+    float const b = (*tint_module_vars.buf_in).weights[(src_offset + 1u)];
+    float const c = (*tint_module_vars.buf_in).weights[((src_offset + 1u) + (*tint_module_vars.ubo).width)];
+    float const d = (*tint_module_vars.buf_in).weights[((src_offset + 1u) + (*tint_module_vars.ubo).width)];
+    float const sum = dot(float4(a, b, c, d), float4(1.0f));
+    (*tint_module_vars.buf_out).weights[dst_offset] = fmod(sum, 4.0f);
+    float4 const v_6 = float4(a, (a * b), ((a / b) + c), sum);
+    float4 const probabilities = (v_6 + max(sum, 0.0f));
+    tint_module_vars.tex_out.write(probabilities, uint2(int2(coord.xy)));
   }
 }
 
-unhandled variable address space
-********************************************************************
-*  The tint shader compiler has encountered an unexpected error.   *
-*                                                                  *
-*  Please help us fix this issue by submitting a bug report at     *
-*  crbug.com/tint with the source program that triggered the bug.  *
-********************************************************************
+vertex vertex_main_outputs vertex_main() {
+  vertex_main_outputs tint_wrapper_result = {};
+  tint_wrapper_result.tint_symbol_1 = vertex_main_inner();
+  return tint_wrapper_result;
+}
+
+vertex vs_main_outputs vs_main(vs_main_inputs inputs [[stage_in]], const constant RenderParams_packed_vec3* render_params [[buffer(0)]]) {
+  tint_module_vars_struct const tint_module_vars = tint_module_vars_struct{.render_params=render_params};
+  VertexOutput const v_7 = vs_main_inner(VertexInput{.position=inputs.VertexInput_position, .color=inputs.VertexInput_color, .quad_pos=inputs.VertexInput_quad_pos}, tint_module_vars);
+  vs_main_outputs tint_wrapper_result = {};
+  tint_wrapper_result.VertexOutput_position = v_7.position;
+  tint_wrapper_result.VertexOutput_color = v_7.color;
+  tint_wrapper_result.VertexOutput_quad_pos = v_7.quad_pos;
+  return tint_wrapper_result;
+}
+
+kernel void simulate(uint3 GlobalInvocationID [[thread_position_in_grid]], const constant SimulationParams* sim_params [[buffer(1)]], device Particles_packed_vec3* data [[buffer(2)]]) {
+  thread float2 rand_seed = 0.0f;
+  tint_module_vars_struct const tint_module_vars = tint_module_vars_struct{.rand_seed=(&rand_seed), .sim_params=sim_params, .data=data};
+  simulate_inner(GlobalInvocationID, tint_module_vars);
+}
+
+kernel void export_level(uint3 coord [[thread_position_in_grid]], const constant UBO* ubo [[buffer(3)]], const device Buffer* buf_in [[buffer(4)]], device Buffer* buf_out [[buffer(0)]], texture2d<float, access::write> tex_out [[texture(0)]]) {
+  tint_module_vars_struct const tint_module_vars = tint_module_vars_struct{.ubo=ubo, .buf_in=buf_in, .buf_out=buf_out, .tex_out=tex_out};
+  export_level_inner(coord, tint_module_vars);
+}

@@ -1,49 +1,54 @@
-SKIP: FAILED
+#include <metal_stdlib>
+using namespace metal;
 
-<dawn>/src/tint/lang/msl/writer/printer/printer.cc:469 internal compiler error: %b1 = block {  # root
-  %prevent_dce:ptr<storage, vec3<i32>, read_write> = var @binding_point(2, 0)
-}
+struct tint_module_vars_struct {
+  device packed_int3* prevent_dce;
+};
 
-%insertBits_428b0b = func():void -> %b2 {
-  %b2 = block {
-    %arg_0:ptr<function, vec3<i32>, read_write> = var, vec3<i32>(1i)
-    %arg_1:ptr<function, vec3<i32>, read_write> = var, vec3<i32>(1i)
-    %arg_2:ptr<function, u32, read_write> = var, 1u
-    %arg_3:ptr<function, u32, read_write> = var, 1u
-    %7:vec3<i32> = load %arg_0
-    %8:vec3<i32> = load %arg_1
-    %9:u32 = load %arg_2
-    %10:u32 = load %arg_3
-    %11:vec3<i32> = insertBits %7, %8, %9, %10
-    %res:ptr<function, vec3<i32>, read_write> = var, %11
-    %13:vec3<i32> = load %res
-    store %prevent_dce, %13
-    ret
-  }
-}
-%vertex_main = @vertex func():vec4<f32> [@position] -> %b3 {
-  %b3 = block {
-    %15:void = call %insertBits_428b0b
-    ret vec4<f32>(0.0f)
-  }
-}
-%fragment_main = @fragment func():void -> %b4 {
-  %b4 = block {
-    %17:void = call %insertBits_428b0b
-    ret
-  }
-}
-%compute_main = @compute @workgroup_size(1, 1, 1) func():void -> %b5 {
-  %b5 = block {
-    %19:void = call %insertBits_428b0b
-    ret
-  }
+struct VertexOutput {
+  float4 pos;
+  int3 prevent_dce;
+};
+
+struct vertex_main_outputs {
+  float4 VertexOutput_pos [[position]];
+  int3 VertexOutput_prevent_dce [[user(locn0)]] [[flat]];
+};
+
+int3 insertBits_428b0b() {
+  int3 arg_0 = int3(1);
+  int3 arg_1 = int3(1);
+  uint arg_2 = 1u;
+  uint arg_3 = 1u;
+  int3 const v = arg_0;
+  int3 const v_1 = arg_1;
+  uint const v_2 = arg_3;
+  uint const v_3 = min(arg_2, 32u);
+  int3 res = insert_bits(v, v_1, v_3, min(v_2, (32u - v_3)));
+  return res;
 }
 
-unhandled variable address space
-********************************************************************
-*  The tint shader compiler has encountered an unexpected error.   *
-*                                                                  *
-*  Please help us fix this issue by submitting a bug report at     *
-*  crbug.com/tint with the source program that triggered the bug.  *
-********************************************************************
+fragment void fragment_main(device packed_int3* prevent_dce [[buffer(0)]]) {
+  tint_module_vars_struct const tint_module_vars = tint_module_vars_struct{.prevent_dce=prevent_dce};
+  (*tint_module_vars.prevent_dce) = packed_int3(insertBits_428b0b());
+}
+
+kernel void compute_main(device packed_int3* prevent_dce [[buffer(0)]]) {
+  tint_module_vars_struct const tint_module_vars = tint_module_vars_struct{.prevent_dce=prevent_dce};
+  (*tint_module_vars.prevent_dce) = packed_int3(insertBits_428b0b());
+}
+
+VertexOutput vertex_main_inner() {
+  VertexOutput out = {};
+  out.pos = float4(0.0f);
+  out.prevent_dce = insertBits_428b0b();
+  return out;
+}
+
+vertex vertex_main_outputs vertex_main() {
+  VertexOutput const v_4 = vertex_main_inner();
+  vertex_main_outputs tint_wrapper_result = {};
+  tint_wrapper_result.VertexOutput_pos = v_4.pos;
+  tint_wrapper_result.VertexOutput_prevent_dce = v_4.prevent_dce;
+  return tint_wrapper_result;
+}

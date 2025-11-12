@@ -61,13 +61,9 @@ class MultisampledSamplingTest : public DawnTest {
     // A compute pipeline to texelFetch the sample locations and output the results to a buffer.
     wgpu::ComputePipeline checkSamplePipeline;
 
-    void SetUp() override {
-        DawnTest::SetUp();
+    void SetUp() override { DawnTest::SetUp(); }
 
-        // TODO(crbug.com/tint/1976): DXC fails to compile the following compute shader because the
-        // coordinate in texture load is not interpreted as an integer vector.
-        DAWN_SUPPRESS_TEST_IF(IsD3D12() && HasToggleEnabled("use_dxc"));
-
+    void CreatePipelines() {
         {
             utils::ComboRenderPipelineDescriptor desc;
 
@@ -97,7 +93,7 @@ class MultisampledSamplingTest : public DawnTest {
             desc.cAttributes[0].format = wgpu::VertexFormat::Float32x2;
 
             wgpu::DepthStencilState* depthStencil = desc.EnableDepthStencil(kDepthFormat);
-            depthStencil->depthWriteEnabled = true;
+            depthStencil->depthWriteEnabled = wgpu::OptionalBool::True;
 
             desc.multisample.count = kSampleCount;
             desc.cFragment.targetCount = 1;
@@ -109,7 +105,6 @@ class MultisampledSamplingTest : public DawnTest {
         }
         {
             wgpu::ComputePipelineDescriptor desc = {};
-            desc.compute.entryPoint = "main";
             desc.compute.module = utils::CreateShaderModule(device, R"(
                 @group(0) @binding(0) var texture0 : texture_multisampled_2d<f32>;
                 @group(0) @binding(1) var texture1 : texture_depth_multisampled_2d;
@@ -141,6 +136,11 @@ class MultisampledSamplingTest : public DawnTest {
 // must cover both the X and Y coordinates of the sample position (no false positives if
 // it covers the X position but not the Y, or vice versa).
 TEST_P(MultisampledSamplingTest, SamplePositions) {
+    // textureLoad with texture_depth_xxx is not supported in compat mode.
+    DAWN_TEST_UNSUPPORTED_IF(IsCompatibilityMode());
+
+    CreatePipelines();
+
     static constexpr wgpu::Extent3D kTextureSize = {1, 1, 1};
 
     wgpu::Texture colorTexture;

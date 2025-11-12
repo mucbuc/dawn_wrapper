@@ -159,7 +159,6 @@ TEST_P(BindGroupTests, ReusedBindGroupSingleSubmit) {
 
     wgpu::ComputePipelineDescriptor cpDesc;
     cpDesc.compute.module = module;
-    cpDesc.compute.entryPoint = "main";
     wgpu::ComputePipeline cp = device.CreateComputePipeline(&cpDesc);
 
     wgpu::BufferDescriptor bufferDesc;
@@ -1144,7 +1143,6 @@ TEST_P(BindGroupTests, DynamicOffsetOrder) {
         @compute @workgroup_size(1) fn main() {
             outputBuffer = vec3u(buffer0.value, buffer2.value, buffer3.value);
         })");
-    pipelineDescriptor.compute.entryPoint = "main";
     pipelineDescriptor.layout = utils::MakeBasicPipelineLayout(device, &bgl);
     wgpu::ComputePipeline pipeline = device.CreateComputePipeline(&pipelineDescriptor);
 
@@ -1165,9 +1163,6 @@ TEST_P(BindGroupTests, DynamicOffsetOrder) {
 // conflict. This can happen if the backend treats dynamic bindings separately from non-dynamic
 // bindings.
 TEST_P(BindGroupTests, DynamicAndNonDynamicBindingsDoNotConflictAfterRemapping) {
-    // // TODO(crbug.com/dawn/1106): Test output is wrong on D3D12 using WARP.
-    DAWN_SUPPRESS_TEST_IF(IsWARP());
-
     auto RunTestWith = [&](bool dynamicBufferFirst) {
         uint32_t dynamicBufferBindingNumber = dynamicBufferFirst ? 0 : 1;
         uint32_t bufferBindingNumber = dynamicBufferFirst ? 1 : 0;
@@ -1226,7 +1221,6 @@ TEST_P(BindGroupTests, DynamicAndNonDynamicBindingsDoNotConflictAfterRemapping) 
         @compute @workgroup_size(1) fn main() {
             outputBuffer.value = vec2u(buffer0.value, buffer1.value);
         })");
-        pipelineDescriptor.compute.entryPoint = "main";
         pipelineDescriptor.layout = utils::MakeBasicPipelineLayout(device, &bgl);
         wgpu::ComputePipeline pipeline = device.CreateComputePipeline(&pipelineDescriptor);
 
@@ -1255,13 +1249,17 @@ TEST_P(BindGroupTests, DynamicAndNonDynamicBindingsDoNotConflictAfterRemapping) 
 TEST_P(BindGroupTests, BindGroupLayoutVisibilityCanBeNone) {
     utils::BasicRenderPass renderPass = utils::CreateBasicRenderPass(device, kRTSize, kRTSize);
 
-    wgpu::BindGroupLayoutEntry entry;
-    entry.binding = 0;
-    entry.visibility = wgpu::ShaderStage::None;
-    entry.buffer.type = wgpu::BufferBindingType::Uniform;
+    wgpu::BindGroupLayoutEntry entries[2];
+    entries[0].binding = 0;
+    entries[0].visibility = wgpu::ShaderStage::None;
+    entries[0].buffer.type = wgpu::BufferBindingType::Uniform;
+    entries[1].binding = 1;
+    entries[1].visibility = wgpu::ShaderStage::None;
+    entries[1].texture.sampleType = wgpu::TextureSampleType::Float;
+
     wgpu::BindGroupLayoutDescriptor descriptor;
-    descriptor.entryCount = 1;
-    descriptor.entries = &entry;
+    descriptor.entryCount = 2;
+    descriptor.entries = entries;
     wgpu::BindGroupLayout layout = device.CreateBindGroupLayout(&descriptor);
 
     wgpu::RenderPipeline pipeline = MakeTestPipeline(renderPass, {}, {layout});
@@ -1269,8 +1267,16 @@ TEST_P(BindGroupTests, BindGroupLayoutVisibilityCanBeNone) {
     std::array<float, 4> color = {1, 0, 0, 1};
     wgpu::Buffer uniformBuffer =
         utils::CreateBufferFromData(device, &color, sizeof(color), wgpu::BufferUsage::Uniform);
-    wgpu::BindGroup bindGroup =
-        utils::MakeBindGroup(device, layout, {{0, uniformBuffer, 0, sizeof(color)}});
+
+    wgpu::TextureDescriptor textureDescriptor;
+    textureDescriptor.size = {kRTSize, kRTSize};
+    textureDescriptor.format = wgpu::TextureFormat::RGBA8Unorm;
+    textureDescriptor.usage = wgpu::TextureUsage::CopyDst | wgpu::TextureUsage::TextureBinding;
+    wgpu::Texture texture = device.CreateTexture(&textureDescriptor);
+    wgpu::TextureView textureView = texture.CreateView();
+
+    wgpu::BindGroup bindGroup = utils::MakeBindGroup(
+        device, layout, {{0, uniformBuffer, 0, sizeof(color)}, {1, textureView}});
 
     wgpu::CommandEncoder encoder = device.CreateCommandEncoder();
     wgpu::RenderPassEncoder pass = encoder.BeginRenderPass(&renderPass.renderPassInfo);
@@ -1320,9 +1326,6 @@ TEST_P(BindGroupTests, DynamicBindingNoneVisibility) {
 
 // Test that bind group bindings may have unbounded and arbitrary binding numbers
 TEST_P(BindGroupTests, ArbitraryBindingNumbers) {
-    // TODO(crbug.com/dawn/736): Test output is wrong with D3D12 + WARP.
-    DAWN_SUPPRESS_TEST_IF(IsD3D12() && IsWARP());
-
     utils::BasicRenderPass renderPass = utils::CreateBasicRenderPass(device, kRTSize, kRTSize);
 
     wgpu::ShaderModule vsModule = utils::CreateShaderModule(device, R"(
@@ -1444,7 +1447,6 @@ TEST_P(BindGroupTests, EmptyLayout) {
 
     wgpu::ComputePipelineDescriptor pipelineDesc;
     pipelineDesc.layout = utils::MakeBasicPipelineLayout(device, &bgl);
-    pipelineDesc.compute.entryPoint = "main";
     pipelineDesc.compute.module = utils::CreateShaderModule(device, R"(
         @compute @workgroup_size(1) fn main() {
         })");

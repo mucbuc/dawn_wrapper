@@ -42,9 +42,6 @@ class DepthStencilStateTest : public DawnTest {
     void SetUp() override {
         DawnTest::SetUp();
 
-        // TODO(crbug.com/dawn/737): Test output is wrong with D3D12 + WARP.
-        DAWN_SUPPRESS_TEST_IF(IsD3D12() && IsWARP());
-
         wgpu::TextureDescriptor renderTargetDescriptor;
         renderTargetDescriptor.dimension = wgpu::TextureDimension::e2D;
         renderTargetDescriptor.size.width = kRTSize;
@@ -126,7 +123,7 @@ class DepthStencilStateTest : public DawnTest {
         stencilFace.passOp = wgpu::StencilOperation::Keep;
 
         wgpu::DepthStencilState baseState;
-        baseState.depthWriteEnabled = true;
+        baseState.depthWriteEnabled = wgpu::OptionalBool::True;
         baseState.depthCompare = wgpu::CompareFunction::Always;
         baseState.stencilBack = stencilFace;
         baseState.stencilFront = stencilFace;
@@ -134,7 +131,7 @@ class DepthStencilStateTest : public DawnTest {
         baseState.stencilWriteMask = 0xff;
 
         wgpu::DepthStencilState state;
-        state.depthWriteEnabled = true;
+        state.depthWriteEnabled = wgpu::OptionalBool::True;
         state.depthCompare = compareFunction;
         state.stencilBack = stencilFace;
         state.stencilFront = stencilFace;
@@ -175,7 +172,7 @@ class DepthStencilStateTest : public DawnTest {
         baseStencilFaceDescriptor.depthFailOp = wgpu::StencilOperation::Keep;
         baseStencilFaceDescriptor.passOp = wgpu::StencilOperation::Replace;
         wgpu::DepthStencilState baseState;
-        baseState.depthWriteEnabled = false;
+        baseState.depthWriteEnabled = wgpu::OptionalBool::False;
         baseState.depthCompare = wgpu::CompareFunction::Always;
         baseState.stencilBack = baseStencilFaceDescriptor;
         baseState.stencilFront = baseStencilFaceDescriptor;
@@ -188,7 +185,7 @@ class DepthStencilStateTest : public DawnTest {
         stencilFaceDescriptor.depthFailOp = wgpu::StencilOperation::Keep;
         stencilFaceDescriptor.passOp = wgpu::StencilOperation::Keep;
         wgpu::DepthStencilState state;
-        state.depthWriteEnabled = false;
+        state.depthWriteEnabled = wgpu::OptionalBool::False;
         state.depthCompare = wgpu::CompareFunction::Always;
         state.stencilBack = stencilFaceDescriptor;
         state.stencilFront = stencilFaceDescriptor;
@@ -228,7 +225,7 @@ class DepthStencilStateTest : public DawnTest {
         baseStencilFaceDescriptor.depthFailOp = wgpu::StencilOperation::Keep;
         baseStencilFaceDescriptor.passOp = wgpu::StencilOperation::Replace;
         wgpu::DepthStencilState baseState;
-        baseState.depthWriteEnabled = false;
+        baseState.depthWriteEnabled = wgpu::OptionalBool::False;
         baseState.depthCompare = wgpu::CompareFunction::Always;
         baseState.stencilBack = baseStencilFaceDescriptor;
         baseState.stencilFront = baseStencilFaceDescriptor;
@@ -241,7 +238,7 @@ class DepthStencilStateTest : public DawnTest {
         stencilFaceDescriptor.depthFailOp = wgpu::StencilOperation::Keep;
         stencilFaceDescriptor.passOp = stencilOperation;
         wgpu::DepthStencilState state;
-        state.depthWriteEnabled = false;
+        state.depthWriteEnabled = wgpu::OptionalBool::False;
         state.depthCompare = wgpu::CompareFunction::Always;
         state.stencilBack = stencilFaceDescriptor;
         state.stencilFront = stencilFaceDescriptor;
@@ -267,7 +264,7 @@ class DepthStencilStateTest : public DawnTest {
         stencilFaceDescriptor.depthFailOp = wgpu::StencilOperation::Keep;
         stencilFaceDescriptor.passOp = wgpu::StencilOperation::Keep;
         wgpu::DepthStencilState state;
-        state.depthWriteEnabled = false;
+        state.depthWriteEnabled = wgpu::OptionalBool::False;
         state.depthCompare = wgpu::CompareFunction::Always;
         state.stencilBack = stencilFaceDescriptor;
         state.stencilFront = stencilFaceDescriptor;
@@ -387,13 +384,14 @@ class DepthStencilStateTest : public DawnTest {
 // Test compilation and usage of the fixture
 TEST_P(DepthStencilStateTest, Basic) {
     wgpu::StencilFaceState stencilFace;
-    stencilFace.compare = wgpu::CompareFunction::Always;
-    stencilFace.failOp = wgpu::StencilOperation::Keep;
-    stencilFace.depthFailOp = wgpu::StencilOperation::Keep;
-    stencilFace.passOp = wgpu::StencilOperation::Keep;
+    // Spot-test for defaulting of these four fields.
+    stencilFace.compare = wgpu::CompareFunction::Undefined;
+    stencilFace.failOp = wgpu::StencilOperation::Undefined;
+    stencilFace.depthFailOp = wgpu::StencilOperation::Undefined;
+    stencilFace.passOp = wgpu::StencilOperation::Undefined;
 
     wgpu::DepthStencilState state;
-    state.depthWriteEnabled = false;
+    state.depthWriteEnabled = wgpu::OptionalBool::False;
     state.depthCompare = wgpu::CompareFunction::Always;
     state.stencilBack = stencilFace;
     state.stencilFront = stencilFace;
@@ -416,7 +414,7 @@ TEST_P(DepthStencilStateTest, DepthStencilDisabled) {
     stencilFace.passOp = wgpu::StencilOperation::Keep;
 
     wgpu::DepthStencilState state;
-    state.depthWriteEnabled = false;
+    state.depthWriteEnabled = wgpu::OptionalBool::False;
     state.depthCompare = wgpu::CompareFunction::Always;
     state.stencilBack = stencilFace;
     state.stencilFront = stencilFace;
@@ -481,7 +479,7 @@ TEST_P(DepthStencilStateTest, DepthWriteDisabled) {
     stencilFace.passOp = wgpu::StencilOperation::Keep;
 
     wgpu::DepthStencilState baseState;
-    baseState.depthWriteEnabled = true;
+    baseState.depthWriteEnabled = wgpu::OptionalBool::True;
     baseState.depthCompare = wgpu::CompareFunction::Always;
     baseState.stencilBack = stencilFace;
     baseState.stencilFront = stencilFace;
@@ -489,7 +487,7 @@ TEST_P(DepthStencilStateTest, DepthWriteDisabled) {
     baseState.stencilWriteMask = 0xff;
 
     wgpu::DepthStencilState noDepthWrite;
-    noDepthWrite.depthWriteEnabled = false;
+    noDepthWrite.depthWriteEnabled = wgpu::OptionalBool::False;
     noDepthWrite.depthCompare = wgpu::CompareFunction::Always;
     noDepthWrite.stencilBack = stencilFace;
     noDepthWrite.stencilFront = stencilFace;
@@ -497,7 +495,7 @@ TEST_P(DepthStencilStateTest, DepthWriteDisabled) {
     noDepthWrite.stencilWriteMask = 0xff;
 
     wgpu::DepthStencilState checkState;
-    checkState.depthWriteEnabled = false;
+    checkState.depthWriteEnabled = wgpu::OptionalBool::False;
     checkState.depthCompare = wgpu::CompareFunction::Equal;
     checkState.stencilBack = stencilFace;
     checkState.stencilFront = stencilFace;
@@ -595,7 +593,7 @@ TEST_P(DepthStencilStateTest, StencilReadMask) {
     baseStencilFaceDescriptor.depthFailOp = wgpu::StencilOperation::Keep;
     baseStencilFaceDescriptor.passOp = wgpu::StencilOperation::Replace;
     wgpu::DepthStencilState baseState;
-    baseState.depthWriteEnabled = false;
+    baseState.depthWriteEnabled = wgpu::OptionalBool::False;
     baseState.depthCompare = wgpu::CompareFunction::Always;
     baseState.stencilBack = baseStencilFaceDescriptor;
     baseState.stencilFront = baseStencilFaceDescriptor;
@@ -608,7 +606,7 @@ TEST_P(DepthStencilStateTest, StencilReadMask) {
     stencilFaceDescriptor.depthFailOp = wgpu::StencilOperation::Keep;
     stencilFaceDescriptor.passOp = wgpu::StencilOperation::Keep;
     wgpu::DepthStencilState state;
-    state.depthWriteEnabled = false;
+    state.depthWriteEnabled = wgpu::OptionalBool::False;
     state.depthCompare = wgpu::CompareFunction::Always;
     state.stencilBack = stencilFaceDescriptor;
     state.stencilFront = stencilFaceDescriptor;
@@ -634,7 +632,7 @@ TEST_P(DepthStencilStateTest, StencilWriteMask) {
     baseStencilFaceDescriptor.depthFailOp = wgpu::StencilOperation::Keep;
     baseStencilFaceDescriptor.passOp = wgpu::StencilOperation::Replace;
     wgpu::DepthStencilState baseState;
-    baseState.depthWriteEnabled = false;
+    baseState.depthWriteEnabled = wgpu::OptionalBool::False;
     baseState.depthCompare = wgpu::CompareFunction::Always;
     baseState.stencilBack = baseStencilFaceDescriptor;
     baseState.stencilFront = baseStencilFaceDescriptor;
@@ -647,7 +645,7 @@ TEST_P(DepthStencilStateTest, StencilWriteMask) {
     stencilFaceDescriptor.depthFailOp = wgpu::StencilOperation::Keep;
     stencilFaceDescriptor.passOp = wgpu::StencilOperation::Keep;
     wgpu::DepthStencilState state;
-    state.depthWriteEnabled = false;
+    state.depthWriteEnabled = wgpu::OptionalBool::False;
     state.depthCompare = wgpu::CompareFunction::Always;
     state.stencilBack = stencilFaceDescriptor;
     state.stencilFront = stencilFaceDescriptor;
@@ -673,7 +671,7 @@ TEST_P(DepthStencilStateTest, StencilFail) {
     baseStencilFaceDescriptor.depthFailOp = wgpu::StencilOperation::Keep;
     baseStencilFaceDescriptor.passOp = wgpu::StencilOperation::Replace;
     wgpu::DepthStencilState baseState;
-    baseState.depthWriteEnabled = false;
+    baseState.depthWriteEnabled = wgpu::OptionalBool::False;
     baseState.depthCompare = wgpu::CompareFunction::Always;
     baseState.stencilBack = baseStencilFaceDescriptor;
     baseState.stencilFront = baseStencilFaceDescriptor;
@@ -686,7 +684,7 @@ TEST_P(DepthStencilStateTest, StencilFail) {
     stencilFaceDescriptor.depthFailOp = wgpu::StencilOperation::Keep;
     stencilFaceDescriptor.passOp = wgpu::StencilOperation::Keep;
     wgpu::DepthStencilState state;
-    state.depthWriteEnabled = false;
+    state.depthWriteEnabled = wgpu::OptionalBool::False;
     state.depthCompare = wgpu::CompareFunction::Always;
     state.stencilBack = stencilFaceDescriptor;
     state.stencilFront = stencilFaceDescriptor;
@@ -711,7 +709,7 @@ TEST_P(DepthStencilStateTest, StencilDepthFail) {
     baseStencilFaceDescriptor.depthFailOp = wgpu::StencilOperation::Keep;
     baseStencilFaceDescriptor.passOp = wgpu::StencilOperation::Replace;
     wgpu::DepthStencilState baseState;
-    baseState.depthWriteEnabled = true;
+    baseState.depthWriteEnabled = wgpu::OptionalBool::True;
     baseState.depthCompare = wgpu::CompareFunction::Always;
     baseState.stencilBack = baseStencilFaceDescriptor;
     baseState.stencilFront = baseStencilFaceDescriptor;
@@ -724,7 +722,7 @@ TEST_P(DepthStencilStateTest, StencilDepthFail) {
     stencilFaceDescriptor.depthFailOp = wgpu::StencilOperation::Replace;
     stencilFaceDescriptor.passOp = wgpu::StencilOperation::Keep;
     wgpu::DepthStencilState state;
-    state.depthWriteEnabled = true;
+    state.depthWriteEnabled = wgpu::OptionalBool::True;
     state.depthCompare = wgpu::CompareFunction::Less;
     state.stencilBack = stencilFaceDescriptor;
     state.stencilFront = stencilFaceDescriptor;
@@ -747,7 +745,7 @@ TEST_P(DepthStencilStateTest, StencilDepthPass) {
     baseStencilFaceDescriptor.depthFailOp = wgpu::StencilOperation::Keep;
     baseStencilFaceDescriptor.passOp = wgpu::StencilOperation::Replace;
     wgpu::DepthStencilState baseState;
-    baseState.depthWriteEnabled = true;
+    baseState.depthWriteEnabled = wgpu::OptionalBool::True;
     baseState.depthCompare = wgpu::CompareFunction::Always;
     baseState.stencilBack = baseStencilFaceDescriptor;
     baseState.stencilFront = baseStencilFaceDescriptor;
@@ -760,7 +758,7 @@ TEST_P(DepthStencilStateTest, StencilDepthPass) {
     stencilFaceDescriptor.depthFailOp = wgpu::StencilOperation::Keep;
     stencilFaceDescriptor.passOp = wgpu::StencilOperation::Replace;
     wgpu::DepthStencilState state;
-    state.depthWriteEnabled = true;
+    state.depthWriteEnabled = wgpu::OptionalBool::True;
     state.depthCompare = wgpu::CompareFunction::Less;
     state.stencilBack = stencilFaceDescriptor;
     state.stencilFront = stencilFaceDescriptor;
@@ -797,7 +795,7 @@ TEST_P(DepthStencilStateTest, CreatePipelineWithAllFormats) {
 // Test that the front and back stencil states are set correctly (and take frontFace into account)
 TEST_P(DepthStencilStateTest, StencilFrontAndBackFace) {
     wgpu::DepthStencilState state;
-    state.depthWriteEnabled = false;
+    state.depthWriteEnabled = wgpu::OptionalBool::False;
     state.depthCompare = wgpu::CompareFunction::Always;
     state.stencilFront.compare = wgpu::CompareFunction::Always;
     state.stencilBack.compare = wgpu::CompareFunction::Never;
@@ -812,7 +810,7 @@ TEST_P(DepthStencilStateTest, StencilFrontAndBackFace) {
 // Test that the depth reference of a new render pass is initialized to default value 0
 TEST_P(DepthStencilStateTest, StencilReferenceInitialized) {
     wgpu::DepthStencilState stencilAlwaysReplaceState;
-    stencilAlwaysReplaceState.depthWriteEnabled = false;
+    stencilAlwaysReplaceState.depthWriteEnabled = wgpu::OptionalBool::False;
     stencilAlwaysReplaceState.depthCompare = wgpu::CompareFunction::Always;
     stencilAlwaysReplaceState.stencilFront.compare = wgpu::CompareFunction::Always;
     stencilAlwaysReplaceState.stencilFront.passOp = wgpu::StencilOperation::Replace;
@@ -820,7 +818,7 @@ TEST_P(DepthStencilStateTest, StencilReferenceInitialized) {
     stencilAlwaysReplaceState.stencilBack.passOp = wgpu::StencilOperation::Replace;
 
     wgpu::DepthStencilState stencilEqualKeepState;
-    stencilEqualKeepState.depthWriteEnabled = false;
+    stencilEqualKeepState.depthWriteEnabled = wgpu::OptionalBool::False;
     stencilEqualKeepState.depthCompare = wgpu::CompareFunction::Always;
     stencilEqualKeepState.stencilFront.compare = wgpu::CompareFunction::Equal;
     stencilEqualKeepState.stencilFront.passOp = wgpu::StencilOperation::Keep;

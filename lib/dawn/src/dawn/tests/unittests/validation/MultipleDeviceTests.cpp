@@ -27,14 +27,16 @@
 
 #include "dawn/tests/unittests/validation/ValidationTest.h"
 
+#include "dawn/native/DawnNative.h"
 #include "dawn/tests/MockCallback.h"
 
+namespace dawn {
+namespace {
+
 using testing::_;
-using testing::Invoke;
-using testing::MockCallback;
+using testing::IsNull;
+using testing::MockCppCallback;
 using testing::NotNull;
-using testing::StrictMock;
-using testing::WithArg;
 
 class MultipleDeviceTest : public ValidationTest {};
 
@@ -49,7 +51,7 @@ TEST_F(MultipleDeviceTest, ValidatesSameDevice) {
 // Test that CreatePipelineAsync fails creation with an Error status if it uses
 // objects from a different device.
 TEST_F(MultipleDeviceTest, ValidatesSameDeviceCreatePipelineAsync) {
-    wgpu::ShaderModuleWGSLDescriptor wgslDesc = {};
+    wgpu::ShaderSourceWGSL wgslDesc = {};
     wgslDesc.code = R"(
          @compute @workgroup_size(1, 1, 1) fn main() {
         }
@@ -58,23 +60,25 @@ TEST_F(MultipleDeviceTest, ValidatesSameDeviceCreatePipelineAsync) {
     wgpu::ShaderModuleDescriptor shaderModuleDesc = {};
     shaderModuleDesc.nextInChain = &wgslDesc;
 
+    using MockComputePipelineAsyncCallback = MockCppCallback<void (*)(
+        wgpu::CreatePipelineAsyncStatus, wgpu::ComputePipeline, wgpu::StringView)>;
+
     // Base case: CreateComputePipelineAsync succeeds.
     {
         wgpu::ShaderModule shaderModule = device.CreateShaderModule(&shaderModuleDesc);
 
         wgpu::ComputePipelineDescriptor pipelineDesc = {};
         pipelineDesc.compute.module = shaderModule;
-        pipelineDesc.compute.entryPoint = "main";
 
-        StrictMock<MockCallback<WGPUCreateComputePipelineAsyncCallback>> creationCallback;
-        EXPECT_CALL(creationCallback,
-                    Call(WGPUCreatePipelineAsyncStatus_Success, NotNull(), _, this))
-            .WillOnce(WithArg<1>(Invoke(
-                [](WGPUComputePipeline pipeline) { wgpu::ComputePipeline::Acquire(pipeline); })));
-        device.CreateComputePipelineAsync(&pipelineDesc, creationCallback.Callback(),
-                                          creationCallback.MakeUserdata(this));
+        MockComputePipelineAsyncCallback creationCallback;
+        EXPECT_CALL(creationCallback, Call(wgpu::CreatePipelineAsyncStatus::Success, NotNull(), _))
+            .Times(1);
+        device.CreateComputePipelineAsync(&pipelineDesc,
+                                          UsesWire() ? wgpu::CallbackMode::AllowSpontaneous
+                                                     : wgpu::CallbackMode::AllowProcessEvents,
+                                          creationCallback.Callback());
 
-        WaitForAllOperations(device);
+        WaitForAllOperations();
     }
 
     // CreateComputePipelineAsync errors if the shader module is created on a different device.
@@ -84,15 +88,19 @@ TEST_F(MultipleDeviceTest, ValidatesSameDeviceCreatePipelineAsync) {
 
         wgpu::ComputePipelineDescriptor pipelineDesc = {};
         pipelineDesc.compute.module = shaderModule;
-        pipelineDesc.compute.entryPoint = "main";
 
-        StrictMock<MockCallback<WGPUCreateComputePipelineAsyncCallback>> creationCallback;
+        MockComputePipelineAsyncCallback creationCallback;
         EXPECT_CALL(creationCallback,
-                    Call(WGPUCreatePipelineAsyncStatus_ValidationError, nullptr, _, this + 1))
+                    Call(wgpu::CreatePipelineAsyncStatus::ValidationError, IsNull(), _))
             .Times(1);
-        device.CreateComputePipelineAsync(&pipelineDesc, creationCallback.Callback(),
-                                          creationCallback.MakeUserdata(this + 1));
+        device.CreateComputePipelineAsync(&pipelineDesc,
+                                          UsesWire() ? wgpu::CallbackMode::AllowSpontaneous
+                                                     : wgpu::CallbackMode::AllowProcessEvents,
+                                          creationCallback.Callback());
 
-        WaitForAllOperations(device);
+        WaitForAllOperations();
     }
 }
+
+}  // anonymous namespace
+}  // namespace dawn

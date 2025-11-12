@@ -191,14 +191,14 @@ TEST_P(DestroyTest, DestroyDeviceThenSetLabel) {
     device.SetLabel(label.c_str());
 }
 
-// Device destroy before buffer submit will result in error.
+// Test device destroy before submit.
 TEST_P(DestroyTest, DestroyDeviceBeforeSubmit) {
     // TODO(crbug.com/dawn/628) Add more comprehensive tests with destroy and backends.
     DAWN_TEST_UNSUPPORTED_IF(UsesWire());
     wgpu::CommandBuffer commands = CreateTriangleCommandBuffer();
 
     DestroyDevice();
-    ASSERT_DEVICE_ERROR_MSG(queue.Submit(1, &commands), HasSubstr("[Device] is lost."));
+    queue.Submit(1, &commands);
 }
 
 // Regression test for crbug.com/1276928 where a lingering BGL reference in Vulkan with at least one
@@ -220,19 +220,10 @@ TEST_P(DestroyTest, GetQueueAfterDeviceDestroy) {
     DestroyDevice();
 
     wgpu::Queue queue = device.GetQueue();
-    ASSERT_DEVICE_ERROR(queue.OnSubmittedWorkDone(
-        [](WGPUQueueWorkDoneStatus status, void* userdata) {
-            // TODO(crbug.com/dawn/2021): Wire and native differ slightly for now. Unify once we
-            // decide on the correct result. In theory maybe we want to pretend that things succeed
-            // when the device is lost.
-            DestroyTest* test = static_cast<DestroyTest*>(userdata);
-            if (test->UsesWire()) {
-                EXPECT_EQ(status, WGPUQueueWorkDoneStatus_Success);
-            } else {
-                EXPECT_EQ(status, WGPUQueueWorkDoneStatus_DeviceLost);
-            }
-        },
-        this));
+    queue.OnSubmittedWorkDone(wgpu::CallbackMode::AllowProcessEvents,
+                              [](wgpu::QueueWorkDoneStatus status) {
+                                  EXPECT_EQ(status, wgpu::QueueWorkDoneStatus::Success);
+                              });
 }
 
 DAWN_INSTANTIATE_TEST(DestroyTest,

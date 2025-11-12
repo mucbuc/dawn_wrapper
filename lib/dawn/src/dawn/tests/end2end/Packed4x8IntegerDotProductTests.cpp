@@ -36,10 +36,6 @@ namespace {
 class Packed4x8IntegerDotProductTests : public DawnTest {};
 
 TEST_P(Packed4x8IntegerDotProductTests, Dot4x8Packed) {
-    // TODO(tint:1497): investigate why the creation of compute pipeline with dot4{U|I}8Packed()
-    // fails on Pixel 4
-    DAWN_SUPPRESS_TEST_IF(IsAndroid());
-
     const char* computeShader = R"(
         struct Buf {
             data1 : i32,
@@ -81,7 +77,6 @@ TEST_P(Packed4x8IntegerDotProductTests, Dot4x8Packed) {
 
     wgpu::ComputePipelineDescriptor csDesc;
     csDesc.compute.module = utils::CreateShaderModule(device, computeShader);
-    csDesc.compute.entryPoint = "main";
     wgpu::ComputePipeline pipeline = device.CreateComputePipeline(&csDesc);
 
     wgpu::BindGroup bindGroup = utils::MakeBindGroup(device, pipeline.GetBindGroupLayout(0),
@@ -105,10 +100,6 @@ TEST_P(Packed4x8IntegerDotProductTests, Dot4x8Packed) {
 }
 
 TEST_P(Packed4x8IntegerDotProductTests, Pack4x8) {
-    // TODO(tint:1497): investigate why the creation of compute pipeline with pack4xI8(),
-    // pack4xU8(), pack4xI8Clamp() or pack4xU8Clamp() fails on Pixel 6
-    DAWN_SUPPRESS_TEST_IF(IsAndroid());
-
     const char* computeShader = R"(
         struct Buf {
             data1 : u32,
@@ -157,7 +148,6 @@ TEST_P(Packed4x8IntegerDotProductTests, Pack4x8) {
 
     wgpu::ComputePipelineDescriptor csDesc;
     csDesc.compute.module = utils::CreateShaderModule(device, computeShader);
-    csDesc.compute.entryPoint = "main";
     wgpu::ComputePipeline pipeline = device.CreateComputePipeline(&csDesc);
 
     wgpu::BindGroup bindGroup = utils::MakeBindGroup(device, pipeline.GetBindGroupLayout(0),
@@ -181,10 +171,6 @@ TEST_P(Packed4x8IntegerDotProductTests, Pack4x8) {
 }
 
 TEST_P(Packed4x8IntegerDotProductTests, Unpack4x8) {
-    // TODO(tint:1497): investigate why the creation of compute pipeline with unpack4xI8() or
-    // unpack4xU8() fails on Pixel 6
-    DAWN_SUPPRESS_TEST_IF(IsAndroid());
-
     const char* computeShader = R"(
         struct Buf {
             data1 : vec4i,
@@ -233,7 +219,6 @@ TEST_P(Packed4x8IntegerDotProductTests, Unpack4x8) {
 
     wgpu::ComputePipelineDescriptor csDesc;
     csDesc.compute.module = utils::CreateShaderModule(device, computeShader);
-    csDesc.compute.entryPoint = "main";
     wgpu::ComputePipeline pipeline = device.CreateComputePipeline(&csDesc);
 
     wgpu::BindGroup bindGroup = utils::MakeBindGroup(device, pipeline.GetBindGroupLayout(0),
@@ -263,6 +248,7 @@ DAWN_INSTANTIATE_TEST(Packed4x8IntegerDotProductTests,
                       D3D12Backend(),
                       D3D12Backend({}, {"use_dxc"}),
                       D3D12Backend({"polyfill_packed_4x8_dot_product"}),
+                      D3D12Backend({"d3d12_polyfill_pack_unpack_4x8"}),
                       MetalBackend(),
                       VulkanBackend(),
                       VulkanBackend({"polyfill_packed_4x8_dot_product"}));

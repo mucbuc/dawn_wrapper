@@ -28,13 +28,32 @@
 #include "src/tint/lang/spirv/writer/writer.h"
 
 #include "src/tint/cmd/fuzz/ir/fuzz.h"
+#include "src/tint/lang/core/ir/disassembler.h"
+#include "src/tint/lang/core/ir/var.h"
+#include "src/tint/lang/core/type/pointer.h"
 #include "src/tint/lang/spirv/validate/validate.h"
 #include "src/tint/lang/spirv/writer/helpers/generate_bindings.h"
 
 namespace tint::spirv::writer {
 namespace {
 
-void IRPrinterFuzzer(core::ir::Module& module, Options options) {
+bool CanRun(const core::ir::Module& module) {
+    // Check for unsupported module-scope variable address spaces and types.
+    for (auto* inst : *module.root_block) {
+        auto* var = inst->As<core::ir::Var>();
+        auto* ptr = var->Result(0)->Type()->As<core::type::Pointer>();
+        if (ptr->AddressSpace() == core::AddressSpace::kPixelLocal) {
+            return false;
+        }
+    }
+    return true;
+}
+
+void IRFuzzer(core::ir::Module& module, Options options) {
+    if (!CanRun(module)) {
+        return;
+    }
+
     options.bindings = GenerateBindings(module);
     auto output = Generate(module, options);
     if (output != Success) {
@@ -43,12 +62,14 @@ void IRPrinterFuzzer(core::ir::Module& module, Options options) {
     auto& spirv = output->spirv;
     if (auto res = validate::Validate(Slice(spirv.data(), spirv.size()), SPV_ENV_VULKAN_1_1);
         res != Success) {
-        TINT_ICE() << "Output of SPIR-V writer failed to validate with SPIR-V Tools\n"
-                   << res.Failure();
+        TINT_ICE() << "output of SPIR-V writer failed to validate with SPIR-V Tools\n"
+                   << res.Failure() << "\n\n"
+                   << "IR:\n"
+                   << core::ir::Disassembler(module).Plain();
     }
 }
 
 }  // namespace
 }  // namespace tint::spirv::writer
 
-TINT_IR_MODULE_FUZZER(tint::spirv::writer::IRPrinterFuzzer);
+TINT_IR_MODULE_FUZZER(tint::spirv::writer::IRFuzzer, tint::core::ir::Capabilities{});

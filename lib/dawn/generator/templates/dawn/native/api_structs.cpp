@@ -32,7 +32,10 @@
 {% set namespace = metadata.namespace %}
 #include "{{native_dir}}/{{namespace}}_structs_autogen.h"
 
+#include <cstring>
 #include <tuple>
+
+#include "dawn/common/Assert.h"
 
 #if defined(__GNUC__) || defined(__clang__)
 // error: 'offsetof' within non-standard-layout type '{{namespace}}::XXX' is conditionally-supported
@@ -51,7 +54,14 @@ namespace {{native_namespace}} {
     static_assert(offsetof(ChainedStruct, sType) == offsetof({{c_prefix}}ChainedStruct, sType),
             "offsetof mismatch for ChainedStruct::sType");
 
-    {% for type in by_category["structure"] %}
+    //* Special structures that are manually written.
+    {% set SpecialStructures = ["string view"] %}
+
+    bool StringView::operator==(const StringView& rhs) const {
+        return data == rhs.data && length == rhs.length;
+    }
+
+    {% for type in by_category["structure"] if type.name.get() not in SpecialStructures %}
         {% set CppType = as_cppType(type.name) %}
         {% set CType = as_cType(type.name) %}
 
@@ -62,6 +72,12 @@ namespace {{native_namespace}} {
             static_assert(offsetof({{CppType}}, nextInChain) == offsetof({{CType}}, nextInChain),
                     "offsetof mismatch for {{CppType}}::nextInChain");
         {% endif %}
+        {% if type.chained %}
+            static_assert(offsetof({{CppType}}, nextInChain) == offsetof({{CType}}, chain) + offsetof(WGPUChainedStruct, next),
+                    "offsetof mismatch for {{CppType}}::nextInChain");
+            static_assert(offsetof({{CppType}}, sType) == offsetof({{CType}}, chain) + offsetof(WGPUChainedStruct, sType),
+                    "offsetof mismatch for {{CppType}}::sType");
+        {% endif %}
         {% for member in type.members %}
             {% set memberName = member.name.camelCase() %}
             static_assert(offsetof({{CppType}}, {{memberName}}) == offsetof({{CType}}, {{memberName}}),
@@ -69,25 +85,45 @@ namespace {{native_namespace}} {
         {% endfor %}
 
         {% if type.any_member_requires_struct_defaulting %}
-            void {{CppType}}::ApplyTrivialFrontendDefaults() {
-                {% for member in type.members if member.requires_struct_defaulting %}
+            {{CppType}} {{CppType}}::WithTrivialFrontendDefaults() const {
+                {{CppType}} copy;
+                {% if type.extensible %}
+                    copy.nextInChain = nextInChain;
+                {% endif %}
+                {% if type.chained %}
+                    copy.nextInChain = nextInChain;
+                    copy.sType = sType;
+                {% endif %}
+                {% for member in type.members %}
                     {% set memberName = member.name.camelCase() %}
-                    if ({{memberName}} == {{namespace}}::{{as_cppType(member.type.name)}}::Undefined) {
-                        {{memberName}} = {{namespace}}::{{as_cppType(member.type.name)}}::{{as_cppEnum(Name(member.default_value))}};
-                    }
+                    {% if member.requires_struct_defaulting %}
+                        {% if member.type.category == "structure" %}
+                            copy.{{memberName}} = {{memberName}}.WithTrivialFrontendDefaults();
+                        {% elif member.type.category == "enum" %}
+                            {% set Enum = namespace + "::" + as_cppType(member.type.name) %}
+                            copy.{{memberName}} = ({{memberName}} == {{Enum}}::Undefined)
+                                ? {{Enum}}::{{as_cppEnum(Name(member.default_value))}}
+                                : {{memberName}};
+                        {% else %}
+                            {{assert(False, "other types do not currently support defaulting")}}
+                        {% endif %}
+                    {% else %}
+                        copy.{{memberName}} = {{memberName}};
+                    {% endif %}
                 {% endfor %}
+                return copy;
             }
         {% endif %}
-        bool {{CppType}}::operator==(const {{as_cppType(type.name)}}& rhs) const {
+        bool {{CppType}}::operator==(const {{CppType}}& rhs) const {
             return {% if type.extensible or type.chained -%}
                 (nextInChain == rhs.nextInChain) &&
             {%- endif %} std::tie(
-                {% for member in type.members %}
+                {% for member in type.members if member.type.category != 'callback info' %}
                     {{member.name.camelCase()-}}
                     {{ "," if not loop.last else "" }}
                 {% endfor %}
             ) == std::tie(
-                {% for member in type.members %}
+                {% for member in type.members if member.type.category != 'callback info' %}
                     rhs.{{member.name.camelCase()-}}
                     {{ "," if not loop.last else "" }}
                 {% endfor %}
@@ -99,14 +135,7 @@ namespace {{native_namespace}} {
     {% for type in by_category["structure"] if type.has_free_members_function %}
         // {{as_cppType(type.name)}}
         {{as_cppType(type.name)}}::~{{as_cppType(type.name)}}() {
-            if (
-                {%- for member in type.members if member.annotation != 'value' %}
-                    {% if not loop.first %} || {% endif -%}
-                    this->{{member.name.camelCase()}} != nullptr
-                {%- endfor -%}
-            ) {
-                API{{as_MethodSuffix(type.name, Name("free members"))}}(*reinterpret_cast<{{as_cType(type.name)}}*>(this));
-            }
+            FreeMembers();
         }
 
         {{as_cppType(type.name)}}::{{as_cppType(type.name)}}({{as_cppType(type.name)}}&& rhs)
@@ -124,7 +153,7 @@ namespace {{native_namespace}} {
             if (&rhs == this) {
                 return *this;
             }
-            this->~{{as_cppType(type.name)}}();
+            FreeMembers();
             {% for member in type.members %}
                 this->{{member.name.camelCase()}} = std::move(rhs.{{member.name.camelCase()}});
             {% endfor %}
@@ -132,6 +161,19 @@ namespace {{native_namespace}} {
                 rhs.{{member.name.camelCase()}} = {};
             {% endfor %}
             return *this;
+        }
+
+        void {{as_cppType(type.name)}}::FreeMembers() {
+            bool needsFreeing = false;
+            {%- for member in type.members if member.annotation != 'value' %}
+                if (this->{{member.name.camelCase()}} != nullptr) { needsFreeing = true; }
+            {%- endfor -%}
+            {%- for member in type.members if member.type.name.canonical_case() == 'string view' %}
+                if (this->{{member.name.camelCase()}}.data != nullptr) { needsFreeing = true; }
+            {%- endfor -%}
+            if (needsFreeing) {
+                API{{as_MethodSuffix(type.name, Name("free members"))}}(*reinterpret_cast<{{as_cType(type.name)}}*>(this));
+            }
         }
 
     {% endfor %}

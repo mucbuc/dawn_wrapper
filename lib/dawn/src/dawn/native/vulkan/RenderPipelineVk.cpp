@@ -28,10 +28,11 @@
 #include "dawn/native/vulkan/RenderPipelineVk.h"
 
 #include <memory>
+#include <string>
 #include <utility>
 #include <vector>
 
-#include "dawn/native/CreatePipelineAsyncTask.h"
+#include "dawn/native/CreatePipelineAsyncEvent.h"
 #include "dawn/native/vulkan/DeviceVk.h"
 #include "dawn/native/vulkan/FencedDeleter.h"
 #include "dawn/native/vulkan/PipelineCacheVk.h"
@@ -54,6 +55,7 @@ VkVertexInputRate VulkanInputRate(wgpu::VertexStepMode stepMode) {
         case wgpu::VertexStepMode::Instance:
             return VK_VERTEX_INPUT_RATE_INSTANCE;
         case wgpu::VertexStepMode::VertexBufferNotUsed:
+        case wgpu::VertexStepMode::Undefined:
             break;
     }
     DAWN_UNREACHABLE();
@@ -61,38 +63,56 @@ VkVertexInputRate VulkanInputRate(wgpu::VertexStepMode stepMode) {
 
 VkFormat VulkanVertexFormat(wgpu::VertexFormat format) {
     switch (format) {
+        case wgpu::VertexFormat::Uint8:
+            return VK_FORMAT_R8_UINT;
         case wgpu::VertexFormat::Uint8x2:
             return VK_FORMAT_R8G8_UINT;
         case wgpu::VertexFormat::Uint8x4:
             return VK_FORMAT_R8G8B8A8_UINT;
+        case wgpu::VertexFormat::Sint8:
+            return VK_FORMAT_R8_SINT;
         case wgpu::VertexFormat::Sint8x2:
             return VK_FORMAT_R8G8_SINT;
         case wgpu::VertexFormat::Sint8x4:
             return VK_FORMAT_R8G8B8A8_SINT;
+        case wgpu::VertexFormat::Unorm8:
+            return VK_FORMAT_R8_UNORM;
         case wgpu::VertexFormat::Unorm8x2:
             return VK_FORMAT_R8G8_UNORM;
         case wgpu::VertexFormat::Unorm8x4:
             return VK_FORMAT_R8G8B8A8_UNORM;
+        case wgpu::VertexFormat::Snorm8:
+            return VK_FORMAT_R8_SNORM;
         case wgpu::VertexFormat::Snorm8x2:
             return VK_FORMAT_R8G8_SNORM;
         case wgpu::VertexFormat::Snorm8x4:
             return VK_FORMAT_R8G8B8A8_SNORM;
+        case wgpu::VertexFormat::Uint16:
+            return VK_FORMAT_R16_UINT;
         case wgpu::VertexFormat::Uint16x2:
             return VK_FORMAT_R16G16_UINT;
         case wgpu::VertexFormat::Uint16x4:
             return VK_FORMAT_R16G16B16A16_UINT;
+        case wgpu::VertexFormat::Sint16:
+            return VK_FORMAT_R16_SINT;
         case wgpu::VertexFormat::Sint16x2:
             return VK_FORMAT_R16G16_SINT;
         case wgpu::VertexFormat::Sint16x4:
             return VK_FORMAT_R16G16B16A16_SINT;
+        case wgpu::VertexFormat::Unorm16:
+            return VK_FORMAT_R16_UNORM;
         case wgpu::VertexFormat::Unorm16x2:
             return VK_FORMAT_R16G16_UNORM;
         case wgpu::VertexFormat::Unorm16x4:
             return VK_FORMAT_R16G16B16A16_UNORM;
+        case wgpu::VertexFormat::Snorm16:
+            return VK_FORMAT_R16_SNORM;
         case wgpu::VertexFormat::Snorm16x2:
             return VK_FORMAT_R16G16_SNORM;
         case wgpu::VertexFormat::Snorm16x4:
             return VK_FORMAT_R16G16B16A16_SNORM;
+        case wgpu::VertexFormat::Float16:
+            return VK_FORMAT_R16_SFLOAT;
         case wgpu::VertexFormat::Float16x2:
             return VK_FORMAT_R16G16_SFLOAT;
         case wgpu::VertexFormat::Float16x4:
@@ -123,6 +143,8 @@ VkFormat VulkanVertexFormat(wgpu::VertexFormat format) {
             return VK_FORMAT_R32G32B32A32_SINT;
         case wgpu::VertexFormat::Unorm10_10_10_2:
             return VK_FORMAT_A2B10G10R10_UNORM_PACK32;
+        case wgpu::VertexFormat::Unorm8x4BGRA:
+            return VK_FORMAT_B8G8R8A8_UNORM;
         default:
             DAWN_UNREACHABLE();
     }
@@ -140,6 +162,8 @@ VkPrimitiveTopology VulkanPrimitiveTopology(wgpu::PrimitiveTopology topology) {
             return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
         case wgpu::PrimitiveTopology::TriangleStrip:
             return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP;
+        case wgpu::PrimitiveTopology::Undefined:
+            break;
     }
     DAWN_UNREACHABLE();
 }
@@ -155,6 +179,8 @@ bool ShouldEnablePrimitiveRestart(wgpu::PrimitiveTopology topology) {
         case wgpu::PrimitiveTopology::LineStrip:
         case wgpu::PrimitiveTopology::TriangleStrip:
             return true;
+        case wgpu::PrimitiveTopology::Undefined:
+            break;
     }
     DAWN_UNREACHABLE();
 }
@@ -165,6 +191,8 @@ VkFrontFace VulkanFrontFace(wgpu::FrontFace face) {
             return VK_FRONT_FACE_COUNTER_CLOCKWISE;
         case wgpu::FrontFace::CW:
             return VK_FRONT_FACE_CLOCKWISE;
+        case wgpu::FrontFace::Undefined:
+            break;
     }
     DAWN_UNREACHABLE();
 }
@@ -177,6 +205,8 @@ VkCullModeFlagBits VulkanCullMode(wgpu::CullMode mode) {
             return VK_CULL_MODE_FRONT_BIT;
         case wgpu::CullMode::Back:
             return VK_CULL_MODE_BACK_BIT;
+        case wgpu::CullMode::Undefined:
+            break;
     }
     DAWN_UNREACHABLE();
 }
@@ -217,6 +247,8 @@ VkBlendFactor VulkanBlendFactor(wgpu::BlendFactor factor) {
             return VK_BLEND_FACTOR_SRC1_ALPHA;
         case wgpu::BlendFactor::OneMinusSrc1Alpha:
             return VK_BLEND_FACTOR_ONE_MINUS_SRC1_ALPHA;
+        case wgpu::BlendFactor::Undefined:
+            break;
     }
     DAWN_UNREACHABLE();
 }
@@ -233,6 +265,8 @@ VkBlendOp VulkanBlendOperation(wgpu::BlendOperation operation) {
             return VK_BLEND_OP_MIN;
         case wgpu::BlendOperation::Max:
             return VK_BLEND_OP_MAX;
+        case wgpu::BlendOperation::Undefined:
+            break;
     }
     DAWN_UNREACHABLE();
 }
@@ -300,51 +334,10 @@ VkStencilOp VulkanStencilOp(wgpu::StencilOperation op) {
             return VK_STENCIL_OP_INCREMENT_AND_WRAP;
         case wgpu::StencilOperation::DecrementWrap:
             return VK_STENCIL_OP_DECREMENT_AND_WRAP;
+        case wgpu::StencilOperation::Undefined:
+            break;
     }
     DAWN_UNREACHABLE();
-}
-
-VkPipelineDepthStencilStateCreateInfo ComputeDepthStencilDesc(const DepthStencilState* descriptor) {
-    VkPipelineDepthStencilStateCreateInfo depthStencilState;
-    depthStencilState.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
-    depthStencilState.pNext = nullptr;
-    depthStencilState.flags = 0;
-
-    // Depth writes only occur if depth is enabled
-    depthStencilState.depthTestEnable =
-        (descriptor->depthCompare == wgpu::CompareFunction::Always &&
-         !descriptor->depthWriteEnabled)
-            ? VK_FALSE
-            : VK_TRUE;
-    depthStencilState.depthWriteEnable = descriptor->depthWriteEnabled ? VK_TRUE : VK_FALSE;
-    depthStencilState.depthCompareOp = ToVulkanCompareOp(descriptor->depthCompare);
-    depthStencilState.depthBoundsTestEnable = false;
-    depthStencilState.minDepthBounds = 0.0f;
-    depthStencilState.maxDepthBounds = 1.0f;
-
-    depthStencilState.stencilTestEnable = StencilTestEnabled(descriptor) ? VK_TRUE : VK_FALSE;
-
-    depthStencilState.front.failOp = VulkanStencilOp(descriptor->stencilFront.failOp);
-    depthStencilState.front.passOp = VulkanStencilOp(descriptor->stencilFront.passOp);
-    depthStencilState.front.depthFailOp = VulkanStencilOp(descriptor->stencilFront.depthFailOp);
-    depthStencilState.front.compareOp = ToVulkanCompareOp(descriptor->stencilFront.compare);
-
-    depthStencilState.back.failOp = VulkanStencilOp(descriptor->stencilBack.failOp);
-    depthStencilState.back.passOp = VulkanStencilOp(descriptor->stencilBack.passOp);
-    depthStencilState.back.depthFailOp = VulkanStencilOp(descriptor->stencilBack.depthFailOp);
-    depthStencilState.back.compareOp = ToVulkanCompareOp(descriptor->stencilBack.compare);
-
-    // Dawn doesn't have separate front and back stencil masks.
-    depthStencilState.front.compareMask = descriptor->stencilReadMask;
-    depthStencilState.back.compareMask = descriptor->stencilReadMask;
-    depthStencilState.front.writeMask = descriptor->stencilWriteMask;
-    depthStencilState.back.writeMask = descriptor->stencilWriteMask;
-
-    // The stencil reference is always dynamic
-    depthStencilState.front.reference = 0;
-    depthStencilState.back.reference = 0;
-
-    return depthStencilState;
 }
 
 }  // anonymous namespace
@@ -356,25 +349,27 @@ Ref<RenderPipeline> RenderPipeline::CreateUninitialized(
     return AcquireRef(new RenderPipeline(device, descriptor));
 }
 
-MaybeError RenderPipeline::Initialize() {
+MaybeError RenderPipeline::InitializeImpl() {
     Device* device = ToBackend(GetDevice());
-    const PipelineLayout* layout = ToBackend(GetLayout());
+    PipelineLayout* layout = ToBackend(GetLayout());
 
     // Vulkan devices need cache UUID field to be serialized into pipeline cache keys.
     StreamIn(&mCacheKey, device->GetDeviceInfo().properties.pipelineCacheUUID);
 
     // There are at most 2 shader stages in render pipeline, i.e. vertex and fragment
     std::array<VkPipelineShaderStageCreateInfo, 2> shaderStages;
+    std::array<std::string, 2> shaderStageEntryPoints;
     uint32_t stageCount = 0;
 
     auto AddShaderStage = [&](SingleShaderStage stage, VkShaderStageFlagBits vkStage,
-                              bool clampFragDepth) -> MaybeError {
+                              bool clampFragDepth, bool emitPointSize) -> MaybeError {
         const ProgrammableStage& programmableStage = GetStage(stage);
         ShaderModule::ModuleAndSpirv moduleAndSpirv;
-        DAWN_TRY_ASSIGN(moduleAndSpirv,
-                        ToBackend(programmableStage.module)
-                            ->GetHandleAndSpirv(stage, programmableStage, layout, clampFragDepth,
-                                                /* fullSubgroups */ {}));
+        DAWN_TRY_ASSIGN(moduleAndSpirv, ToBackend(programmableStage.module)
+                                            ->GetHandleAndSpirv(stage, programmableStage, layout,
+                                                                clampFragDepth, emitPointSize,
+                                                                /* fullSubgroups */ {}));
+        mHasInputAttachment = mHasInputAttachment || moduleAndSpirv.hasInputAttachment;
         // Record cache key for each shader since it will become inaccessible later on.
         StreamIn(&mCacheKey, stream::Iterable(moduleAndSpirv.spirv, moduleAndSpirv.wordCount));
 
@@ -385,7 +380,8 @@ MaybeError RenderPipeline::Initialize() {
         shaderStage->flags = 0;
         shaderStage->pSpecializationInfo = nullptr;
         shaderStage->stage = vkStage;
-        shaderStage->pName = moduleAndSpirv.remappedEntryPoint;
+        shaderStageEntryPoints[stageCount] = moduleAndSpirv.remappedEntryPoint;
+        shaderStage->pName = shaderStageEntryPoints[stageCount].c_str();
 
         stageCount++;
         return {};
@@ -393,13 +389,14 @@ MaybeError RenderPipeline::Initialize() {
 
     // Add the vertex stage that's always present.
     DAWN_TRY(AddShaderStage(SingleShaderStage::Vertex, VK_SHADER_STAGE_VERTEX_BIT,
-                            /*clampFragDepth*/ false));
+                            /*clampFragDepth*/ false,
+                            GetPrimitiveTopology() == wgpu::PrimitiveTopology::PointList));
 
     // Add the fragment stage if present.
     if (GetStageMask() & wgpu::ShaderStage::Fragment) {
         bool clampFragDepth = UsesFragDepth() && !HasUnclippedDepth();
         DAWN_TRY(AddShaderStage(SingleShaderStage::Fragment, VK_SHADER_STAGE_FRAGMENT_BIT,
-                                clampFragDepth));
+                                clampFragDepth, /*emitPointSize*/ false));
     }
 
     PipelineVertexInputStateCreateInfoTemporaryAllocations tempAllocations;
@@ -467,8 +464,7 @@ MaybeError RenderPipeline::Initialize() {
     multisample.alphaToCoverageEnable = IsAlphaToCoverageEnabled();
     multisample.alphaToOneEnable = VK_FALSE;
 
-    VkPipelineDepthStencilStateCreateInfo depthStencilState =
-        ComputeDepthStencilDesc(GetDepthStencilState());
+    VkPipelineDepthStencilStateCreateInfo depthStencilState = ComputeDepthStencilDesc();
 
     VkPipelineColorBlendStateCreateInfo colorBlend;
     // colorBlend may hold pointers to elements in colorBlendAttachments, so it must have a
@@ -525,17 +521,31 @@ MaybeError RenderPipeline::Initialize() {
     dynamic.dynamicStateCount = sizeof(dynamicStates) / sizeof(dynamicStates[0]);
     dynamic.pDynamicStates = dynamicStates;
 
-    // Get a VkRenderPass that matches the attachment formats for this pipeline, load/store ops
-    // don't matter so set them all to LoadOp::Load / StoreOp::Store. Whether the render pass
-    // has resolve target and whether depth/stencil attachment is read-only also don't matter,
-    // so set them both to false.
-    VkRenderPass renderPass = VK_NULL_HANDLE;
+    // Get a VkRenderPass that matches the attachment formats for this pipeline.
+    // VkRenderPass compatibility rules let us provide placeholder data for a bunch of arguments.
+    // Load and store ops are all equivalent, though we still specify ExpandResolveTexture as that
+    // controls the use of input attachments. Single subpass VkRenderPasses are compatible
+    // irrespective of resolve attachments being used, but for ExpandResolveTexture that uses two
+    // subpasses we need to specify which attachments will be resolved.
+    RenderPassCache::RenderPassInfo renderPassInfo;
     {
         RenderPassCacheQuery query;
+        ColorAttachmentMask resolveMask =
+            GetAttachmentState()->GetExpandResolveInfo().resolveTargetsMask;
+        ColorAttachmentMask expandResolveMask =
+            GetAttachmentState()->GetExpandResolveInfo().attachmentsToExpandResolve;
 
         for (auto i : IterateBitSet(GetColorAttachmentsMask())) {
-            query.SetColor(i, GetColorAttachmentFormat(i), wgpu::LoadOp::Load, wgpu::StoreOp::Store,
-                           false);
+            wgpu::LoadOp colorLoadOp = wgpu::LoadOp::Load;
+            bool hasResolveTarget = resolveMask.test(i);
+
+            if (expandResolveMask.test(i)) {
+                // ExpandResolveTexture will use 2 subpasses in a render pass so we have to create
+                // an appropriate query.
+                colorLoadOp = wgpu::LoadOp::ExpandResolveTexture;
+            }
+            query.SetColor(i, GetColorAttachmentFormat(i), colorLoadOp, wgpu::StoreOp::Store,
+                           hasResolveTarget);
         }
 
         if (HasDepthStencilAttachment()) {
@@ -546,8 +556,11 @@ MaybeError RenderPipeline::Initialize() {
         query.SetSampleCount(GetSampleCount());
 
         StreamIn(&mCacheKey, query);
-        DAWN_TRY_ASSIGN(renderPass, device->GetRenderPassCache()->GetRenderPass(query));
+        DAWN_TRY_ASSIGN(renderPassInfo, device->GetRenderPassCache()->GetRenderPass(query));
     }
+
+    // TODO(crbug.com/366291600): Add internal immediate data size when needed.
+    DAWN_TRY(InitializeBase(layout, kClampFragDepthArgsSize));
 
     // The create info chains in a bunch of things created on the stack here or inside state
     // objects.
@@ -567,11 +580,18 @@ MaybeError RenderPipeline::Initialize() {
     createInfo.pColorBlendState =
         (GetStageMask() & wgpu::ShaderStage::Fragment) ? &colorBlend : nullptr;
     createInfo.pDynamicState = &dynamic;
-    createInfo.layout = ToBackend(GetLayout())->GetHandle();
-    createInfo.renderPass = renderPass;
-    createInfo.subpass = 0;
+    createInfo.layout = GetVkLayout();
+    createInfo.renderPass = renderPassInfo.renderPass;
     createInfo.basePipelineHandle = VkPipeline{};
     createInfo.basePipelineIndex = -1;
+
+    // - If the pipeline uses input attachments in shader, currently this is only used by
+    //   ExpandResolveTexture subpass, hence we need to set the subpass to 0.
+    // - Otherwise, the pipeline will operate on the main subpass.
+    // - TODO(42240662): Add explicit way to specify subpass instead of implicitly deducing based on
+    // mHasInputAttachment.
+    //   That also means mHasInputAttachment would be removed in future.
+    createInfo.subpass = mHasInputAttachment ? 0 : renderPassInfo.mainSubpass;
 
     // Record cache key information now since createInfo is not stored.
     StreamIn(&mCacheKey, createInfo, layout->GetCacheKey());
@@ -594,8 +614,7 @@ MaybeError RenderPipeline::Initialize() {
         cacheTimer.RecordMicroseconds("Vulkan.CreateGraphicsPipelines.CacheMiss");
     }
 
-    // TODO(dawn:549): Flush is currently in the same thread, but perhaps deferrable.
-    DAWN_TRY(cache->FlushIfNeeded());
+    DAWN_TRY(cache->DidCompilePipeline());
 
     SetLabelImpl();
 
@@ -648,10 +667,57 @@ VkPipelineVertexInputStateCreateInfo RenderPipeline::ComputeVertexInputDesc(
     return createInfo;
 }
 
+VkPipelineDepthStencilStateCreateInfo RenderPipeline::ComputeDepthStencilDesc() {
+    const DepthStencilState* descriptor = GetDepthStencilState();
+
+    VkPipelineDepthStencilStateCreateInfo depthStencilState;
+    depthStencilState.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+    depthStencilState.pNext = nullptr;
+    depthStencilState.flags = 0;
+
+    // Depth writes only occur if depth is enabled
+    depthStencilState.depthTestEnable =
+        (descriptor->depthCompare == wgpu::CompareFunction::Always &&
+         descriptor->depthWriteEnabled != wgpu::OptionalBool::True)
+            ? VK_FALSE
+            : VK_TRUE;
+    depthStencilState.depthWriteEnable =
+        descriptor->depthWriteEnabled == wgpu::OptionalBool::True ? VK_TRUE : VK_FALSE;
+    depthStencilState.depthCompareOp = ToVulkanCompareOp(descriptor->depthCompare);
+    depthStencilState.depthBoundsTestEnable = false;
+    depthStencilState.minDepthBounds = 0.0f;
+    depthStencilState.maxDepthBounds = 1.0f;
+
+    depthStencilState.stencilTestEnable = UsesStencil() ? VK_TRUE : VK_FALSE;
+
+    depthStencilState.front.failOp = VulkanStencilOp(descriptor->stencilFront.failOp);
+    depthStencilState.front.passOp = VulkanStencilOp(descriptor->stencilFront.passOp);
+    depthStencilState.front.depthFailOp = VulkanStencilOp(descriptor->stencilFront.depthFailOp);
+    depthStencilState.front.compareOp = ToVulkanCompareOp(descriptor->stencilFront.compare);
+
+    depthStencilState.back.failOp = VulkanStencilOp(descriptor->stencilBack.failOp);
+    depthStencilState.back.passOp = VulkanStencilOp(descriptor->stencilBack.passOp);
+    depthStencilState.back.depthFailOp = VulkanStencilOp(descriptor->stencilBack.depthFailOp);
+    depthStencilState.back.compareOp = ToVulkanCompareOp(descriptor->stencilBack.compare);
+
+    // Dawn doesn't have separate front and back stencil masks.
+    depthStencilState.front.compareMask = descriptor->stencilReadMask;
+    depthStencilState.back.compareMask = descriptor->stencilReadMask;
+    depthStencilState.front.writeMask = descriptor->stencilWriteMask;
+    depthStencilState.back.writeMask = descriptor->stencilWriteMask;
+
+    // The stencil reference is always dynamic
+    depthStencilState.front.reference = 0;
+    depthStencilState.back.reference = 0;
+
+    return depthStencilState;
+}
+
 RenderPipeline::~RenderPipeline() = default;
 
 void RenderPipeline::DestroyImpl() {
     RenderPipelineBase::DestroyImpl();
+    PipelineVk::DestroyImpl();
     if (mHandle != VK_NULL_HANDLE) {
         ToBackend(GetDevice())->GetFencedDeleter()->DeleteWhenUnused(mHandle);
         mHandle = VK_NULL_HANDLE;
@@ -660,15 +726,6 @@ void RenderPipeline::DestroyImpl() {
 
 VkPipeline RenderPipeline::GetHandle() const {
     return mHandle;
-}
-
-void RenderPipeline::InitializeAsync(Ref<RenderPipelineBase> renderPipeline,
-                                     WGPUCreateRenderPipelineAsyncCallback callback,
-                                     void* userdata) {
-    std::unique_ptr<CreateRenderPipelineAsyncTask> asyncTask =
-        std::make_unique<CreateRenderPipelineAsyncTask>(std::move(renderPipeline), callback,
-                                                        userdata);
-    CreateRenderPipelineAsyncTask::RunAsync(std::move(asyncTask));
 }
 
 }  // namespace dawn::native::vulkan

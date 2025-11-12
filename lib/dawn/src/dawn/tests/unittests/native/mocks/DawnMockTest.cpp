@@ -27,20 +27,59 @@
 
 #include "dawn/tests/unittests/native/mocks/DawnMockTest.h"
 
+#include <utility>
+
 #include "dawn/dawn_proc.h"
+#include "dawn/native/ChainUtils.h"
 
 namespace dawn::native {
 
-DawnMockTest::DawnMockTest() {
-    dawnProcSetProcs(&dawn::native::GetProcs());
+DawnMockTest::DawnMockTest() : mDeviceToggles(ToggleStage::Device) {}
 
-    mDeviceMock = new ::testing::NiceMock<DeviceMock>();
-    device = wgpu::Device::Acquire(ToAPI(mDeviceMock));
+void DawnMockTest::SetUp() {
+    dawnProcSetProcs(&dawn::native::GetProcs());
+    Ref<InstanceBase> instance = APICreateInstance(nullptr);
+    const auto& adapters = instance->EnumerateAdapters();
+    DAWN_ASSERT(!adapters.empty());
+
+    auto result = ValidateAndUnpack(&mDeviceDescriptor);
+    DAWN_ASSERT(result.IsSuccess());
+    UnpackedPtr<DeviceDescriptor> packedDeviceDescriptor = result.AcquireSuccess();
+
+    Ref<DeviceBase::DeviceLostEvent> lostEvent =
+        DeviceBase::DeviceLostEvent::Create(&mDeviceDescriptor);
+
+    auto deviceMock = AcquireRef(new ::testing::NiceMock<DeviceMock>(
+        adapters[0].Get(), packedDeviceDescriptor, mDeviceToggles, std::move(lostEvent)));
+    mDeviceMock = deviceMock.Get();
+    device = wgpu::Device::Acquire(ToAPI(ReturnToAPI<DeviceBase>(std::move(deviceMock))));
+}
+
+void DawnMockTest::DropDevice() {
+    if (device == nullptr) {
+        return;
+    }
+
+    // Since the device owns the instance in these tests, we need to explicitly verify that the
+    // instance has completed all work. To do this, we take an additional ref to the instance here
+    // and use it to process events until completion after dropping the device.
+    Ref<InstanceBase> instance = mDeviceMock->GetInstance();
+
+    mDeviceMock = nullptr;
+    device = nullptr;
+
+    do {
+    } while (instance->ProcessEvents());
+    instance = nullptr;
 }
 
 DawnMockTest::~DawnMockTest() {
-    device = wgpu::Device();
+    DropDevice();
     dawnProcSetProcs(nullptr);
+}
+
+void DawnMockTest::ProcessEvents() {
+    mDeviceMock->GetInstance()->ProcessEvents();
 }
 
 }  // namespace dawn::native

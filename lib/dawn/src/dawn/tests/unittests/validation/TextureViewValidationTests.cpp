@@ -26,8 +26,10 @@
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <array>
+#include <vector>
 
 #include "dawn/tests/unittests/validation/ValidationTest.h"
+#include "dawn/utils/WGPUHelpers.h"
 
 namespace dawn {
 namespace {
@@ -928,14 +930,83 @@ TEST_F(TextureViewValidationTest, AspectMustExist) {
     }
 }
 
+// Test that CreateErrorView creates an invalid texture view but doesn't produce an error.
+TEST_F(TextureViewValidationTest, CreateErrorView) {
+    wgpu::Texture texture = Create2DArrayTexture(device, 1);
+    wgpu::TextureViewDescriptor descriptor =
+        CreateDefaultViewDescriptor(wgpu::TextureViewDimension::e2D);
+
+    // Creating the error texture view doesn't produce an error.
+    wgpu::TextureView view = texture.CreateErrorView(&descriptor);
+
+    // Using the error texture view will throw an error.
+    wgpu::BindGroupLayout layout = utils::MakeBindGroupLayout(
+        device, {{0, wgpu::ShaderStage::Fragment, wgpu::TextureSampleType::Float}});
+    ASSERT_DEVICE_ERROR(utils::MakeBindGroup(device, layout, {{0, view}}));
+}
+
+// Tests that texture view usage is validated for the texture view format and is compatible with the
+// source texture usages
+TEST_F(TextureViewValidationTest, Usage) {
+    wgpu::TextureFormat viewFormats[] = {wgpu::TextureFormat::RGBA8Unorm,
+                                         wgpu::TextureFormat::RGBA8UnormSrgb};
+
+    wgpu::TextureDescriptor textureDescriptor;
+    textureDescriptor.dimension = wgpu::TextureDimension::e2D;
+    textureDescriptor.size.width = kWidth;
+    textureDescriptor.size.height = kHeight;
+    textureDescriptor.sampleCount = 1;
+    textureDescriptor.format = wgpu::TextureFormat::RGBA8Unorm;
+    textureDescriptor.mipLevelCount = 1;
+    textureDescriptor.usage = wgpu::TextureUsage::TextureBinding |
+                              wgpu::TextureUsage::RenderAttachment |
+                              wgpu::TextureUsage::StorageBinding;
+    textureDescriptor.viewFormats = viewFormats;
+    textureDescriptor.viewFormatCount = 2;
+    wgpu::Texture texture = device.CreateTexture(&textureDescriptor);
+
+    wgpu::TextureViewDescriptor base2DTextureViewDescriptor;
+    base2DTextureViewDescriptor.format = kDefaultTextureFormat;
+    base2DTextureViewDescriptor.dimension = wgpu::TextureViewDimension::e2D;
+    base2DTextureViewDescriptor.baseMipLevel = 0;
+    base2DTextureViewDescriptor.mipLevelCount = 1;
+    base2DTextureViewDescriptor.baseArrayLayer = 0;
+    base2DTextureViewDescriptor.arrayLayerCount = 1;
+
+    // It is an error to request a usage outside of the source texture's usage
+    {
+        wgpu::TextureViewDescriptor descriptor = base2DTextureViewDescriptor;
+        descriptor.usage |= wgpu::TextureUsage::CopyDst;
+        ASSERT_DEVICE_ERROR(texture.CreateView(&descriptor));
+    }
+
+    // It is an error to create a view with RGBA8UnormSrgb and default usage which includes
+    // StorageBinding
+    {
+        wgpu::TextureViewDescriptor descriptor = base2DTextureViewDescriptor;
+        descriptor.format = wgpu::TextureFormat::RGBA8UnormSrgb;
+
+        // TODO(363903526): Change this to inherited usage when inherited and explicit usages are
+        // validated the same way.
+        descriptor.usage = textureDescriptor.usage;
+
+        ASSERT_DEVICE_ERROR(texture.CreateView(&descriptor));
+    }
+
+    // A view can be created for RGBA8UnormSrgb with a compatible subset of usages
+    {
+        wgpu::TextureViewDescriptor descriptor = base2DTextureViewDescriptor;
+        descriptor.format = wgpu::TextureFormat::RGBA8UnormSrgb;
+        descriptor.usage =
+            wgpu::TextureUsage::TextureBinding | wgpu::TextureUsage::RenderAttachment;
+        texture.CreateView(&descriptor);
+    }
+}
+
 class D32S8TextureViewValidationTests : public ValidationTest {
   protected:
-    WGPUDevice CreateTestDevice(native::Adapter dawnAdapter,
-                                wgpu::DeviceDescriptor descriptor) override {
-        wgpu::FeatureName requiredFeatures[1] = {wgpu::FeatureName::Depth32FloatStencil8};
-        descriptor.requiredFeatures = requiredFeatures;
-        descriptor.requiredFeatureCount = 1;
-        return dawnAdapter.CreateDevice(&descriptor);
+    std::vector<wgpu::FeatureName> GetRequiredFeatures() override {
+        return {wgpu::FeatureName::Depth32FloatStencil8};
     }
 };
 

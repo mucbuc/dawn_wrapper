@@ -67,7 +67,7 @@ class ExpectFloatWithTolerance : public detail::Expectation {
                 testing::AssertionResult result = testing::AssertionFailure()
                                                   << "Expected data[" << i << "] to be close to "
                                                   << expectedValue << ", actual " << actualValue
-                                                  << std::endl;
+                                                  << "\n";
                 return result;
             }
         }
@@ -114,7 +114,7 @@ class ExpectFloat16 : public detail::Expectation {
                 testing::AssertionResult result = testing::AssertionFailure()
                                                   << "Expected data[" << i << "] to be "
                                                   << expectedValue << ", actual " << actualValue
-                                                  << std::endl;
+                                                  << "\n";
                 return result;
             }
         }
@@ -151,7 +151,7 @@ class ExpectRG11B10Ufloat : public detail::Expectation {
                 testing::AssertionResult result = testing::AssertionFailure()
                                                   << "Expected data[" << i << "] to be "
                                                   << expectedValue << ", actual " << actualValue
-                                                  << std::endl;
+                                                  << "\n";
                 return result;
             }
         }
@@ -453,8 +453,8 @@ class TextureFormatTest : public DawnTest {
         DAWN_ASSERT(sizeof(T) * formatInfo.componentCount == formatInfo.texelByteSize);
         DAWN_ASSERT(formatInfo.type == TextureComponentType::Float);
 
-        DAWN_TEST_UNSUPPORTED_IF((utils::IsNorm16TextureFormat(formatInfo.format)) &&
-                                 !IsNorm16TextureFormatsSupported());
+        DAWN_TEST_UNSUPPORTED_IF((utils::IsUnorm16TextureFormat(formatInfo.format)) &&
+                                 !IsUnorm16TextureFormatsSupported());
 
         T maxValue = std::numeric_limits<T>::max();
         std::vector<T> textureData = {0, 1, maxValue, maxValue};
@@ -470,8 +470,8 @@ class TextureFormatTest : public DawnTest {
         DAWN_ASSERT(sizeof(T) * formatInfo.componentCount == formatInfo.texelByteSize);
         DAWN_ASSERT(formatInfo.type == TextureComponentType::Float);
 
-        DAWN_TEST_UNSUPPORTED_IF((utils::IsNorm16TextureFormat(formatInfo.format)) &&
-                                 !IsNorm16TextureFormatsSupported());
+        DAWN_TEST_UNSUPPORTED_IF((utils::IsSnorm16TextureFormat(formatInfo.format)) &&
+                                 !IsSnorm16TextureFormatsSupported());
 
         T maxValue = std::numeric_limits<T>::max();
         T minValue = std::numeric_limits<T>::min();
@@ -548,19 +548,25 @@ class TextureFormatTest : public DawnTest {
             mIsRG11B10UfloatRenderableSupported = true;
             requiredFeatures.push_back(wgpu::FeatureName::RG11B10UfloatRenderable);
         }
-        if (SupportsFeatures({wgpu::FeatureName::Norm16TextureFormats})) {
-            mIsNorm16TextureFormatsSupported = true;
-            requiredFeatures.push_back(wgpu::FeatureName::Norm16TextureFormats);
+        if (SupportsFeatures({wgpu::FeatureName::Unorm16TextureFormats})) {
+            mIsUnorm16TextureFormatsSupported = true;
+            requiredFeatures.push_back(wgpu::FeatureName::Unorm16TextureFormats);
+        }
+        if (SupportsFeatures({wgpu::FeatureName::Snorm16TextureFormats})) {
+            mIsSnorm16TextureFormatsSupported = true;
+            requiredFeatures.push_back(wgpu::FeatureName::Snorm16TextureFormats);
         }
         return requiredFeatures;
     }
 
     bool IsRG11B10UfloatRenderableSupported() { return mIsRG11B10UfloatRenderableSupported; }
-    bool IsNorm16TextureFormatsSupported() { return mIsNorm16TextureFormatsSupported; }
+    bool IsUnorm16TextureFormatsSupported() { return mIsUnorm16TextureFormatsSupported; }
+    bool IsSnorm16TextureFormatsSupported() { return mIsSnorm16TextureFormatsSupported; }
 
   private:
     bool mIsRG11B10UfloatRenderableSupported = false;
-    bool mIsNorm16TextureFormatsSupported = false;
+    bool mIsUnorm16TextureFormatsSupported = false;
+    bool mIsSnorm16TextureFormatsSupported = false;
 };
 
 // Test the R8Unorm format
@@ -814,9 +820,8 @@ TEST_P(TextureFormatTest, RGBA8UnormSrgb) {
 
 // Test the BGRA8UnormSrgb format
 TEST_P(TextureFormatTest, BGRA8UnormSrgb) {
-    // TODO(cwallez@chromium.org): This format doesn't exist in OpenGL, emulate it using
-    // RGBA8UnormSrgb and swizzling / shader twiddling
-    DAWN_SUPPRESS_TEST_IF(IsOpenGL() || IsOpenGLES());
+    // BGRA8UnormSrgb is unsupported in Compatibility mode
+    DAWN_SUPPRESS_TEST_IF(IsCompatibilityMode());
 
     uint8_t maxValue = std::numeric_limits<uint8_t>::max();
     std::vector<uint8_t> textureData = {0, 1, maxValue, 64, 35, 68, 152, 168};

@@ -25,6 +25,8 @@
 // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+#include <webgpu/webgpu_cpp.h>
+
 #include <memory>
 #include <string>
 #include <utility>
@@ -36,19 +38,19 @@
 #include "dawn/native/vulkan/ResourceMemoryAllocatorVk.h"
 #include "dawn/native/vulkan/UtilsVulkan.h"
 #include "dawn/tests/white_box/SharedTextureMemoryTests.h"
-#include "dawn/webgpu_cpp.h"
 
 namespace dawn::native::vulkan {
 namespace {
 
-template <typename CreateFn>
+template <typename CreateFn, typename... AdditionalChains>
 auto CreateSharedTextureMemoryHelperImpl(native::vulkan::Device* deviceVk,
                                          uint32_t size,
                                          VkFormat format,
                                          VkImageUsageFlags usage,
                                          VkImageCreateFlagBits createFlags,
                                          bool dedicatedAllocation,
-                                         CreateFn createFn) {
+                                         CreateFn createFn,
+                                         AdditionalChains*... additionalChains) {
     VkExternalMemoryImageCreateInfo externalInfo{};
     externalInfo.sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO;
     externalInfo.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT_KHR;
@@ -69,6 +71,9 @@ auto CreateSharedTextureMemoryHelperImpl(native::vulkan::Device* deviceVk,
     createInfo.queueFamilyIndexCount = 0;
     createInfo.pQueueFamilyIndices = nullptr;
     createInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+    PNextChainBuilder createInfoChain(&createInfo);
+    (createInfoChain.Add(additionalChains), ...);
 
     VkImage vkImage;
     EXPECT_EQ(deviceVk->fn.CreateImage(deviceVk->GetVkDevice(), &createInfo, nullptr, &*vkImage),
@@ -143,14 +148,16 @@ auto CreateSharedTextureMemoryHelperImpl(native::vulkan::Device* deviceVk,
     return ret;
 }
 
-template <typename CreateFn>
+template <typename CreateFn, typename... AdditionalChains>
 auto CreateSharedTextureMemoryHelperImpl(native::vulkan::Device* deviceVk,
                                          uint32_t size,
                                          VkFormat format,
                                          VkImageUsageFlags usage,
-                                         CreateFn createFn) {
+                                         CreateFn createFn,
+                                         AdditionalChains*... additionalChains) {
     return CreateSharedTextureMemoryHelperImpl(deviceVk, size, format, usage,
-                                               VkImageCreateFlagBits(0), false, createFn);
+                                               VkImageCreateFlagBits(0), false, createFn,
+                                               additionalChains...);
 }
 
 bool CheckFormatSupport(native::vulkan::Device* deviceVk,
@@ -205,7 +212,7 @@ class Backend : public SharedTextureMemoryTestVulkanBackend {
             case wgpu::FeatureName::SharedFenceVkSemaphoreOpaqueFD:
                 name += ", OpaqueFDFence";
                 break;
-            case wgpu::FeatureName::SharedFenceVkSemaphoreSyncFD:
+            case wgpu::FeatureName::SharedFenceSyncFD:
                 name += ", SyncFDFence";
                 break;
             default:
@@ -230,7 +237,8 @@ class Backend : public SharedTextureMemoryTestVulkanBackend {
                                          VkImageUsageFlags usage,
                                          CreateFn createFn) {
         VkImageCreateFlagBits flags{};
-        if ((usage & VK_IMAGE_USAGE_STORAGE_BIT) != 0 && format == VK_FORMAT_B8G8R8A8_UNORM) {
+        if (format == VK_FORMAT_R8G8B8A8_UNORM || format == VK_FORMAT_B8G8R8A8_UNORM) {
+            // Needed for view format reinterpretation.
             flags = VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT;
         }
         return CreateSharedTextureMemoryHelperImpl(deviceVk, size, format, usage, flags,
@@ -238,7 +246,8 @@ class Backend : public SharedTextureMemoryTestVulkanBackend {
     }
 
     // Create one basic shared texture memory. It should support most operations.
-    wgpu::SharedTextureMemory CreateSharedTextureMemory(const wgpu::Device& device) override {
+    wgpu::SharedTextureMemory CreateSharedTextureMemory(const wgpu::Device& device,
+                                                        int layerCount) override {
         return CreateSharedTextureMemoryHelper(
             native::vulkan::ToBackend(native::FromAPI(device.Get())), 16, VK_FORMAT_R8G8B8A8_UNORM,
             VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT |
@@ -250,7 +259,8 @@ class Backend : public SharedTextureMemoryTestVulkanBackend {
     }
 
     std::vector<std::vector<wgpu::SharedTextureMemory>> CreatePerDeviceSharedTextureMemories(
-        const std::vector<wgpu::Device>& devices) override {
+        const std::vector<wgpu::Device>& devices,
+        int layerCount) override {
         DAWN_ASSERT(!devices.empty());
 
         std::vector<std::vector<wgpu::SharedTextureMemory>> memories;
@@ -367,12 +377,136 @@ TEST_P(SharedTextureMemoryOpaqueFDValidationTest, BGRA8UnormStorageRequirements)
         });
 }
 
+// Test requirements for the Vulkan image if it is may need view format reinterpretation.
+TEST_P(SharedTextureMemoryOpaqueFDValidationTest, ViewFormatRequirements) {
+    native::vulkan::Device* deviceVk = native::vulkan::ToBackend(native::FromAPI(device.Get()));
+
+    std::array<VkFormat, 2> vkFormats = {VK_FORMAT_R8G8B8A8_UNORM, VK_FORMAT_R8G8B8A8_SRGB};
+    for (VkFormat vkFormat : vkFormats) {
+        // Test that including MUTABLE_FORMAT_BIT is valid.
+        CreateSharedTextureMemoryHelperImpl(deviceVk, 4, vkFormat,
+                                            VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
+                                                VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+                                                VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+                                            VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT, false,
+                                            [&](const wgpu::SharedTextureMemoryDescriptor* desc) {
+                                                device.ImportSharedTextureMemory(desc);
+                                                return true;
+                                            });
+
+        // Test that excluding MUTABLE_FORMAT_BIT is invalid.
+        CreateSharedTextureMemoryHelperImpl(
+            deviceVk, 4, vkFormat,
+            VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+                VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+            VkImageCreateFlagBits(0), false, [&](const wgpu::SharedTextureMemoryDescriptor* desc) {
+                ASSERT_DEVICE_ERROR_MSG(device.ImportSharedTextureMemory(desc),
+                                        testing::HasSubstr("MUTABLE_FORMAT_BIT"));
+                return true;
+            });
+
+        // Test that including MUTABLE_FORMAT_BIT if VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT is not
+        // present is valid.
+        CreateSharedTextureMemoryHelperImpl(
+            deviceVk, 4, vkFormat,
+            VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+            VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT, false,
+            [&](const wgpu::SharedTextureMemoryDescriptor* desc) {
+                device.ImportSharedTextureMemory(desc);
+                return true;
+            });
+
+        // Test that excluding MUTABLE_FORMAT_BIT if VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT is not
+        // present is valid.
+        CreateSharedTextureMemoryHelperImpl(
+            deviceVk, 4, vkFormat,
+            VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+            VkImageCreateFlagBits(0), false, [&](const wgpu::SharedTextureMemoryDescriptor* desc) {
+                device.ImportSharedTextureMemory(desc);
+                return true;
+            });
+
+        // Test that if the image format list is provided, all of the vkFormats must be listed.
+        VkImageFormatListCreateInfo imageFormatListInfo;
+        imageFormatListInfo.pNext = nullptr;
+        imageFormatListInfo.sType = VK_STRUCTURE_TYPE_IMAGE_FORMAT_LIST_CREATE_INFO;
+        {
+            // Passing all of them is valid.
+            imageFormatListInfo.pViewFormats = vkFormats.data();
+            imageFormatListInfo.viewFormatCount = vkFormats.size();
+
+            CreateSharedTextureMemoryHelperImpl(
+                deviceVk, 4, vkFormat,
+                VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+                    VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+                VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT, false,
+                [&](const wgpu::SharedTextureMemoryDescriptor* desc) {
+                    device.ImportSharedTextureMemory(desc);
+                    return true;
+                },
+                &imageFormatListInfo);
+        }
+        {
+            // Passing the first is invalid.
+            imageFormatListInfo.pViewFormats = vkFormats.data();
+            imageFormatListInfo.viewFormatCount = 1;
+
+            CreateSharedTextureMemoryHelperImpl(
+                deviceVk, 4, vkFormat,
+                VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+                    VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+                VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT, false,
+                [&](const wgpu::SharedTextureMemoryDescriptor* desc) {
+                    ASSERT_DEVICE_ERROR_MSG(device.ImportSharedTextureMemory(desc),
+                                            testing::HasSubstr("VkImageFormatCreateInfo did not"));
+                    return true;
+                },
+                &imageFormatListInfo);
+        }
+        {
+            // Passing the second is invalid.
+            imageFormatListInfo.pViewFormats = vkFormats.data() + 1;
+            imageFormatListInfo.viewFormatCount = 1;
+
+            CreateSharedTextureMemoryHelperImpl(
+                deviceVk, 4, vkFormat,
+                VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+                    VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+                VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT, false,
+                [&](const wgpu::SharedTextureMemoryDescriptor* desc) {
+                    ASSERT_DEVICE_ERROR_MSG(device.ImportSharedTextureMemory(desc),
+                                            testing::HasSubstr("VkImageFormatCreateInfo did not"));
+                    return true;
+                },
+                &imageFormatListInfo);
+        }
+        {
+            // Passing none is invalid.
+            imageFormatListInfo.pViewFormats = nullptr;
+            imageFormatListInfo.viewFormatCount = 0;
+
+            CreateSharedTextureMemoryHelperImpl(
+                deviceVk, 4, vkFormat,
+                VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+                    VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+                VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT, false,
+                [&](const wgpu::SharedTextureMemoryDescriptor* desc) {
+                    ASSERT_DEVICE_ERROR_MSG(device.ImportSharedTextureMemory(desc),
+                                            testing::HasSubstr("VkImageFormatCreateInfo did not"));
+                    return true;
+                },
+                &imageFormatListInfo);
+        }
+    }
+}
+
 DAWN_INSTANTIATE_PREFIXED_TEST_P(
     Vulkan,
     SharedTextureMemoryNoFeatureTests,
     {VulkanBackend()},
     {Backend<wgpu::FeatureName::SharedFenceVkSemaphoreOpaqueFD, false>::GetInstance(),
-     Backend<wgpu::FeatureName::SharedFenceVkSemaphoreSyncFD, false>::GetInstance()});
+     Backend<wgpu::FeatureName::SharedFenceSyncFD, false>::GetInstance()},
+    {1});
 
 // Only test DedicatedAllocation == false because validation never actually creates an allocation.
 // Passing true wouldn't give extra coverage.
@@ -381,16 +515,18 @@ DAWN_INSTANTIATE_PREFIXED_TEST_P(
     SharedTextureMemoryOpaqueFDValidationTest,
     {VulkanBackend()},
     {Backend<wgpu::FeatureName::SharedFenceVkSemaphoreOpaqueFD, false>::GetInstance(),
-     Backend<wgpu::FeatureName::SharedFenceVkSemaphoreSyncFD, false>::GetInstance()});
+     Backend<wgpu::FeatureName::SharedFenceSyncFD, false>::GetInstance()},
+    {1});
 
 DAWN_INSTANTIATE_PREFIXED_TEST_P(
     Vulkan,
     SharedTextureMemoryTests,
     {VulkanBackend()},
     {Backend<wgpu::FeatureName::SharedFenceVkSemaphoreOpaqueFD, false>::GetInstance(),
-     Backend<wgpu::FeatureName::SharedFenceVkSemaphoreSyncFD, false>::GetInstance(),
+     Backend<wgpu::FeatureName::SharedFenceSyncFD, false>::GetInstance(),
      Backend<wgpu::FeatureName::SharedFenceVkSemaphoreOpaqueFD, true>::GetInstance(),
-     Backend<wgpu::FeatureName::SharedFenceVkSemaphoreSyncFD, true>::GetInstance()});
+     Backend<wgpu::FeatureName::SharedFenceSyncFD, true>::GetInstance()},
+    {1});
 
 }  // anonymous namespace
 }  // namespace dawn::native::vulkan

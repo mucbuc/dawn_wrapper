@@ -1,91 +1,80 @@
 #version 310 es
-
-ivec4 tint_extract_bits(ivec4 v, uint offset, uint count) {
-  uint s = min(offset, 32u);
-  uint e = min(32u, (s + count));
-  return bitfieldExtract(v, int(s), int((e - s)));
-}
-
-layout(binding = 0, std430) buffer prevent_dce_block_ssbo {
-  ivec4 inner;
-} prevent_dce;
-
-void extractBits_fb850f() {
-  ivec4 arg_0 = ivec4(1);
-  uint arg_1 = 1u;
-  uint arg_2 = 1u;
-  ivec4 res = tint_extract_bits(arg_0, arg_1, arg_2);
-  prevent_dce.inner = res;
-}
-
-vec4 vertex_main() {
-  extractBits_fb850f();
-  return vec4(0.0f);
-}
-
-void main() {
-  gl_PointSize = 1.0;
-  vec4 inner_result = vertex_main();
-  gl_Position = inner_result;
-  gl_Position.y = -(gl_Position.y);
-  gl_Position.z = ((2.0f * gl_Position.z) - gl_Position.w);
-  return;
-}
-#version 310 es
 precision highp float;
+precision highp int;
 
-ivec4 tint_extract_bits(ivec4 v, uint offset, uint count) {
-  uint s = min(offset, 32u);
-  uint e = min(32u, (s + count));
-  return bitfieldExtract(v, int(s), int((e - s)));
-}
-
-layout(binding = 0, std430) buffer prevent_dce_block_ssbo {
+layout(binding = 0, std430)
+buffer prevent_dce_block_1_ssbo {
   ivec4 inner;
-} prevent_dce;
-
-void extractBits_fb850f() {
+} v;
+ivec4 extractBits_fb850f() {
   ivec4 arg_0 = ivec4(1);
   uint arg_1 = 1u;
   uint arg_2 = 1u;
-  ivec4 res = tint_extract_bits(arg_0, arg_1, arg_2);
-  prevent_dce.inner = res;
+  ivec4 v_1 = arg_0;
+  uint v_2 = arg_2;
+  uint v_3 = min(arg_1, 32u);
+  uint v_4 = min(v_2, (32u - v_3));
+  int v_5 = int(v_3);
+  ivec4 res = bitfieldExtract(v_1, v_5, int(v_4));
+  return res;
 }
-
-void fragment_main() {
-  extractBits_fb850f();
-}
-
 void main() {
-  fragment_main();
-  return;
+  v.inner = extractBits_fb850f();
 }
 #version 310 es
 
-ivec4 tint_extract_bits(ivec4 v, uint offset, uint count) {
-  uint s = min(offset, 32u);
-  uint e = min(32u, (s + count));
-  return bitfieldExtract(v, int(s), int((e - s)));
-}
-
-layout(binding = 0, std430) buffer prevent_dce_block_ssbo {
+layout(binding = 0, std430)
+buffer prevent_dce_block_1_ssbo {
   ivec4 inner;
-} prevent_dce;
-
-void extractBits_fb850f() {
+} v;
+ivec4 extractBits_fb850f() {
   ivec4 arg_0 = ivec4(1);
   uint arg_1 = 1u;
   uint arg_2 = 1u;
-  ivec4 res = tint_extract_bits(arg_0, arg_1, arg_2);
-  prevent_dce.inner = res;
+  ivec4 v_1 = arg_0;
+  uint v_2 = arg_2;
+  uint v_3 = min(arg_1, 32u);
+  uint v_4 = min(v_2, (32u - v_3));
+  int v_5 = int(v_3);
+  ivec4 res = bitfieldExtract(v_1, v_5, int(v_4));
+  return res;
 }
-
-void compute_main() {
-  extractBits_fb850f();
-}
-
 layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
 void main() {
-  compute_main();
-  return;
+  v.inner = extractBits_fb850f();
+}
+#version 310 es
+
+
+struct VertexOutput {
+  vec4 pos;
+  ivec4 prevent_dce;
+};
+
+layout(location = 0) flat out ivec4 vertex_main_loc0_Output;
+ivec4 extractBits_fb850f() {
+  ivec4 arg_0 = ivec4(1);
+  uint arg_1 = 1u;
+  uint arg_2 = 1u;
+  ivec4 v = arg_0;
+  uint v_1 = arg_2;
+  uint v_2 = min(arg_1, 32u);
+  uint v_3 = min(v_1, (32u - v_2));
+  int v_4 = int(v_2);
+  ivec4 res = bitfieldExtract(v, v_4, int(v_3));
+  return res;
+}
+VertexOutput vertex_main_inner() {
+  VertexOutput tint_symbol = VertexOutput(vec4(0.0f), ivec4(0));
+  tint_symbol.pos = vec4(0.0f);
+  tint_symbol.prevent_dce = extractBits_fb850f();
+  return tint_symbol;
+}
+void main() {
+  VertexOutput v_5 = vertex_main_inner();
+  gl_Position = v_5.pos;
+  gl_Position[1u] = -(gl_Position.y);
+  gl_Position[2u] = ((2.0f * gl_Position.z) - gl_Position.w);
+  vertex_main_loc0_Output = v_5.prevent_dce;
+  gl_PointSize = 1.0f;
 }

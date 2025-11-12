@@ -98,7 +98,7 @@ struct State {
                 param->ReplaceAllUsesWith(load->Result(0));
 
                 // Modify all of the callsites.
-                func->ForEachUse([&](core::ir::Usage use) {
+                func->ForEachUseUnsorted([&](core::ir::Usage use) {
                     if (auto* call = use.instruction->As<core::ir::UserCall>()) {
                         ReplaceCallArgument(call, replacement_params.Length());
                     }
@@ -128,7 +128,7 @@ struct State {
 }  // namespace
 
 Result<SuccessType> PassMatrixByPointer(core::ir::Module& ir) {
-    auto result = ValidateAndDumpIfNeeded(ir, "PassMatrixByPointer transform");
+    auto result = ValidateAndDumpIfNeeded(ir, "spirv.PassMatrixByPointer");
     if (result != Success) {
         return result;
     }

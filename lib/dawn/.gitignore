@@ -6,6 +6,7 @@
 /.gclient_entries
 /.gclient_previous_custom_vars
 /.gclient_previous_sync_commits
+/.gcs_entries
 /.reproxy_cache
 /bazel-*
 /build
@@ -17,9 +18,11 @@
 /third_party/catapult
 /third_party/clang-format
 /third_party/cpplint
+/third_party/depot_tools
 /third_party/dxc
 /third_party/dxheaders
 /third_party/glfw
+/third_party/glslang/src/
 /third_party/google_benchmark/src
 /third_party/googletest
 /third_party/gpuweb
@@ -29,6 +32,7 @@
 /third_party/khronos/OpenGL-Registry
 /third_party/libc++/src
 /third_party/libc++abi/src
+/third_party/libprotobuf-mutator/src
 /third_party/llvm-build
 /third_party/markupsafe
 /third_party/ninja
@@ -38,11 +42,20 @@
 /third_party/partition_alloc
 /third_party/protobuf
 /third_party/rust-toolchain
+/third_party/spirv-cross/src/
+/third_party/spirv-headers/src/
+/third_party/spirv-tools/src/
 /third_party/swiftshader
 /third_party/vulkan-deps
+/third_party/vulkan-headers/src/
+/third_party/vulkan-loader/src/
+/third_party/vulkan-tools/src/
+/third_party/vulkan-utility-libraries/src/
+/third_party/vulkan-validation-layers/src/
 /third_party/vulkan_memory_allocator
 /third_party/webgpu-cts
 /third_party/zlib
+/tools/bin
 /tools/clang
 /tools/cmake*
 /tools/golang
@@ -140,3 +153,12 @@ lcov.info
 all_findings.json
 
 tint.dot
+
+### pyenv files
+/.python-version
+
+### Clangd cached index files
+/.cache
+
+### The 'compile_commands' file can be generated at root
+compile_commands.json

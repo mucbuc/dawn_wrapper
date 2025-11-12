@@ -25,6 +25,9 @@
 // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+#include <gmock/gmock.h>
+#include <webgpu/webgpu.h>
+
 #include <atomic>
 #include <cstdint>
 #include <utility>
@@ -32,37 +35,40 @@
 
 #include "dawn/common/FutureUtils.h"
 #include "dawn/tests/DawnTest.h"
-#include "dawn/webgpu.h"
 
 namespace dawn {
 namespace {
 
+using testing::AnyOf;
+using testing::Eq;
+
 wgpu::Device CreateExtraDevice(wgpu::Instance instance) {
     // IMPORTANT: DawnTest overrides RequestAdapter and RequestDevice and mixes
     // up the two instances. We use these to bypass the override.
-    auto* requestAdapter = reinterpret_cast<WGPUProcInstanceRequestAdapter>(
-        wgpuGetProcAddress(nullptr, "wgpuInstanceRequestAdapter"));
-    auto* requestDevice = reinterpret_cast<WGPUProcAdapterRequestDevice>(
-        wgpuGetProcAddress(nullptr, "wgpuAdapterRequestDevice"));
+    auto* requestAdapter = reinterpret_cast<WGPUProcInstanceRequestAdapter2>(
+        wgpu::GetProcAddress("wgpuInstanceRequestAdapter2"));
+    auto* requestDevice = reinterpret_cast<WGPUProcAdapterRequestDevice2>(
+        wgpu::GetProcAddress("wgpuAdapterRequestDevice2"));
 
     wgpu::Adapter adapter2;
-    requestAdapter(
-        instance.Get(), nullptr,
-        [](WGPURequestAdapterStatus status, WGPUAdapter adapter, const char*, void* userdata) {
-            ASSERT_EQ(status, WGPURequestAdapterStatus_Success);
-            *reinterpret_cast<wgpu::Adapter*>(userdata) = wgpu::Adapter::Acquire(adapter);
-        },
-        &adapter2);
+    requestAdapter(instance.Get(), nullptr,
+                   {nullptr, WGPUCallbackMode_AllowSpontaneous,
+                    [](WGPURequestAdapterStatus status, WGPUAdapter adapter, WGPUStringView, void*,
+                       void* result) {
+                        *reinterpret_cast<wgpu::Adapter*>(result) = wgpu::Adapter::Acquire(adapter);
+                    },
+                    nullptr, &adapter2});
     DAWN_ASSERT(adapter2);
 
     wgpu::Device device2;
-    requestDevice(
-        adapter2.Get(), nullptr,
-        [](WGPURequestDeviceStatus status, WGPUDevice device, const char*, void* userdata) {
-            ASSERT_EQ(status, WGPURequestDeviceStatus_Success);
-            *reinterpret_cast<wgpu::Device*>(userdata) = wgpu::Device::Acquire(device);
-        },
-        &device2);
+    requestDevice(adapter2.Get(), nullptr,
+                  {nullptr, WGPUCallbackMode_AllowSpontaneous,
+                   [](WGPURequestDeviceStatus status, WGPUDevice device, WGPUStringView, void*,
+                      void* result) {
+                       ASSERT_EQ(status, WGPURequestDeviceStatus_Success);
+                       *reinterpret_cast<wgpu::Device*>(result) = wgpu::Device::Acquire(device);
+                   },
+                   nullptr, &device2});
     DAWN_ASSERT(device2);
 
     return device2;
@@ -148,10 +154,10 @@ class EventCompletionTests : public DawnTestWithParams<EventCompletionTestParams
 
     void LoseTestDevice() {
         EXPECT_CALL(mDeviceLostCallback,
-                    Call(WGPUDeviceLostReason_Undefined, testing::_, testing::_))
+                    Call(CHandleIs(testDevice.Get()), wgpu::DeviceLostReason::Unknown, testing::_))
             .Times(1);
-        testDevice.ForceLoss(wgpu::DeviceLostReason::Undefined, "Device lost for testing");
-        testDevice.Tick();
+        testDevice.ForceLoss(wgpu::DeviceLostReason::Unknown, "Device lost for testing");
+        testInstance.ProcessEvents();
     }
 
     void TrivialSubmit() {
@@ -191,24 +197,12 @@ class EventCompletionTests : public DawnTestWithParams<EventCompletionTestParams
         }
     }
 
-    wgpu::Future OnSubmittedWorkDone(WGPUQueueWorkDoneStatus expectedStatus) {
-        struct Userdata {
-            EventCompletionTests* self;
-            WGPUQueueWorkDoneStatus expectedStatus;
-        };
-        Userdata* userdata = new Userdata{this, expectedStatus};
-
-        return testQueue.OnSubmittedWorkDoneF({
-            nullptr,
-            GetCallbackMode(),
-            [](WGPUQueueWorkDoneStatus status, void* userdata) {
-                Userdata* u = reinterpret_cast<Userdata*>(userdata);
-                u->self->mCallbacksCompletedCount++;
-                ASSERT_EQ(status, u->expectedStatus);
-                delete u;
-            },
-            userdata,
-        });
+    wgpu::Future OnSubmittedWorkDone(wgpu::QueueWorkDoneStatus expectedStatus) {
+        return testQueue.OnSubmittedWorkDone(
+            GetCallbackMode(), [this, expectedStatus](wgpu::QueueWorkDoneStatus status) {
+                mCallbacksCompletedCount++;
+                ASSERT_EQ(status, expectedStatus);
+            });
     }
 
     void TestWaitAll(bool loopOnlyOnce = false) {
@@ -283,7 +277,6 @@ class EventCompletionTests : public DawnTestWithParams<EventCompletionTestParams
 
                     uint64_t oldCompletionCount = mCallbacksCompletedCount;
                     FlushWire();
-                    testDevice.Tick();
                     auto status = testInstance.WaitAny(mFutures.size(), mFutures.data(), 0);
                     if (status == wgpu::WaitStatus::TimedOut) {
                         continue;
@@ -305,7 +298,6 @@ class EventCompletionTests : public DawnTestWithParams<EventCompletionTestParams
                     ASSERT_FALSE(testTimeExceeded());
 
                     FlushWire();
-                    testDevice.Tick();
                     testInstance.ProcessEvents();
 
                     if (loopOnlyOnce) {
@@ -343,14 +335,14 @@ TEST_P(EventCompletionTests, NoEvents) {
 // WorkDone event after submitting some trivial work.
 TEST_P(EventCompletionTests, WorkDoneSimple) {
     TrivialSubmit();
-    TrackForTest(OnSubmittedWorkDone(WGPUQueueWorkDoneStatus_Success));
+    TrackForTest(OnSubmittedWorkDone(wgpu::QueueWorkDoneStatus::Success));
     TestWaitAll();
 }
 
 // WorkDone event before device loss, wait afterward.
 TEST_P(EventCompletionTests, WorkDoneAcrossDeviceLoss) {
     TrivialSubmit();
-    TrackForTest(OnSubmittedWorkDone(WGPUQueueWorkDoneStatus_Success));
+    TrackForTest(OnSubmittedWorkDone(wgpu::QueueWorkDoneStatus::Success));
     TestWaitAll();
 }
 
@@ -358,34 +350,33 @@ TEST_P(EventCompletionTests, WorkDoneAcrossDeviceLoss) {
 TEST_P(EventCompletionTests, WorkDoneAfterDeviceLoss) {
     TrivialSubmit();
     LoseTestDevice();
-    ASSERT_DEVICE_ERROR_ON(testDevice,
-                           TrackForTest(OnSubmittedWorkDone(WGPUQueueWorkDoneStatus_Success)));
+    TrackForTest(OnSubmittedWorkDone(wgpu::QueueWorkDoneStatus::Success));
     TestWaitAll();
 }
 
 // WorkDone event twice after submitting some trivial work.
 TEST_P(EventCompletionTests, WorkDoneTwice) {
     TrivialSubmit();
-    TrackForTest(OnSubmittedWorkDone(WGPUQueueWorkDoneStatus_Success));
-    TrackForTest(OnSubmittedWorkDone(WGPUQueueWorkDoneStatus_Success));
+    TrackForTest(OnSubmittedWorkDone(wgpu::QueueWorkDoneStatus::Success));
+    TrackForTest(OnSubmittedWorkDone(wgpu::QueueWorkDoneStatus::Success));
     TestWaitAll();
 }
 
 // WorkDone event without ever having submitted any work.
 TEST_P(EventCompletionTests, WorkDoneNoWork) {
-    TrackForTest(OnSubmittedWorkDone(WGPUQueueWorkDoneStatus_Success));
+    TrackForTest(OnSubmittedWorkDone(wgpu::QueueWorkDoneStatus::Success));
     TestWaitAll();
-    TrackForTest(OnSubmittedWorkDone(WGPUQueueWorkDoneStatus_Success));
-    TrackForTest(OnSubmittedWorkDone(WGPUQueueWorkDoneStatus_Success));
+    TrackForTest(OnSubmittedWorkDone(wgpu::QueueWorkDoneStatus::Success));
+    TrackForTest(OnSubmittedWorkDone(wgpu::QueueWorkDoneStatus::Success));
     TestWaitAll();
 }
 
 // WorkDone event after all work has completed already.
 TEST_P(EventCompletionTests, WorkDoneAlreadyCompleted) {
     TrivialSubmit();
-    TrackForTest(OnSubmittedWorkDone(WGPUQueueWorkDoneStatus_Success));
+    TrackForTest(OnSubmittedWorkDone(wgpu::QueueWorkDoneStatus::Success));
     TestWaitAll();
-    TrackForTest(OnSubmittedWorkDone(WGPUQueueWorkDoneStatus_Success));
+    TrackForTest(OnSubmittedWorkDone(wgpu::QueueWorkDoneStatus::Success));
     TestWaitAll();
 }
 
@@ -395,9 +386,9 @@ TEST_P(EventCompletionTests, WorkDoneOutOfOrder) {
     DAWN_TEST_UNSUPPORTED_IF(GetCallbackMode() != wgpu::CallbackMode::WaitAnyOnly);
 
     TrivialSubmit();
-    wgpu::Future f1 = OnSubmittedWorkDone(WGPUQueueWorkDoneStatus_Success);
+    wgpu::Future f1 = OnSubmittedWorkDone(wgpu::QueueWorkDoneStatus::Success);
     TrivialSubmit();
-    wgpu::Future f2 = OnSubmittedWorkDone(WGPUQueueWorkDoneStatus_Success);
+    wgpu::Future f2 = OnSubmittedWorkDone(wgpu::QueueWorkDoneStatus::Success);
 
     // When using WaitAny, normally callback ordering guarantees would guarantee f1 completes before
     // f2. But if we wait on f2 first, then f2 is allowed to complete first because f1 still hasn't
@@ -408,8 +399,8 @@ TEST_P(EventCompletionTests, WorkDoneOutOfOrder) {
     TestWaitAll(/*loopOnlyOnce=*/true);
 }
 
-constexpr WGPUQueueWorkDoneStatus kStatusUninitialized =
-    static_cast<WGPUQueueWorkDoneStatus>(INT32_MAX);
+constexpr wgpu::QueueWorkDoneStatus kStatusUninitialized =
+    static_cast<wgpu::QueueWorkDoneStatus>(INT32_MAX);
 
 TEST_P(EventCompletionTests, WorkDoneDropInstanceBeforeEvent) {
     // TODO(crbug.com/dawn/1987): Wire does not implement instance destruction correctly yet.
@@ -418,20 +409,19 @@ TEST_P(EventCompletionTests, WorkDoneDropInstanceBeforeEvent) {
     UseSecondInstance();
     testInstance = nullptr;  // Drop the last external ref to the instance.
 
-    WGPUQueueWorkDoneStatus status = kStatusUninitialized;
-    testQueue.OnSubmittedWorkDoneF({nullptr, GetCallbackMode(),
-                                    [](WGPUQueueWorkDoneStatus status, void* userdata) {
-                                        *reinterpret_cast<WGPUQueueWorkDoneStatus*>(userdata) =
-                                            status;
-                                    },
-                                    &status});
+    wgpu::QueueWorkDoneStatus status = kStatusUninitialized;
+    testQueue.OnSubmittedWorkDone(GetCallbackMode(),
+                                  [&status](wgpu::QueueWorkDoneStatus result) { status = result; });
 
-    // Callback should have been called immediately because we leaked it since there's no way to
-    // call WaitAny or ProcessEvents anymore.
-    //
-    // TODO(crbug.com/dawn/2059): Once Spontaneous is implemented, this should no longer expect the
-    // callback to be cleaned up immediately (and should expect it to happen on a future Tick).
-    ASSERT_EQ(status, WGPUQueueWorkDoneStatus_Unknown);
+    if (IsSpontaneous()) {
+        // TODO(crbug.com/dawn/2059): Once Spontaneous is implemented, this should no longer expect
+        // the callback to be cleaned up immediately (and should expect it to happen on a future
+        // Tick).
+        ASSERT_THAT(status, AnyOf(Eq(wgpu::QueueWorkDoneStatus::Success),
+                                  Eq(wgpu::QueueWorkDoneStatus::InstanceDropped)));
+    } else {
+        ASSERT_EQ(status, wgpu::QueueWorkDoneStatus::InstanceDropped);
+    }
 }
 
 TEST_P(EventCompletionTests, WorkDoneDropInstanceAfterEvent) {
@@ -440,24 +430,23 @@ TEST_P(EventCompletionTests, WorkDoneDropInstanceAfterEvent) {
 
     UseSecondInstance();
 
-    WGPUQueueWorkDoneStatus status = kStatusUninitialized;
-    testQueue.OnSubmittedWorkDoneF({nullptr, GetCallbackMode(),
-                                    [](WGPUQueueWorkDoneStatus status, void* userdata) {
-                                        *reinterpret_cast<WGPUQueueWorkDoneStatus*>(userdata) =
-                                            status;
-                                    },
-                                    &status});
+    wgpu::QueueWorkDoneStatus status = kStatusUninitialized;
+    testQueue.OnSubmittedWorkDone(GetCallbackMode(),
+                                  [&status](wgpu::QueueWorkDoneStatus result) { status = result; });
 
-    ASSERT_EQ(status, kStatusUninitialized);
+    if (IsSpontaneous()) {
+        testInstance = nullptr;  // Drop the last external ref to the instance.
 
-    testInstance = nullptr;  // Drop the last external ref to the instance.
-
-    // Callback should have been called immediately because we leaked it since there's no way to
-    // call WaitAny or ProcessEvents anymore.
-    //
-    // TODO(crbug.com/dawn/2059): Once Spontaneous is implemented, this should no longer expect the
-    // callback to be cleaned up immediately (and should expect it to happen on a future Tick).
-    ASSERT_EQ(status, WGPUQueueWorkDoneStatus_Unknown);
+        // TODO(crbug.com/dawn/2059): Once Spontaneous is implemented, this should no longer expect
+        // the callback to be cleaned up immediately (and should expect it to happen on a future
+        // Tick).
+        ASSERT_THAT(status, AnyOf(Eq(wgpu::QueueWorkDoneStatus::Success),
+                                  Eq(wgpu::QueueWorkDoneStatus::InstanceDropped)));
+    } else {
+        ASSERT_EQ(status, kStatusUninitialized);
+        testInstance = nullptr;  // Drop the last external ref to the instance.
+        ASSERT_EQ(status, wgpu::QueueWorkDoneStatus::InstanceDropped);
+    }
 }
 
 // TODO(crbug.com/dawn/1987):
@@ -466,8 +455,9 @@ TEST_P(EventCompletionTests, WorkDoneDropInstanceAfterEvent) {
 // - Other tests?
 
 DAWN_INSTANTIATE_TEST_P(EventCompletionTests,
-                        {D3D11Backend(), D3D12Backend(), MetalBackend(), VulkanBackend(),
-                         OpenGLBackend(), OpenGLESBackend()},
+                        {D3D11Backend(), D3D11Backend({"d3d11_use_unmonitored_fence"}),
+                         D3D12Backend(), MetalBackend(), VulkanBackend(), OpenGLBackend(),
+                         OpenGLESBackend()},
                         {
                             WaitTypeAndCallbackMode::TimedWaitAny_WaitAnyOnly,
                             WaitTypeAndCallbackMode::TimedWaitAny_AllowSpontaneous,
@@ -518,10 +508,10 @@ TEST_P(WaitAnyTests, UnsupportedTimeout) {
     }
 
     for (uint64_t timeout : {uint64_t(1), uint64_t(0), UINT64_MAX}) {
-        wgpu::FutureWaitInfo info{device2.GetQueue().OnSubmittedWorkDoneF(
-            {nullptr, wgpu::CallbackMode::WaitAnyOnly, [](WGPUQueueWorkDoneStatus, void*) {},
-             nullptr})};
-        wgpu::WaitStatus status = instance2.WaitAny(1, &info, timeout);
+        wgpu::WaitStatus status = instance2.WaitAny(
+            device2.GetQueue().OnSubmittedWorkDone(wgpu::CallbackMode::WaitAnyOnly,
+                                                   [](wgpu::QueueWorkDoneStatus) {}),
+            timeout);
         if (timeout == 0) {
             ASSERT_TRUE(status == wgpu::WaitStatus::Success ||
                         status == wgpu::WaitStatus::TimedOut);
@@ -555,9 +545,8 @@ TEST_P(WaitAnyTests, UnsupportedCount) {
         for (size_t count : {kTimedWaitAnyMaxCountDefault, kTimedWaitAnyMaxCountDefault + 1}) {
             std::vector<wgpu::FutureWaitInfo> infos;
             for (size_t i = 0; i < count; ++i) {
-                infos.push_back({queue2.OnSubmittedWorkDoneF(
-                    {nullptr, wgpu::CallbackMode::WaitAnyOnly,
-                     [](WGPUQueueWorkDoneStatus, void*) {}, nullptr})});
+                infos.push_back({queue2.OnSubmittedWorkDone(wgpu::CallbackMode::WaitAnyOnly,
+                                                            [](wgpu::QueueWorkDoneStatus) {})});
             }
             wgpu::WaitStatus status = instance2.WaitAny(infos.size(), infos.data(), timeout);
             if (timeout == 0) {
@@ -601,10 +590,10 @@ TEST_P(WaitAnyTests, UnsupportedMixedSources) {
 
     for (uint64_t timeout : {uint64_t(0), uint64_t(1)}) {
         std::vector<wgpu::FutureWaitInfo> infos{{
-            {queue2.OnSubmittedWorkDoneF({nullptr, wgpu::CallbackMode::WaitAnyOnly,
-                                          [](WGPUQueueWorkDoneStatus, void*) {}, nullptr})},
-            {queue3.OnSubmittedWorkDoneF({nullptr, wgpu::CallbackMode::WaitAnyOnly,
-                                          [](WGPUQueueWorkDoneStatus, void*) {}, nullptr})},
+            {queue2.OnSubmittedWorkDone(wgpu::CallbackMode::WaitAnyOnly,
+                                        [](wgpu::QueueWorkDoneStatus) {})},
+            {queue3.OnSubmittedWorkDone(wgpu::CallbackMode::WaitAnyOnly,
+                                        [](wgpu::QueueWorkDoneStatus) {})},
         }};
         wgpu::WaitStatus status = instance2.WaitAny(infos.size(), infos.data(), timeout);
         if (timeout == 0) {
@@ -621,6 +610,33 @@ TEST_P(WaitAnyTests, UnsupportedMixedSources) {
 
 DAWN_INSTANTIATE_TEST(WaitAnyTests,
                       D3D11Backend(),
+                      D3D11Backend({"d3d11_use_unmonitored_fence"}),
+                      D3D12Backend(),
+                      MetalBackend(),
+                      VulkanBackend(),
+                      OpenGLBackend(),
+                      OpenGLESBackend());
+
+class FutureTests : public DawnTest {};
+
+// Regression test for crbug.com/dawn/2460 where when we have mixed source futures in a process
+// events call we were crashing.
+TEST_P(FutureTests, MixedSourcePolling) {
+    // OnSubmittedWorkDone is implemented via a queue serial.
+    device.GetQueue().OnSubmittedWorkDone(wgpu::CallbackMode::AllowProcessEvents,
+                                          [](wgpu::QueueWorkDoneStatus) {});
+
+    // PopErrorScope is implemented via a signal.
+    device.PushErrorScope(wgpu::ErrorFilter::Validation);
+    device.PopErrorScope(wgpu::CallbackMode::AllowProcessEvents,
+                         [](wgpu::PopErrorScopeStatus, wgpu::ErrorType, wgpu::StringView) {});
+
+    instance.ProcessEvents();
+}
+
+DAWN_INSTANTIATE_TEST(FutureTests,
+                      D3D11Backend(),
+                      D3D11Backend({"d3d11_use_unmonitored_fence"}),
                       D3D12Backend(),
                       MetalBackend(),
                       VulkanBackend(),

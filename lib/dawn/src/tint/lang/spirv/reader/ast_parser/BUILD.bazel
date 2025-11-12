@@ -67,7 +67,6 @@ cc_library(
     "//src/tint/lang/core",
     "//src/tint/lang/core/constant",
     "//src/tint/lang/core/type",
-    "//src/tint/lang/spirv/reader/common",
     "//src/tint/lang/wgsl",
     "//src/tint/lang/wgsl/ast",
     "//src/tint/lang/wgsl/ast/transform",
@@ -89,9 +88,11 @@ cc_library(
     "//src/tint/utils/symbol",
     "//src/tint/utils/text",
     "//src/tint/utils/traits",
+    "//src/utils",
   ] + select({
     ":tint_build_spv_reader": [
       "//src/tint/lang/spirv/reader/ast_lower",
+      "//src/tint/lang/spirv/reader/common",
     ],
     "//conditions:default": [],
   }) + select({
@@ -137,6 +138,7 @@ cc_library(
     "named_types_test.cc",
     "namer_test.cc",
     "parser_test.cc",
+    "row_major_matrix_test.cc",
     "spirv_tools_helpers_test.cc",
     "spirv_tools_helpers_test.h",
     "type_test.cc",
@@ -148,13 +150,13 @@ cc_library(
     "//src/tint/lang/core",
     "//src/tint/lang/core/constant",
     "//src/tint/lang/core/type",
-    "//src/tint/lang/spirv/reader/common",
     "//src/tint/lang/wgsl",
     "//src/tint/lang/wgsl/ast",
     "//src/tint/lang/wgsl/common",
     "//src/tint/lang/wgsl/features",
     "//src/tint/lang/wgsl/program",
     "//src/tint/lang/wgsl/sem",
+    "//src/tint/lang/wgsl/writer/ir_to_program",
     "//src/tint/utils/containers",
     "//src/tint/utils/diagnostic",
     "//src/tint/utils/generator",
@@ -170,9 +172,11 @@ cc_library(
     "//src/tint/utils/text",
     "//src/tint/utils/traits",
     "@gtest",
+    "//src/utils",
   ] + select({
     ":tint_build_spv_reader": [
       "//src/tint/lang/spirv/reader/ast_parser",
+      "//src/tint/lang/spirv/reader/common",
     ],
     "//conditions:default": [],
   }) + select({
@@ -184,6 +188,7 @@ cc_library(
     "//conditions:default": [],
   }) + select({
     ":tint_build_wgsl_writer": [
+      "//src/tint/lang/wgsl/writer",
       "//src/tint/lang/wgsl/writer/ast_printer",
     ],
     "//conditions:default": [],

@@ -1,12 +1,21 @@
 groupshared uint arg_0;
-RWByteAddressBuffer prevent_dce : register(u0, space2);
 
-void atomicMax_beccfc() {
+void tint_zero_workgroup_memory(uint local_idx) {
+  if ((local_idx < 1u)) {
+    uint atomic_result = 0u;
+    InterlockedExchange(arg_0, 0u, atomic_result);
+  }
+  GroupMemoryBarrierWithGroupSync();
+}
+
+RWByteAddressBuffer prevent_dce : register(u0);
+
+uint atomicMax_beccfc() {
   uint arg_1 = 1u;
-  uint atomic_result = 0u;
-  InterlockedMax(arg_0, arg_1, atomic_result);
-  uint res = atomic_result;
-  prevent_dce.Store(0u, asuint(res));
+  uint atomic_result_1 = 0u;
+  InterlockedMax(arg_0, arg_1, atomic_result_1);
+  uint res = atomic_result_1;
+  return res;
 }
 
 struct tint_symbol_1 {
@@ -14,12 +23,8 @@ struct tint_symbol_1 {
 };
 
 void compute_main_inner(uint local_invocation_index) {
-  {
-    uint atomic_result_1 = 0u;
-    InterlockedExchange(arg_0, 0u, atomic_result_1);
-  }
-  GroupMemoryBarrierWithGroupSync();
-  atomicMax_beccfc();
+  tint_zero_workgroup_memory(local_invocation_index);
+  prevent_dce.Store(0u, asuint(atomicMax_beccfc()));
 }
 
 [numthreads(1, 1, 1)]

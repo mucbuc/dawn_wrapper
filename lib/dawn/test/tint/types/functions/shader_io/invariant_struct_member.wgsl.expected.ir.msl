@@ -1,11 +1,27 @@
-SKIP: FAILED
-
 #include <metal_stdlib>
 using namespace metal;
+
 struct Out {
-  float4 pos [[position]] TINT_INVARIANT;
+  float4 pos;
 };
 
-Out tint_symbol() {
+#if __METAL_VERSION__ >= 210
+#define TINT_INVARIANT [[invariant]]
+#else
+#define TINT_INVARIANT
+#endif
+
+
+struct tint_symbol_outputs {
+  float4 Out_pos [[position]] TINT_INVARIANT;
+};
+
+Out tint_symbol_inner() {
   return Out{};
+}
+
+vertex tint_symbol_outputs tint_symbol() {
+  tint_symbol_outputs tint_wrapper_result = {};
+  tint_wrapper_result.Out_pos = tint_symbol_inner().pos;
+  return tint_wrapper_result;
 }

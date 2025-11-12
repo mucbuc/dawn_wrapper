@@ -109,6 +109,18 @@ void FreeCommands(CommandIterator* commands) {
                 draw->~DrawIndexedIndirectCmd();
                 break;
             }
+            case Command::MultiDrawIndirect: {
+                MultiDrawIndirectCmd* cmd = commands->NextCommand<MultiDrawIndirectCmd>();
+                cmd->~MultiDrawIndirectCmd();
+                break;
+            }
+            case Command::MultiDrawIndexedIndirect: {
+                MultiDrawIndexedIndirectCmd* cmd =
+                    commands->NextCommand<MultiDrawIndexedIndirectCmd>();
+                cmd->~MultiDrawIndexedIndirectCmd();
+                break;
+            }
+
             case Command::EndComputePass: {
                 EndComputePassCmd* cmd = commands->NextCommand<EndComputePassCmd>();
                 cmd->~EndComputePassCmd();
@@ -285,6 +297,14 @@ void SkipCommand(CommandIterator* commands, Command type) {
             commands->NextCommand<DrawIndexedIndirectCmd>();
             break;
 
+        case Command::MultiDrawIndirect:
+            commands->NextCommand<MultiDrawIndirectCmd>();
+            break;
+
+        case Command::MultiDrawIndexedIndirect:
+            commands->NextCommand<MultiDrawIndexedIndirectCmd>();
+            break;
+
         case Command::EndComputePass:
             commands->NextCommand<EndComputePassCmd>();
             break;
@@ -384,6 +404,20 @@ void SkipCommand(CommandIterator* commands, Command type) {
     }
 }
 
+const char* AddNullTerminatedString(CommandAllocator* allocator, StringView s, uint32_t* length) {
+    std::string_view view = s;
+    *length = view.length();
+
+    // Include extra null-terminator character. The string_view may not be null-terminated. It also
+    // may already have a null-terminator inside of it, in which case adding the null-terminator is
+    // unnecessary. However, this is unlikely, so always include the extra character.
+    char* out = allocator->AllocateData<char>(view.length() + 1);
+    memcpy(out, view.data(), view.length());
+    out[view.length()] = '\0';
+
+    return out;
+}
+
 TimestampWrites::TimestampWrites() = default;
 TimestampWrites::~TimestampWrites() = default;
 
@@ -421,6 +455,9 @@ DispatchIndirectCmd::~DispatchIndirectCmd() = default;
 
 DrawIndirectCmd::DrawIndirectCmd() = default;
 DrawIndirectCmd::~DrawIndirectCmd() = default;
+
+MultiDrawIndirectCmd::MultiDrawIndirectCmd() = default;
+MultiDrawIndirectCmd::~MultiDrawIndirectCmd() = default;
 
 EndComputePassCmd::EndComputePassCmd() = default;
 EndComputePassCmd::~EndComputePassCmd() = default;

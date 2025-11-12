@@ -1,39 +1,65 @@
-SKIP: FAILED
+#include <metal_stdlib>
+using namespace metal;
 
-<dawn>/src/tint/lang/msl/writer/printer/printer.cc:355 internal compiler error: UBO = struct @align(4) {
-  dynamic_idx:i32 @offset(0)
-}
+struct UBO {
+  /* 0x0000 */ int dynamic_idx;
+};
 
-Result = struct @align(4) {
-  out:i32 @offset(0)
-}
+struct Result {
+  /* 0x0000 */ int out;
+};
 
-S = struct @align(4) {
-  data:array<i32, 64> @offset(0)
-}
+template<typename T, size_t N>
+struct tint_array {
+  const constant T& operator[](size_t i) const constant { return elements[i]; }
+  device T& operator[](size_t i) device { return elements[i]; }
+  const device T& operator[](size_t i) const device { return elements[i]; }
+  thread T& operator[](size_t i) thread { return elements[i]; }
+  const thread T& operator[](size_t i) const thread { return elements[i]; }
+  threadgroup T& operator[](size_t i) threadgroup { return elements[i]; }
+  const threadgroup T& operator[](size_t i) const threadgroup { return elements[i]; }
+  T elements[N];
+};
 
-%b1 = block {  # root
-  %ubo:ptr<uniform, UBO, read> = var @binding_point(0, 0)
-  %result:ptr<storage, Result, read_write> = var @binding_point(0, 1)
-  %s:ptr<workgroup, S, read_write> = var
-}
+struct S {
+  tint_array<int, 64> data;
+};
 
-%f = @compute @workgroup_size(1, 1, 1) func():void -> %b2 {
-  %b2 = block {
-    %5:ptr<storage, i32, read_write> = access %result, 0u
-    %6:ptr<uniform, i32, read> = access %ubo, 0u
-    %7:i32 = load %6
-    %8:ptr<workgroup, i32, read_write> = access %s, 0u, %7
-    %9:i32 = load %8
-    store %5, %9
-    ret
+struct tint_module_vars_struct {
+  const constant UBO* ubo;
+  device Result* result;
+  threadgroup S* s;
+};
+
+#define TINT_ISOLATE_UB(VOLATILE_NAME) \
+  {volatile bool VOLATILE_NAME = false; if (VOLATILE_NAME) break;}
+
+struct tint_symbol_1 {
+  S tint_symbol;
+};
+
+void f_inner(uint tint_local_index, tint_module_vars_struct tint_module_vars) {
+  {
+    uint v = 0u;
+    v = tint_local_index;
+    while(true) {
+      TINT_ISOLATE_UB(tint_volatile_false)
+      uint const v_1 = v;
+      if ((v_1 >= 64u)) {
+        break;
+      }
+      (*tint_module_vars.s).data[v_1] = 0;
+      {
+        v = (v_1 + 1u);
+      }
+      continue;
+    }
   }
+  threadgroup_barrier(mem_flags::mem_threadgroup);
+  (*tint_module_vars.result).out = (*tint_module_vars.s).data[(*tint_module_vars.ubo).dynamic_idx];
 }
 
-unhandled variable address space
-********************************************************************
-*  The tint shader compiler has encountered an unexpected error.   *
-*                                                                  *
-*  Please help us fix this issue by submitting a bug report at     *
-*  crbug.com/tint with the source program that triggered the bug.  *
-********************************************************************
+kernel void f(uint tint_local_index [[thread_index_in_threadgroup]], const constant UBO* ubo [[buffer(0)]], device Result* result [[buffer(1)]], threadgroup tint_symbol_1* v_2 [[threadgroup(0)]]) {
+  tint_module_vars_struct const tint_module_vars = tint_module_vars_struct{.ubo=ubo, .result=result, .s=(&(*v_2).tint_symbol)};
+  f_inner(tint_local_index, tint_module_vars);
+}

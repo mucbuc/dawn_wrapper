@@ -73,7 +73,7 @@ RenderPassEncoder::RenderPassEncoder(DeviceBase* device,
                                      uint32_t renderTargetHeight,
                                      bool depthReadOnly,
                                      bool stencilReadOnly,
-                                     std::function<void()> endCallback)
+                                     EndCallback endCallback)
     : RenderEncoderBase(device,
                         descriptor->label,
                         encodingContext,
@@ -86,7 +86,7 @@ RenderPassEncoder::RenderPassEncoder(DeviceBase* device,
       mOcclusionQuerySet(descriptor->occlusionQuerySet),
       mEndCallback(std::move(endCallback)) {
     mUsageTracker = std::move(usageTracker);
-    if (auto* maxDrawCountInfo = descriptor.Get<RenderPassDescriptorMaxDrawCount>()) {
+    if (auto* maxDrawCountInfo = descriptor.Get<RenderPassMaxDrawCount>()) {
         mMaxDrawCount = maxDrawCountInfo->maxDrawCount;
     }
     GetObjectTrackingList()->Track(this);
@@ -104,7 +104,7 @@ Ref<RenderPassEncoder> RenderPassEncoder::Create(
     uint32_t renderTargetHeight,
     bool depthReadOnly,
     bool stencilReadOnly,
-    std::function<void()> endCallback) {
+    EndCallback endCallback) {
     return AcquireRef(new RenderPassEncoder(device, descriptor, commandEncoder, encodingContext,
                                             std::move(usageTracker), std::move(attachmentState),
                                             renderTargetWidth, renderTargetHeight, depthReadOnly,
@@ -115,7 +115,7 @@ RenderPassEncoder::RenderPassEncoder(DeviceBase* device,
                                      CommandEncoder* commandEncoder,
                                      EncodingContext* encodingContext,
                                      ErrorTag errorTag,
-                                     const char* label)
+                                     StringView label)
     : RenderEncoderBase(device, encodingContext, errorTag, label),
       mCommandEncoder(commandEncoder) {}
 
@@ -123,12 +123,19 @@ RenderPassEncoder::RenderPassEncoder(DeviceBase* device,
 Ref<RenderPassEncoder> RenderPassEncoder::MakeError(DeviceBase* device,
                                                     CommandEncoder* commandEncoder,
                                                     EncodingContext* encodingContext,
-                                                    const char* label) {
+                                                    StringView label) {
     return AcquireRef(
         new RenderPassEncoder(device, commandEncoder, encodingContext, ObjectBase::kError, label));
 }
 
+RenderPassEncoder::~RenderPassEncoder() {
+    mEncodingContext = nullptr;
+}
+
 void RenderPassEncoder::DestroyImpl() {
+    mIndirectDrawMetadata.ClearIndexedIndirectBufferValidationInfo();
+    mCommandBufferState.End();
+
     RenderEncoderBase::DestroyImpl();
     // Ensure that the pass has exited. This is done for passes only since validation requires
     // they exit before destruction while bundles do not.
@@ -165,6 +172,7 @@ void RenderPassEncoder::End() {
     }
 
     mEnded = true;
+    mCommandBufferState.End();
 
     mEncodingContext->TryEncode(
         this,
@@ -183,17 +191,16 @@ void RenderPassEncoder::End() {
             }
 
             allocator->Allocate<EndRenderPassCmd>(Command::EndRenderPass);
-
             DAWN_TRY(mEncodingContext->ExitRenderPass(this, std::move(mUsageTracker),
                                                       mCommandEncoder.Get(),
                                                       std::move(mIndirectDrawMetadata)));
+            if (mEndCallback) {
+                mEncodingContext->ConsumedError(mEndCallback());
+            }
+
             return {};
         },
         "encoding %s.End().", this);
-
-    if (mEndCallback) {
-        mEndCallback();
-    }
 }
 
 void RenderPassEncoder::APISetStencilReference(uint32_t reference) {

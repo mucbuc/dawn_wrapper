@@ -177,7 +177,7 @@ ResultOrError<Pageable*> ResidencyManager::RemoveSingleEntryFromLRU(
     // If the next candidate for eviction was inserted into the LRU during the current serial,
     // it is because more memory is being used in a single command list than is available.
     // In this scenario, we cannot make any more resources resident and thrashing must occur.
-    if (lastSubmissionSerial == mDevice->GetPendingCommandSerial()) {
+    if (lastSubmissionSerial == mDevice->GetQueue()->GetPendingCommandSerial()) {
         return nullptr;
     }
 
@@ -195,11 +195,9 @@ MaybeError ResidencyManager::EnsureCanAllocate(uint64_t allocationSize,
         return {};
     }
 
-    uint64_t bytesEvicted;
+    [[maybe_unused]] uint64_t bytesEvicted;
     DAWN_TRY_ASSIGN(bytesEvicted,
                     EnsureCanMakeResident(allocationSize, GetMemorySegmentInfo(memorySegment)));
-    DAWN_UNUSED(bytesEvicted);
-
     return {};
 }
 
@@ -257,7 +255,7 @@ MaybeError ResidencyManager::EnsureHeapsAreResident(Heap** heaps, size_t heapCou
     uint64_t localSizeToMakeResident = 0;
     uint64_t nonLocalSizeToMakeResident = 0;
 
-    ExecutionSerial pendingCommandSerial = mDevice->GetPendingCommandSerial();
+    ExecutionSerial pendingCommandSerial = mDevice->GetQueue()->GetPendingCommandSerial();
     for (size_t i = 0; i < heapCount; i++) {
         Heap* heap = heaps[i];
 
@@ -310,9 +308,8 @@ MaybeError ResidencyManager::MakeAllocationsResident(MemorySegmentInfo* segment,
                                                      uint64_t sizeToMakeResident,
                                                      uint64_t numberOfObjectsToMakeResident,
                                                      ID3D12Pageable** allocations) {
-    uint64_t bytesEvicted;
+    [[maybe_unused]] uint64_t bytesEvicted;
     DAWN_TRY_ASSIGN(bytesEvicted, EnsureCanMakeResident(sizeToMakeResident, segment));
-    DAWN_UNUSED(bytesEvicted);
 
     // Note that MakeResident is a synchronous function and can add a significant
     // overhead to command recording. In the future, it may be possible to decrease this

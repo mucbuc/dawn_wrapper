@@ -28,6 +28,10 @@
 #ifndef SRC_DAWN_TESTS_DAWNTEST_H_
 #define SRC_DAWN_TESTS_DAWNTEST_H_
 
+#include <gmock/gmock.h>
+#include <gtest/gtest.h>
+#include <webgpu/webgpu_cpp.h>
+
 #include <atomic>
 #include <memory>
 #include <queue>
@@ -49,10 +53,8 @@
 #include "dawn/tests/ToggleParser.h"
 #include "dawn/utils/TestUtils.h"
 #include "dawn/utils/TextureUtils.h"
-#include "dawn/webgpu_cpp.h"
 #include "dawn/webgpu_cpp_print.h"
-#include "gmock/gmock.h"
-#include "gtest/gtest.h"
+#include "partition_alloc/pointers/raw_ptr.h"
 
 // Getting data back from Dawn is done in an async manners so all expectations are "deferred"
 // until the end of the test. Also expectations use a copy to a MapRead buffer to get the data
@@ -121,15 +123,20 @@
 #define EXPECT_TEXTURE_FLOAT16_EQ(...) \
     AddTextureExpectation<float, uint16_t>(__FILE__, __LINE__, __VA_ARGS__)
 
-#define ASSERT_DEVICE_ERROR_MSG_ON(device, statement, matcher)                    \
-    FlushWire();                                                                  \
-    EXPECT_CALL(mDeviceErrorCallback,                                             \
-                Call(testing::Ne(WGPUErrorType_NoError), matcher, device.Get())); \
-    statement;                                                                    \
-    device.Tick();                                                                \
-    FlushWire();                                                                  \
-    testing::Mock::VerifyAndClearExpectations(&mDeviceErrorCallback);             \
-    do {                                                                          \
+// Matcher for C++ types to verify that their internal C-handles are identical.
+MATCHER_P(CHandleIs, cType, "") {
+    return arg.Get() == cType;
+}
+
+#define ASSERT_DEVICE_ERROR_MSG_ON(device, statement, matcher)                                  \
+    FlushWire();                                                                                \
+    EXPECT_CALL(mDeviceErrorCallback,                                                           \
+                Call(CHandleIs(device.Get()), testing::Ne(wgpu::ErrorType::NoError), matcher)); \
+    statement;                                                                                  \
+    instance.ProcessEvents();                                                                   \
+    FlushWire();                                                                                \
+    testing::Mock::VerifyAndClearExpectations(&mDeviceErrorCallback);                           \
+    do {                                                                                        \
     } while (0)
 
 #define ASSERT_DEVICE_ERROR_MSG(statement, matcher) \
@@ -262,6 +269,7 @@ class DawnTestBase {
     bool IsANGLESwiftShader() const;
     bool IsANGLED3D11() const;
     bool IsWARP() const;
+    bool IsMesaSoftware() const;
 
     bool IsIntelGen9() const;
     bool IsIntelGen12() const;
@@ -270,6 +278,9 @@ class DawnTestBase {
     bool IsLinux() const;
     bool IsMacOS(int32_t majorVersion = -1, int32_t minorVersion = -1) const;
     bool IsAndroid() const;
+    bool IsChromeOS() const;
+
+    bool IsMesa(const std::string& mesaVersion = "") const;
 
     bool UsesWire() const;
     bool IsImplicitDeviceSyncEnabled() const;
@@ -280,8 +291,8 @@ class DawnTestBase {
 
     bool IsDXC() const;
 
-    bool IsAsan() const;
-    bool IsTsan() const;
+    static bool IsAsan();
+    static bool IsTsan();
 
     bool HasToggleEnabled(const char* workaround) const;
 
@@ -327,13 +338,17 @@ class DawnTestBase {
     DawnProcTable backendProcs = {};
     WGPUDevice backendDevice = nullptr;
 
-    size_t mLastWarningCount = 0;
+    uint64_t mLastWarningCount = 0;
 
     // Mock callbacks tracking errors and destruction. These are strict mocks because any errors or
     // device loss that aren't expected should result in test failures and not just some warnings
     // printed to stdout.
-    testing::StrictMock<testing::MockCallback<WGPUErrorCallback>> mDeviceErrorCallback;
-    testing::StrictMock<testing::MockCallback<WGPUDeviceLostCallback>> mDeviceLostCallback;
+    testing::StrictMock<
+        testing::MockCppCallback<void (*)(const wgpu::Device&, wgpu::ErrorType, wgpu::StringView)>>
+        mDeviceErrorCallback;
+    testing::StrictMock<testing::MockCppCallback<
+        void (*)(const wgpu::Device&, wgpu::DeviceLostReason, wgpu::StringView)>>
+        mDeviceLostCallback;
 
     // Helper methods to implement the EXPECT_ macros
     std::ostringstream& AddBufferExpectation(const char* file,
@@ -376,7 +391,7 @@ class DawnTestBase {
                                               wgpu::TextureAspect aspect = wgpu::TextureAspect::All,
                                               uint32_t bytesPerRow = 0) {
         uint32_t texelBlockSize = utils::GetTexelBlockSizeInBytes(format);
-        uint32_t texelComponentCount = utils::GetWGSLRenderableColorTextureComponentCount(format);
+        uint32_t texelComponentCount = utils::GetTextureComponentCount(format);
 
         return AddTextureExpectationImpl(
             file, line, std::move(targetDevice),
@@ -581,6 +596,11 @@ class DawnTestBase {
                                                     mipLevel, {}, &expectedStencil);
     }
 
+    void MapAsyncAndWait(const wgpu::Buffer& buffer,
+                         wgpu::MapMode mapMode,
+                         uint64_t offset,
+                         uint64_t size);
+
     void WaitABit(wgpu::Instance = nullptr);
     void FlushWire();
     void WaitForAllOperations();
@@ -602,6 +622,12 @@ class DawnTestBase {
 
     wgpu::SupportedLimits GetAdapterLimits();
     wgpu::SupportedLimits GetSupportedLimits();
+
+    uint64_t GetDeprecationWarningCountForTesting() const;
+
+    // Helps compute expected deprecated warning count for creating device with given descriptor.
+    uint32_t GetDeviceCreationDeprecationWarningExpectation(
+        const wgpu::DeviceDescriptor& descriptor);
 
     void* GetUniqueUserdata();
 
@@ -646,13 +672,12 @@ class DawnTestBase {
         wgpu::Device device;
         wgpu::Buffer buffer;
         uint64_t bufferSize;
-        const void* mappedData = nullptr;
+        raw_ptr<const void> mappedData = nullptr;
     };
     std::vector<ReadbackSlot> mReadbackSlots;
 
     // Maps all the buffers and fill ReadbackSlot::mappedData
     void MapSlotsSynchronously();
-    static void SlotMapCallback(WGPUBufferMapAsyncStatus status, void* userdata);
     std::atomic<size_t> mNumPendingMapOperations = 0;
 
     // Reserve space where the data for an expectation can be copied
@@ -709,20 +734,20 @@ class DawnTestBase {
 #define DAWN_SUPPRESS_TEST_IF(condition) \
     DAWN_SKIP_TEST_IF_BASE(!RunSuppressedTests() && condition, "suppressed", condition)
 
-#define EXPECT_DEPRECATION_WARNINGS(statement, n)                                               \
-    do {                                                                                        \
-        if (UsesWire()) {                                                                       \
-            statement;                                                                          \
-        } else {                                                                                \
-            size_t warningsBefore = native::GetDeprecationWarningCountForTesting(device.Get()); \
-            statement;                                                                          \
-            size_t warningsAfter = native::GetDeprecationWarningCountForTesting(device.Get());  \
-            EXPECT_EQ(mLastWarningCount, warningsBefore);                                       \
-            if (!HasToggleEnabled("skip_validation")) {                                         \
-                EXPECT_EQ(warningsAfter, warningsBefore + n);                                   \
-            }                                                                                   \
-            mLastWarningCount = warningsAfter;                                                  \
-        }                                                                                       \
+#define EXPECT_DEPRECATION_WARNINGS(statement, n)                             \
+    do {                                                                      \
+        if (UsesWire()) {                                                     \
+            statement;                                                        \
+        } else {                                                              \
+            uint64_t warningsBefore = GetDeprecationWarningCountForTesting(); \
+            statement;                                                        \
+            uint64_t warningsAfter = GetDeprecationWarningCountForTesting();  \
+            EXPECT_EQ(mLastWarningCount, warningsBefore);                     \
+            if (!HasToggleEnabled("skip_validation")) {                       \
+                EXPECT_EQ(warningsAfter, warningsBefore + n);                 \
+            }                                                                 \
+            mLastWarningCount = warningsAfter;                                \
+        }                                                                     \
     } while (0)
 #define EXPECT_DEPRECATION_WARNING(statement) EXPECT_DEPRECATION_WARNINGS(statement, 1)
 

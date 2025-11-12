@@ -32,8 +32,12 @@
 #include "dawn/native/d3d/SharedTextureMemoryD3D.h"
 #include "dawn/native/d3d/d3d_platform.h"
 
-namespace dawn::native::d3d11 {
+namespace dawn::native {
+namespace d3d {
+class KeyedMutex;
+}  // namespace d3d
 
+namespace d3d11 {
 class Device;
 struct SharedTextureMemoryD3D11Texture2DDescriptor;
 
@@ -41,19 +45,21 @@ class SharedTextureMemory final : public d3d::SharedTextureMemory {
   public:
     static ResultOrError<Ref<SharedTextureMemory>> Create(
         Device* device,
-        const char* label,
+        StringView label,
         const SharedTextureMemoryDXGISharedHandleDescriptor* descriptor);
 
     static ResultOrError<Ref<SharedTextureMemory>> Create(
         Device* device,
-        const char* label,
+        StringView label,
         const SharedTextureMemoryD3D11Texture2DDescriptor* descriptor);
 
     ID3D11Resource* GetD3DResource() const;
 
+    d3d::KeyedMutex* GetKeyedMutex() const;
+
   private:
     SharedTextureMemory(Device* device,
-                        const char* label,
+                        StringView label,
                         SharedTextureMemoryProperties properties,
                         ComPtr<ID3D11Resource> resource);
 
@@ -62,12 +68,10 @@ class SharedTextureMemory final : public d3d::SharedTextureMemory {
     ResultOrError<Ref<TextureBase>> CreateTextureImpl(
         const UnpackedPtr<TextureDescriptor>& descriptor) override;
 
-    ResultOrError<Ref<SharedFenceBase>> CreateFenceImpl(
-        const SharedFenceDXGISharedHandleDescriptor* desc) override;
-
     ComPtr<ID3D11Resource> mResource;
+    Ref<d3d::KeyedMutex> mKeyedMutex;
 };
-
-}  // namespace dawn::native::d3d11
+}  // namespace d3d11
+}  // namespace dawn::native
 
 #endif  // SRC_DAWN_NATIVE_D3D11_SHARED_TEXTURE_MEMORY_D3D11_H_

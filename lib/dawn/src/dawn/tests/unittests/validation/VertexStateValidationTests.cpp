@@ -203,18 +203,22 @@ TEST_F(VertexStateTest, SetVertexBuffersNumLimit) {
 
 // Check out of bounds condition on total number of vertex attributes
 TEST_F(VertexStateTest, SetVertexAttributesNumLimit) {
+    wgpu::SupportedLimits limits;
+    device.GetLimits(&limits);
+    uint32_t maxVertexAttributes = limits.limits.maxVertexAttributes;
+
     // Control case, setting max vertex attribute number
     utils::ComboVertexState state;
     state.vertexBufferCount = 2;
-    state.cVertexBuffers[0].attributeCount = kMaxVertexAttributes;
-    for (uint32_t i = 0; i < kMaxVertexAttributes; ++i) {
+    state.cVertexBuffers[0].attributeCount = maxVertexAttributes;
+    for (uint32_t i = 0; i < maxVertexAttributes; ++i) {
         state.cAttributes[i].shaderLocation = i;
     }
     CreatePipeline(true, state, kPlaceholderVertexShader);
 
     // Test vertex attribute number exceed the limit
     state.cVertexBuffers[1].attributeCount = 1;
-    state.cVertexBuffers[1].attributes = &state.cAttributes[kMaxVertexAttributes - 1];
+    state.cVertexBuffers[1].attributes = &state.cAttributes[maxVertexAttributes - 1];
     CreatePipeline(false, state, kPlaceholderVertexShader);
 }
 
@@ -289,15 +293,19 @@ TEST_F(VertexStateTest, SetSameShaderLocation) {
 
 // Check out of bounds condition on attribute shader location
 TEST_F(VertexStateTest, SetAttributeLocationOutOfBounds) {
+    wgpu::SupportedLimits limits;
+    device.GetLimits(&limits);
+    uint32_t maxVertexAttributes = limits.limits.maxVertexAttributes;
+
     // Control case, setting last attribute shader location
     utils::ComboVertexState state;
     state.vertexBufferCount = 1;
     state.cVertexBuffers[0].attributeCount = 1;
-    state.cAttributes[0].shaderLocation = kMaxVertexAttributes - 1;
+    state.cAttributes[0].shaderLocation = maxVertexAttributes - 1;
     CreatePipeline(true, state, kPlaceholderVertexShader);
 
     // Test attribute location OOB
-    state.cAttributes[0].shaderLocation = kMaxVertexAttributes;
+    state.cAttributes[0].shaderLocation = maxVertexAttributes;
     CreatePipeline(false, state, kPlaceholderVertexShader);
 }
 
@@ -405,6 +413,11 @@ TEST_F(VertexStateTest, BaseTypeMatching) {
     DoTest(wgpu::VertexFormat::Unorm10_10_10_2, "f32", true);
     DoTest(wgpu::VertexFormat::Unorm10_10_10_2, "i32", false);
     DoTest(wgpu::VertexFormat::Unorm10_10_10_2, "u32", false);
+
+    // Test that unorm8x4-unorm format is compatible only with f32.
+    DoTest(wgpu::VertexFormat::Unorm8x4BGRA, "f32", true);
+    DoTest(wgpu::VertexFormat::Unorm8x4BGRA, "i32", false);
+    DoTest(wgpu::VertexFormat::Unorm8x4BGRA, "u32", false);
 
     // Test that an snorm format is compatible only with f32.
     DoTest(wgpu::VertexFormat::Snorm16x4, "f32", true);

@@ -31,7 +31,7 @@
 #include <utility>
 #include <vector>
 
-#include "dawn/native/CreatePipelineAsyncTask.h"
+#include "dawn/native/CreatePipelineAsyncEvent.h"
 #include "dawn/native/vulkan/DeviceVk.h"
 #include "dawn/native/vulkan/FencedDeleter.h"
 #include "dawn/native/vulkan/PipelineCacheVk.h"
@@ -50,18 +50,22 @@ Ref<ComputePipeline> ComputePipeline::CreateUninitialized(
     return AcquireRef(new ComputePipeline(device, descriptor));
 }
 
-MaybeError ComputePipeline::Initialize() {
+MaybeError ComputePipeline::InitializeImpl() {
     Device* device = ToBackend(GetDevice());
-    const PipelineLayout* layout = ToBackend(GetLayout());
+    PipelineLayout* layout = ToBackend(GetLayout());
 
     // Vulkan devices need cache UUID field to be serialized into pipeline cache keys.
     StreamIn(&mCacheKey, device->GetDeviceInfo().properties.pipelineCacheUUID);
+
+    // Compute pipeline doesn't have clamp depth feature.
+    // TODO(crbug.com/366291600): Setting immediate data size if needed.
+    DAWN_TRY(InitializeBase(layout, 0));
 
     VkComputePipelineCreateInfo createInfo;
     createInfo.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
     createInfo.pNext = nullptr;
     createInfo.flags = 0;
-    createInfo.layout = layout->GetHandle();
+    createInfo.layout = GetVkLayout();
     createInfo.basePipelineHandle = VkPipeline{};
     createInfo.basePipelineIndex = -1;
 
@@ -79,17 +83,18 @@ MaybeError ComputePipeline::Initialize() {
         module->GetHandleAndSpirv(
             SingleShaderStage::Compute, computeStage, layout,
             /*clampFragDepth*/ false,
+            /*emitPointSize*/ false,
             /* maxSubgroupSizeForFullSubgroups */
             IsFullSubgroupsRequired()
                 ? std::make_optional(device->GetLimits().experimentalSubgroupLimits.maxSubgroupSize)
                 : std::nullopt));
 
     createInfo.stage.module = moduleAndSpirv.module;
-    createInfo.stage.pName = moduleAndSpirv.remappedEntryPoint;
+    createInfo.stage.pName = moduleAndSpirv.remappedEntryPoint.c_str();
 
     if (IsFullSubgroupsRequired()) {
         // Workgroup size validation is handled in ValidateComputeStageWorkgroupSize when compiling
-        // shader module. Vulkan device that support ChromiumExperimentalSubgroups must support
+        // shader module. Vulkan device that support Subgroups feature must support
         // computeFullSubgroups.
         DAWN_ASSERT(device->GetDeviceInfo().subgroupSizeControlFeatures.computeFullSubgroups);
         createInfo.stage.flags |= VK_PIPELINE_SHADER_STAGE_CREATE_REQUIRE_FULL_SUBGROUPS_BIT |
@@ -98,9 +103,9 @@ MaybeError ComputePipeline::Initialize() {
 
     createInfo.stage.pSpecializationInfo = nullptr;
 
+    VkPipelineShaderStageRequiredSubgroupSizeCreateInfoEXT subgroupSizeInfo = {};
     PNextChainBuilder stageExtChain(&createInfo.stage);
 
-    VkPipelineShaderStageRequiredSubgroupSizeCreateInfoEXT subgroupSizeInfo = {};
     uint32_t computeSubgroupSize = device->GetComputeSubgroupSize();
     // If experimental full subgroups is required, pipeline is created with varying subgroup size
     // enabled, and thus do not use explicit subgroup size control.
@@ -133,8 +138,7 @@ MaybeError ComputePipeline::Initialize() {
             "CreateComputePipelines"));
         cacheTimer.RecordMicroseconds("Vulkan.CreateComputePipelines.CacheMiss");
     }
-    // TODO(dawn:549): Flush is currently in the same thread, but perhaps deferrable.
-    DAWN_TRY(cache->FlushIfNeeded());
+    DAWN_TRY(cache->DidCompilePipeline());
 
     SetLabelImpl();
 
@@ -149,7 +153,7 @@ ComputePipeline::~ComputePipeline() = default;
 
 void ComputePipeline::DestroyImpl() {
     ComputePipelineBase::DestroyImpl();
-
+    PipelineVk::DestroyImpl();
     if (mHandle != VK_NULL_HANDLE) {
         ToBackend(GetDevice())->GetFencedDeleter()->DeleteWhenUnused(mHandle);
         mHandle = VK_NULL_HANDLE;
@@ -158,15 +162,6 @@ void ComputePipeline::DestroyImpl() {
 
 VkPipeline ComputePipeline::GetHandle() const {
     return mHandle;
-}
-
-void ComputePipeline::InitializeAsync(Ref<ComputePipelineBase> computePipeline,
-                                      WGPUCreateComputePipelineAsyncCallback callback,
-                                      void* userdata) {
-    std::unique_ptr<CreateComputePipelineAsyncTask> asyncTask =
-        std::make_unique<CreateComputePipelineAsyncTask>(std::move(computePipeline), callback,
-                                                         userdata);
-    CreateComputePipelineAsyncTask::RunAsync(std::move(asyncTask));
 }
 
 }  // namespace dawn::native::vulkan

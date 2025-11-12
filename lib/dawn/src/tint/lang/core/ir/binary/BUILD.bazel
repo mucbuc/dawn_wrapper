@@ -53,6 +53,7 @@ cc_library(
     "//src/tint/lang/core/intrinsic",
     "//src/tint/lang/core/ir",
     "//src/tint/lang/core/type",
+    "//src/tint/utils/constants",
     "//src/tint/utils/containers",
     "//src/tint/utils/diagnostic",
     "//src/tint/utils/ice",
@@ -66,6 +67,7 @@ cc_library(
     "//src/tint/utils/symbol",
     "//src/tint/utils/text",
     "//src/tint/utils/traits",
+    "//src/utils",
   ] + select({
     ":tint_build_ir_binary": [
       "",
@@ -103,6 +105,7 @@ cc_library(
     "//src/tint/utils/text",
     "//src/tint/utils/traits",
     "@gtest",
+    "//src/utils",
   ] + select({
     ":tint_build_ir_binary": [
       "//src/tint/lang/core/ir/binary",

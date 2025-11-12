@@ -1,47 +1,36 @@
 #version 310 es
 precision highp float;
+precision highp int;
+
 
 struct atomic_compare_exchange_result_i32 {
   int old_value;
   bool exchanged;
 };
 
-
-bool tint_discarded = false;
-struct tint_symbol_1 {
-  int old_value;
-  bool exchanged;
-};
-
-layout(location = 0) out int value;
-layout(binding = 0, std430) buffer a_block_ssbo {
+layout(binding = 0, std430)
+buffer a_block_1_ssbo {
   int inner;
-} a;
-
-int foo() {
-  tint_discarded = true;
+} v;
+bool continue_execution = true;
+layout(location = 0) out int foo_loc0_Output;
+int foo_inner() {
+  continue_execution = false;
   int x = 0;
-  tint_symbol_1 tint_symbol = tint_symbol_1(0, false);
-  if (!(tint_discarded)) {
-    atomic_compare_exchange_result_i32 atomic_compare_result;
-    atomic_compare_result.old_value = atomicCompSwap(a.inner, 0, 1);
-    atomic_compare_result.exchanged = atomic_compare_result.old_value == 0;
-    atomic_compare_exchange_result_i32 tint_symbol_2 = atomic_compare_result;
-    tint_symbol.old_value = tint_symbol_2.old_value;
-    tint_symbol.exchanged = tint_symbol_2.exchanged;
+  atomic_compare_exchange_result_i32 v_1 = atomic_compare_exchange_result_i32(0, false);
+  if (continue_execution) {
+    int v_2 = atomicCompSwap(v.inner, 0, 1);
+    v_1 = atomic_compare_exchange_result_i32(v_2, (v_2 == 0));
   }
-  tint_symbol_1 result = tint_symbol;
+  atomic_compare_exchange_result_i32 result = v_1;
   if (result.exchanged) {
     x = result.old_value;
   }
-  return x;
-}
-
-void main() {
-  int inner_result = foo();
-  value = inner_result;
-  if (tint_discarded) {
+  if (!(continue_execution)) {
     discard;
   }
-  return;
+  return x;
+}
+void main() {
+  foo_loc0_Output = foo_inner();
 }

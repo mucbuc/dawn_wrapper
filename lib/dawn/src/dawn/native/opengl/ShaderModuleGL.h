@@ -28,15 +28,13 @@
 #ifndef SRC_DAWN_NATIVE_OPENGL_SHADERMODULEGL_H_
 #define SRC_DAWN_NATIVE_OPENGL_SHADERMODULEGL_H_
 
-#include <memory>
 #include <string>
-#include <unordered_map>
 #include <vector>
 
-#include "include/tint/tint.h"
-
+#include "dawn/native/IntegerTypes.h"
 #include "dawn/native/Serializable.h"
 #include "dawn/native/ShaderModule.h"
+#include "dawn/native/opengl/BindingPoint.h"
 #include "dawn/native/opengl/opengl_platform.h"
 
 namespace dawn::native {
@@ -86,22 +84,27 @@ class ShaderModule final : public ShaderModuleBase {
     static ResultOrError<Ref<ShaderModule>> Create(
         Device* device,
         const UnpackedPtr<ShaderModuleDescriptor>& descriptor,
+        const std::vector<tint::wgsl::Extension>& internalExtensions,
         ShaderModuleParseResult* parseResult,
         OwnedCompilationMessages* compilationMessages);
 
-    ResultOrError<GLuint> CompileShader(
-        const OpenGLFunctions& gl,
-        const ProgrammableStage& programmableStage,
-        SingleShaderStage stage,
-        CombinedSamplerInfo* combinedSamplers,
-        const PipelineLayout* layout,
-        bool* needsPlaceholderSampler,
-        bool* needsTextureBuiltinUniformBuffer,
-        tint::TextureBuiltinsFromUniformOptions::BindingPointToFieldAndOffset* bindingPointToData)
-        const;
+    ResultOrError<GLuint> CompileShader(const OpenGLFunctions& gl,
+                                        const ProgrammableStage& programmableStage,
+                                        SingleShaderStage stage,
+                                        bool usesVertexIndex,
+                                        bool usesInstanceIndex,
+                                        bool usesFragDepth,
+                                        VertexAttributeMask bgraSwizzleAttributes,
+                                        CombinedSamplerInfo* combinedSamplers,
+                                        const PipelineLayout* layout,
+                                        bool* needsPlaceholderSampler,
+                                        bool* needsTextureBuiltinUniformBuffer,
+                                        BindingPointToFunctionAndOffset* bindingPointToData) const;
 
   private:
-    ShaderModule(Device* device, const UnpackedPtr<ShaderModuleDescriptor>& descriptor);
+    ShaderModule(Device* device,
+                 const UnpackedPtr<ShaderModuleDescriptor>& descriptor,
+                 std::vector<tint::wgsl::Extension> internalExtensions);
     ~ShaderModule() override = default;
     MaybeError Initialize(ShaderModuleParseResult* parseResult,
                           OwnedCompilationMessages* compilationMessages);

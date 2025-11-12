@@ -26,6 +26,7 @@
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <memory>
+#include <optional>
 #include <vector>
 
 #include "dawn/dawn_proc.h"
@@ -35,6 +36,7 @@
 #include "dawn/native/Toggles.h"
 #include "dawn/native/dawn_platform.h"
 #include "dawn/tests/MockCallback.h"
+#include "dawn/tests/StringViewMatchers.h"
 #include "dawn/utils/SystemUtils.h"
 #include "dawn/utils/WGPUHelpers.h"
 #include "gtest/gtest.h"
@@ -43,7 +45,9 @@ namespace dawn::native {
 namespace {
 
 using testing::Contains;
+using testing::EmptySizedString;
 using testing::MockCallback;
+using testing::NonEmptySizedString;
 using testing::NotNull;
 using testing::SaveArg;
 using testing::StrEq;
@@ -164,6 +168,11 @@ TEST_F(DeviceCreationTest, CreateDeviceRequiringExperimentalFeatures) {
             wgpu::FeatureName enabledFeature;
             device.EnumerateFeatures(&enabledFeature);
             EXPECT_EQ(enabledFeature, featureName);
+
+            wgpu::SupportedFeatures supportedFeatures;
+            device.GetFeatures(&supportedFeatures);
+            ASSERT_EQ(1u, supportedFeatures.featureCount);
+            EXPECT_EQ(enabledFeature, supportedFeatures.features[0]);
         }
 
         // Test creating device with AllowUnsafeApis enabled in device toggle descriptor will
@@ -184,6 +193,11 @@ TEST_F(DeviceCreationTest, CreateDeviceRequiringExperimentalFeatures) {
                 wgpu::FeatureName enabledFeature;
                 device.EnumerateFeatures(&enabledFeature);
                 EXPECT_EQ(enabledFeature, featureName);
+
+                wgpu::SupportedFeatures supportedFeatures;
+                device.GetFeatures(&supportedFeatures);
+                ASSERT_EQ(1u, supportedFeatures.featureCount);
+                EXPECT_EQ(enabledFeature, supportedFeatures.features[0]);
             }
 
             // Test on adapter with AllowUnsafeApis disabled.
@@ -195,6 +209,11 @@ TEST_F(DeviceCreationTest, CreateDeviceRequiringExperimentalFeatures) {
                 wgpu::FeatureName enabledFeature;
                 device.EnumerateFeatures(&enabledFeature);
                 EXPECT_EQ(enabledFeature, featureName);
+
+                wgpu::SupportedFeatures supportedFeatures;
+                device.GetFeatures(&supportedFeatures);
+                ASSERT_EQ(1u, supportedFeatures.featureCount);
+                EXPECT_EQ(enabledFeature, supportedFeatures.features[0]);
             }
         }
 
@@ -272,16 +291,59 @@ TEST_F(DeviceCreationTest, CreateDeviceWithCacheSuccess) {
     }
 }
 
+class DeviceCreationFutureTest
+    : public DeviceCreationTest,
+      public ::testing::WithParamInterface<std::optional<wgpu::CallbackMode>> {
+  protected:
+    void RequestDevice(const Adapter& a,
+                       const wgpu::DeviceDescriptor* descriptor,
+                       WGPURequestDeviceCallback callback,
+                       void* userdata) {
+        wgpu::Adapter wgpuAdapter(a.Get());
+        if (GetParam() == std::nullopt) {
+            // Legacy RequestDevice. It should call the callback immediately.
+            wgpuAdapter.RequestDevice(descriptor, callback, userdata);
+            return;
+        }
+
+        wgpu::Future future =
+            wgpuAdapter.RequestDevice(descriptor, {nullptr, *GetParam(), callback, userdata});
+        wgpu::Instance wgpuInstance(instance->Get());
+        switch (*GetParam()) {
+            case wgpu::CallbackMode::WaitAnyOnly: {
+                // Callback should complete as soon as poll once.
+                wgpu::FutureWaitInfo waitInfo = {future};
+                EXPECT_EQ(wgpuInstance.WaitAny(1, &waitInfo, 0), wgpu::WaitStatus::Success);
+                ASSERT_TRUE(waitInfo.completed);
+                break;
+            }
+            case wgpu::CallbackMode::AllowSpontaneous:
+                // Callback should already be called.
+                break;
+            case wgpu::CallbackMode::AllowProcessEvents:
+                wgpuInstance.ProcessEvents();
+                break;
+        }
+    }
+};
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    DeviceCreationFutureTest,
+    ::testing::ValuesIn(std::initializer_list<std::optional<wgpu::CallbackMode>>{
+        wgpu::CallbackMode::WaitAnyOnly, wgpu::CallbackMode::AllowProcessEvents,
+        wgpu::CallbackMode::AllowSpontaneous, std::nullopt}));
+
 // Test successful call to RequestDevice with descriptor
-TEST_F(DeviceCreationTest, RequestDeviceSuccess) {
+TEST_P(DeviceCreationFutureTest, RequestDeviceSuccess) {
     WGPUDevice cDevice;
     {
         MockCallback<WGPURequestDeviceCallback> cb;
-        EXPECT_CALL(cb, Call(WGPURequestDeviceStatus_Success, NotNull(), nullptr, this))
+        EXPECT_CALL(cb, Call(WGPURequestDeviceStatus_Success, NotNull(), EmptySizedString(), this))
             .WillOnce(SaveArg<1>(&cDevice));
 
         wgpu::DeviceDescriptor desc = {};
-        adapter.RequestDevice(&desc, cb.Callback(), cb.MakeUserdata(this));
+        RequestDevice(adapter, &desc, cb.Callback(), cb.MakeUserdata(this));
     }
 
     wgpu::Device device = wgpu::Device::Acquire(cDevice);
@@ -289,14 +351,14 @@ TEST_F(DeviceCreationTest, RequestDeviceSuccess) {
 }
 
 // Test successful call to RequestDevice with a null descriptor
-TEST_F(DeviceCreationTest, RequestDeviceNullDescriptorSuccess) {
+TEST_P(DeviceCreationFutureTest, RequestDeviceNullDescriptorSuccess) {
     WGPUDevice cDevice;
     {
         MockCallback<WGPURequestDeviceCallback> cb;
-        EXPECT_CALL(cb, Call(WGPURequestDeviceStatus_Success, NotNull(), nullptr, this))
+        EXPECT_CALL(cb, Call(WGPURequestDeviceStatus_Success, NotNull(), EmptySizedString(), this))
             .WillOnce(SaveArg<1>(&cDevice));
 
-        adapter.RequestDevice(nullptr, cb.Callback(), cb.MakeUserdata(this));
+        RequestDevice(adapter, nullptr, cb.Callback(), cb.MakeUserdata(this));
     }
 
     wgpu::Device device = wgpu::Device::Acquire(cDevice);
@@ -304,16 +366,17 @@ TEST_F(DeviceCreationTest, RequestDeviceNullDescriptorSuccess) {
 }
 
 // Test failing call to RequestDevice with invalid feature
-TEST_F(DeviceCreationTest, RequestDeviceFailure) {
+TEST_P(DeviceCreationFutureTest, RequestDeviceFailure) {
     MockCallback<WGPURequestDeviceCallback> cb;
-    EXPECT_CALL(cb, Call(WGPURequestDeviceStatus_Error, nullptr, NotNull(), this)).Times(1);
+    EXPECT_CALL(cb, Call(WGPURequestDeviceStatus_Error, nullptr, NonEmptySizedString(), this))
+        .Times(1);
 
     wgpu::DeviceDescriptor desc = {};
     wgpu::FeatureName invalidFeature = static_cast<wgpu::FeatureName>(WGPUFeatureName_Force32);
     desc.requiredFeatures = &invalidFeature;
     desc.requiredFeatureCount = 1;
 
-    adapter.RequestDevice(&desc, cb.Callback(), cb.MakeUserdata(this));
+    RequestDevice(adapter, &desc, cb.Callback(), cb.MakeUserdata(this));
 }
 
 }  // anonymous namespace

@@ -1,10 +1,7 @@
 #version 310 es
 
-layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
-void unused_entry_point() {
-  return;
-}
-struct GammaTransferParams {
+
+struct tint_GammaTransferParams {
   float G;
   float A;
   float B;
@@ -15,37 +12,41 @@ struct GammaTransferParams {
   uint padding;
 };
 
-struct ExternalTextureParams {
+struct tint_ExternalTextureParams_std140 {
   uint numPlanes;
   uint doYuvToRgbConversionOnly;
-  uint pad;
-  uint pad_1;
+  uint tint_pad_0;
+  uint tint_pad_1;
   mat3x4 yuvToRgbConversionMatrix;
-  GammaTransferParams gammaDecodeParams;
-  GammaTransferParams gammaEncodeParams;
-  mat3 gamutConversionMatrix;
-  mat3x2 coordTransformationMatrix;
-  uint pad_2;
-  uint pad_3;
+  tint_GammaTransferParams gammaDecodeParams;
+  tint_GammaTransferParams gammaEncodeParams;
+  vec3 gamutConversionMatrix_col0;
+  uint tint_pad_2;
+  vec3 gamutConversionMatrix_col1;
+  uint tint_pad_3;
+  vec3 gamutConversionMatrix_col2;
+  uint tint_pad_4;
+  vec2 sampleTransform_col0;
+  vec2 sampleTransform_col1;
+  vec2 sampleTransform_col2;
+  vec2 loadTransform_col0;
+  vec2 loadTransform_col1;
+  vec2 loadTransform_col2;
+  vec2 samplePlane0RectMin;
+  vec2 samplePlane0RectMax;
+  vec2 samplePlane1RectMin;
+  vec2 samplePlane1RectMax;
+  uvec2 visibleSize;
+  vec2 plane1CoordFactor;
 };
 
-struct ExternalTextureParams_std140 {
-  uint numPlanes;
-  uint doYuvToRgbConversionOnly;
-  uint pad;
-  uint pad_1;
-  mat3x4 yuvToRgbConversionMatrix;
-  GammaTransferParams gammaDecodeParams;
-  GammaTransferParams gammaEncodeParams;
-  mat3 gamutConversionMatrix;
-  vec2 coordTransformationMatrix_0;
-  vec2 coordTransformationMatrix_1;
-  vec2 coordTransformationMatrix_2;
-  uint pad_2;
-  uint pad_3;
-};
-
-layout(binding = 4, std140) uniform ext_tex_params_block_std140_ubo {
-  ExternalTextureParams_std140 inner;
-} ext_tex_params;
-
+uniform highp sampler2D randomTexture_plane0;
+uniform highp sampler2D randomTexture_plane1;
+layout(binding = 4, std140)
+uniform randomTexture_params_block_std140_1_ubo {
+  tint_ExternalTextureParams_std140 inner;
+} v;
+uniform highp sampler2D depthTexture;
+layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+void main() {
+}

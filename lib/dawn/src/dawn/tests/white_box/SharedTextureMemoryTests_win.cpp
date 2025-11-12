@@ -29,7 +29,9 @@
 #include <d3d11_4.h>
 #include <d3d12.h>
 #include <dxgi1_4.h>
+#include <webgpu/webgpu_cpp.h>
 #include <wrl/client.h>
+
 #include <string>
 #include <utility>
 #include <vector>
@@ -37,7 +39,6 @@
 #include "dawn/native/D3D11Backend.h"
 #include "dawn/native/D3DBackend.h"
 #include "dawn/tests/white_box/SharedTextureMemoryTests.h"
-#include "dawn/webgpu_cpp.h"
 
 namespace dawn {
 namespace {
@@ -75,7 +76,7 @@ class Backend : public SharedTextureMemoryTestBackend {
     }
 
     bool UseSameDevice() const override { return mMode == Mode::D3D11Texture2D; }
-    bool SupportsConcurrentRead() const override { return !mUseKeyedMutex; }
+    bool SupportsConcurrentRead() const override { return true; }
 
     std::vector<wgpu::FeatureName> RequiredFeatures(const wgpu::Adapter& adapter) const override {
         switch (mMode) {
@@ -121,7 +122,8 @@ class Backend : public SharedTextureMemoryTestBackend {
     }
 
     // Create one basic shared texture memory. It should support most operations.
-    wgpu::SharedTextureMemory CreateSharedTextureMemory(const wgpu::Device& device) override {
+    wgpu::SharedTextureMemory CreateSharedTextureMemory(const wgpu::Device& device,
+                                                        int layerCount) override {
         ComPtr<ID3D11Device> d3d11Device = MakeD3D11Device(device);
 
         // Create a DX11 texture with data then wrap it in a shared handle.
@@ -129,7 +131,7 @@ class Backend : public SharedTextureMemoryTestBackend {
         d3dDescriptor.Width = 16;
         d3dDescriptor.Height = 16;
         d3dDescriptor.MipLevels = 1;
-        d3dDescriptor.ArraySize = 1;
+        d3dDescriptor.ArraySize = layerCount;
         d3dDescriptor.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
         d3dDescriptor.SampleDesc.Count = 1;
         d3dDescriptor.SampleDesc.Quality = 0;
@@ -182,7 +184,8 @@ class Backend : public SharedTextureMemoryTestBackend {
     }
 
     std::vector<std::vector<wgpu::SharedTextureMemory>> CreatePerDeviceSharedTextureMemories(
-        const std::vector<wgpu::Device>& devices) override {
+        const std::vector<wgpu::Device>& devices,
+        int layerCount) override {
         std::vector<std::vector<wgpu::SharedTextureMemory>> memories;
 
         ComPtr<ID3D11Device> d3d11Device = MakeD3D11Device(devices[0]);
@@ -202,7 +205,7 @@ class Backend : public SharedTextureMemoryTestBackend {
 
         struct D3DFormat {
             DXGI_FORMAT format;
-            wgpu::FeatureName requiredFeature = wgpu::FeatureName::Undefined;
+            wgpu::FeatureName requiredFeature = wgpu::FeatureName(0u);
         };
         std::vector<D3DFormat> formats = {{
             {DXGI_FORMAT_R16G16B16A16_FLOAT},
@@ -211,8 +214,8 @@ class Backend : public SharedTextureMemoryTestBackend {
             {DXGI_FORMAT_R8G8B8A8_UNORM},
             {DXGI_FORMAT_B8G8R8A8_UNORM},
             {DXGI_FORMAT_R10G10B10A2_UNORM},
-            {DXGI_FORMAT_R16G16_UNORM, wgpu::FeatureName::Norm16TextureFormats},
-            {DXGI_FORMAT_R16_UNORM, wgpu::FeatureName::Norm16TextureFormats},
+            {DXGI_FORMAT_R16G16_UNORM, wgpu::FeatureName::Unorm16TextureFormats},
+            {DXGI_FORMAT_R16_UNORM, wgpu::FeatureName::Unorm16TextureFormats},
             {DXGI_FORMAT_R8G8_UNORM},
             {DXGI_FORMAT_R8_UNORM},
         }};
@@ -228,7 +231,7 @@ class Backend : public SharedTextureMemoryTestBackend {
                 d3dDescriptor.Width = size;
                 d3dDescriptor.Height = size;
                 d3dDescriptor.MipLevels = 1;
-                d3dDescriptor.ArraySize = 1;
+                d3dDescriptor.ArraySize = layerCount;
                 d3dDescriptor.Format = f.format;
                 d3dDescriptor.SampleDesc.Count = 1;
                 d3dDescriptor.SampleDesc.Quality = 0;
@@ -253,7 +256,7 @@ class Backend : public SharedTextureMemoryTestBackend {
                         desc.nextInChain = &texture2DDesc;
 
                         for (auto& device : devices) {
-                            if (f.requiredFeature != wgpu::FeatureName::Undefined &&
+                            if (f.requiredFeature != wgpu::FeatureName(0u) &&
                                 !device.HasFeature(f.requiredFeature)) {
                                 continue;
                             }
@@ -275,6 +278,7 @@ class Backend : public SharedTextureMemoryTestBackend {
 
                         wgpu::SharedTextureMemoryDXGISharedHandleDescriptor sharedHandleDesc;
                         sharedHandleDesc.handle = sharedHandle;
+                        sharedHandleDesc.useKeyedMutex = mUseKeyedMutex;
 
                         std::string label = LabelName(f.format, size);
 
@@ -283,7 +287,7 @@ class Backend : public SharedTextureMemoryTestBackend {
                         desc.label = label.c_str();
 
                         for (auto& device : devices) {
-                            if (f.requiredFeature != wgpu::FeatureName::Undefined &&
+                            if (f.requiredFeature != wgpu::FeatureName(0u) &&
                                 !device.HasFeature(f.requiredFeature)) {
                                 continue;
                             }
@@ -492,25 +496,29 @@ DAWN_INSTANTIATE_PREFIXED_TEST_P(D3D,
                                  SharedTextureMemoryNoFeatureTests,
                                  {D3D11Backend(), D3D12Backend()},
                                  {Backend::GetInstance<Mode::DXGISharedHandle>(),
-                                  Backend::GetKeyedMutexInstance<Mode::DXGISharedHandle>()});
+                                  Backend::GetKeyedMutexInstance<Mode::DXGISharedHandle>()},
+                                 {1});
 
 DAWN_INSTANTIATE_PREFIXED_TEST_P(D3D,
                                  SharedTextureMemoryTests,
                                  {D3D11Backend(), D3D12Backend()},
                                  {Backend::GetInstance<Mode::DXGISharedHandle>(),
-                                  Backend::GetKeyedMutexInstance<Mode::DXGISharedHandle>()});
+                                  Backend::GetKeyedMutexInstance<Mode::DXGISharedHandle>()},
+                                 {1});
 
 DAWN_INSTANTIATE_PREFIXED_TEST_P(D3D11,
                                  SharedTextureMemoryNoFeatureTests,
                                  {D3D11Backend()},
                                  {Backend::GetInstance<Mode::D3D11Texture2D>(),
-                                  Backend::GetKeyedMutexInstance<Mode::D3D11Texture2D>()});
+                                  Backend::GetKeyedMutexInstance<Mode::D3D11Texture2D>()},
+                                 {1, 2});
 
 DAWN_INSTANTIATE_PREFIXED_TEST_P(D3D11,
                                  SharedTextureMemoryTests,
                                  {D3D11Backend()},
                                  {Backend::GetInstance<Mode::D3D11Texture2D>(),
-                                  Backend::GetKeyedMutexInstance<Mode::D3D11Texture2D>()});
+                                  Backend::GetKeyedMutexInstance<Mode::D3D11Texture2D>()},
+                                 {1, 2});
 
 }  // anonymous namespace
 }  // namespace dawn

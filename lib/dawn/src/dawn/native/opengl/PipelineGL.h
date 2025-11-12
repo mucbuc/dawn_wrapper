@@ -31,11 +31,13 @@
 #include <utility>
 #include <vector>
 
+#include "dawn/native/IntegerTypes.h"
 #include "dawn/native/Pipeline.h"
 
 #include "include/tint/tint.h"
 
 #include "dawn/native/PerStage.h"
+#include "dawn/native/opengl/BindingPoint.h"
 #include "dawn/native/opengl/opengl_platform.h"
 
 namespace dawn::native {
@@ -66,14 +68,17 @@ class PipelineGL {
     GLuint GetProgramHandle() const;
 
     const Buffer* GetInternalUniformBuffer() const;
-    const tint::TextureBuiltinsFromUniformOptions::BindingPointToFieldAndOffset&
-    GetBindingPointBuiltinDataInfo() const;
+    const BindingPointToFunctionAndOffset& GetBindingPointBuiltinDataInfo() const;
 
   protected:
     void ApplyNow(const OpenGLFunctions& gl);
     MaybeError InitializeBase(const OpenGLFunctions& gl,
                               const PipelineLayout* layout,
-                              const PerStage<ProgrammableStage>& stages);
+                              const PerStage<ProgrammableStage>& stages,
+                              bool usesVertexIndex,
+                              bool usesInstanceIndex,
+                              bool usesFragDepth,
+                              VertexAttributeMask bgraSwizzleAttributes);
     void DeleteProgram(const OpenGLFunctions& gl);
 
   private:
@@ -92,8 +97,7 @@ class PipelineGL {
 
     // Reflect info from tint: a map from texture binding point to extra data need to push into the
     // internal uniform buffer.
-    tint::TextureBuiltinsFromUniformOptions::BindingPointToFieldAndOffset
-        mBindingPointEmulatedBuiltins;
+    BindingPointToFunctionAndOffset mBindingPointEmulatedBuiltins;
 };
 
 }  // namespace dawn::native::opengl

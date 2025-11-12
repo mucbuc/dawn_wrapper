@@ -28,62 +28,48 @@
 #ifndef SRC_DAWN_WIRE_CLIENT_BUFFER_H_
 #define SRC_DAWN_WIRE_CLIENT_BUFFER_H_
 
+#include <webgpu/webgpu.h>
+
 #include <memory>
 #include <optional>
 
 #include "dawn/common/FutureUtils.h"
 #include "dawn/common/Ref.h"
-#include "dawn/common/RefCounted.h"
-#include "dawn/webgpu.h"
+#include "dawn/common/RefCountedWithExternalCount.h"
 #include "dawn/wire/WireClient.h"
 #include "dawn/wire/client/ObjectBase.h"
+#include "partition_alloc/pointers/raw_ptr.h"
 
 namespace dawn::wire::client {
 
 class Device;
 
-enum class MapRequestType { None, Read, Write };
-
-enum class MapState {
-    Unmapped,
-    MappedForRead,
-    MappedForWrite,
-    MappedAtCreation,
-};
-
-struct MapRequestData {
-    FutureID futureID = kNullFutureID;
-    size_t offset = 0;
-    size_t size = 0;
-    MapRequestType type = MapRequestType::None;
-};
-
-struct MapStateData : public RefCounted {
-    // Up to only one request can exist at a single time. Other requests are rejected.
-    std::optional<MapRequestData> pendingRequest = std::nullopt;
-    MapState mapState = MapState::Unmapped;
-};
-
-class Buffer final : public ObjectBase {
+class Buffer final : public RefCountedWithExternalCount<ObjectWithEventsBase> {
   public:
     static WGPUBuffer Create(Device* device, const WGPUBufferDescriptor* descriptor);
+    static WGPUBuffer CreateError(Device* device, const WGPUBufferDescriptor* descriptor);
 
-    Buffer(const ObjectBaseParams& params, const WGPUBufferDescriptor* descriptor);
-    ~Buffer() override;
+    Buffer(const ObjectBaseParams& params,
+           const ObjectHandle& eventManagerHandle,
+           Device* device,
+           const WGPUBufferDescriptor* descriptor);
+    void DeleteThis() override;
 
-    bool OnMapAsyncCallback(WGPUFuture future,
-                            uint32_t status,
-                            uint64_t readDataUpdateInfoLength,
-                            const uint8_t* readDataUpdateInfo);
-    void MapAsync(WGPUMapModeFlags mode,
+    ObjectType GetObjectType() const override;
+
+    void MapAsync(WGPUMapMode mode,
                   size_t offset,
                   size_t size,
                   WGPUBufferMapCallback callback,
                   void* userdata);
-    WGPUFuture MapAsyncF(WGPUMapModeFlags mode,
+    WGPUFuture MapAsyncF(WGPUMapMode mode,
                          size_t offset,
                          size_t size,
                          const WGPUBufferMapCallbackInfo& callbackInfo);
+    WGPUFuture MapAsync2(WGPUMapMode mode,
+                         size_t offset,
+                         size_t size,
+                         const WGPUBufferMapCallbackInfo2& callbackInfo);
     void* GetMappedRange(size_t offset, size_t size);
     const void* GetConstMappedRange(size_t offset, size_t size);
     void Unmap();
@@ -97,9 +83,14 @@ class Buffer final : public ObjectBase {
     WGPUBufferMapState GetMapState() const;
 
   private:
+    friend class Client;
+    class MapAsyncEvent;
+    class MapAsyncEvent2;
+
+    void WillDropLastExternalRef() override;
+
     // Prepares the callbacks to be called and potentially calls them
-    bool SetFutureStatus(WGPUBufferMapAsyncStatus status);
-    void SetFutureStatusAndClearPending(WGPUBufferMapAsyncStatus status);
+    void SetFutureStatus(WGPUBufferMapAsyncStatus status);
 
     bool IsMappedForReading() const;
     bool IsMappedForWriting() const;
@@ -107,24 +98,40 @@ class Buffer final : public ObjectBase {
 
     void FreeMappedData();
 
-    // The map state is a shared resource with the TrackedEvent so that it is updated only when the
-    // callback is actually called. This is important for WaitAny and ProcessEvents cases where the
-    // server may have responded, but due to an early Unmap or Destroy before the corresponding
-    // WaitAny or ProcessEvents call, we need to update the callback result.
-    Ref<MapStateData> mMapStateData;
+    const uint64_t mSize = 0;
+    const WGPUBufferUsage mUsage;
+    const bool mDestructWriteHandleOnUnmap;
+    Ref<Device> mDevice;
 
-    uint64_t mSize = 0;
-    WGPUBufferUsage mUsage;
+    // Mapping members are mutable depending on the current map state.
+    enum class MapRequestType { Read, Write };
+    struct MapRequest {
+        FutureID futureID = kNullFutureID;
+        size_t offset = 0;
+        size_t size = 0;
+        // Because validation for request type is validated via the backend, we use an optional type
+        // here. This is nullopt when an invalid request type is passed to the wire.
+        std::optional<MapRequestType> type;
+        // Currently needs an additional boolean to indicate which entry point was used for the map.
+        // TODO(crbug.com/42241461): Remove this once we don't need to support both on the wire.
+        bool isNewEntryPoint = false;
+    };
+    enum class MapState {
+        Unmapped,
+        MappedForRead,
+        MappedForWrite,
+        MappedAtCreation,
+    };
+    std::optional<MapRequest> mPendingMapRequest = std::nullopt;
+    MapState mMappedState = MapState::Unmapped;
+    raw_ptr<void> mMappedData = nullptr;
+    size_t mMappedOffset = 0;
+    size_t mMappedSize = 0;
 
     // Only one mapped pointer can be active at a time
     // TODO(enga): Use a tagged pointer to save space.
     std::unique_ptr<MemoryTransferService::ReadHandle> mReadHandle = nullptr;
     std::unique_ptr<MemoryTransferService::WriteHandle> mWriteHandle = nullptr;
-    bool mDestructWriteHandleOnUnmap = false;
-
-    void* mMappedData = nullptr;
-    size_t mMapOffset = 0;
-    size_t mMapSize = 0;
 };
 
 }  // namespace dawn::wire::client

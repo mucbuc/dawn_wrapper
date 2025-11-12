@@ -38,7 +38,8 @@ struct SharedFenceExportInfo;
 
 class SharedFenceBase : public ApiObjectBase {
   public:
-    static SharedFenceBase* MakeError(DeviceBase* device, const SharedFenceDescriptor* descriptor);
+    static Ref<SharedFenceBase> MakeError(DeviceBase* device,
+                                          const SharedFenceDescriptor* descriptor);
 
     ObjectType GetType() const override;
 
@@ -47,7 +48,7 @@ class SharedFenceBase : public ApiObjectBase {
     MaybeError ExportInfo(SharedFenceExportInfo* info) const;
 
   protected:
-    SharedFenceBase(DeviceBase* device, const char* label);
+    SharedFenceBase(DeviceBase* device, StringView label);
     SharedFenceBase(DeviceBase* device,
                     const SharedFenceDescriptor* descriptor,
                     ObjectBase::ErrorTag tag);

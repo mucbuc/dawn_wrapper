@@ -1050,9 +1050,12 @@ TEST_F(ResolverVariableTest, LocalConst_ConstEval) {
 TEST_F(ResolverVariableTest, GlobalVar_AddressSpace) {
     // https://gpuweb.github.io/gpuweb/wgsl/#storage-class
 
+    Enable(wgsl::Extension::kChromiumExperimentalPushConstant);
+
     auto* buf = Structure("S", Vector{Member("m", ty.i32())});
     auto* private_ = GlobalVar("p", ty.i32(), core::AddressSpace::kPrivate);
     auto* workgroup = GlobalVar("w", ty.i32(), core::AddressSpace::kWorkgroup);
+    auto* push_constant = GlobalVar("pc", ty.i32(), core::AddressSpace::kPushConstant);
     auto* uniform =
         GlobalVar("ub", ty.Of(buf), core::AddressSpace::kUniform, Binding(0_a), Group(0_a));
     auto* storage =
@@ -1064,12 +1067,14 @@ TEST_F(ResolverVariableTest, GlobalVar_AddressSpace) {
 
     ASSERT_TRUE(TypeOf(private_)->Is<core::type::Reference>());
     ASSERT_TRUE(TypeOf(workgroup)->Is<core::type::Reference>());
+    ASSERT_TRUE(TypeOf(push_constant)->Is<core::type::Reference>());
     ASSERT_TRUE(TypeOf(uniform)->Is<core::type::Reference>());
     ASSERT_TRUE(TypeOf(storage)->Is<core::type::Reference>());
     ASSERT_TRUE(TypeOf(handle)->Is<core::type::Reference>());
 
     EXPECT_EQ(TypeOf(private_)->As<core::type::Reference>()->Access(), core::Access::kReadWrite);
     EXPECT_EQ(TypeOf(workgroup)->As<core::type::Reference>()->Access(), core::Access::kReadWrite);
+    EXPECT_EQ(TypeOf(push_constant)->As<core::type::Reference>()->Access(), core::Access::kRead);
     EXPECT_EQ(TypeOf(uniform)->As<core::type::Reference>()->Access(), core::Access::kRead);
     EXPECT_EQ(TypeOf(storage)->As<core::type::Reference>()->Access(), core::Access::kRead);
     EXPECT_EQ(TypeOf(handle)->As<core::type::Reference>()->Access(), core::Access::kRead);
@@ -1312,7 +1317,7 @@ TEST_F(ResolverVariableTest, GlobalVar_UseTemplatedIdent) {
 
     EXPECT_FALSE(r()->Resolve());
     EXPECT_EQ(r()->error(), R"(12:34 error: variable 'a' does not take template arguments
-56:78 note: var 'a' declared here)");
+56:78 note: 'var a' declared here)");
 }
 
 TEST_F(ResolverVariableTest, GlobalConst_UseTemplatedIdent) {
@@ -1330,7 +1335,7 @@ TEST_F(ResolverVariableTest, GlobalConst_UseTemplatedIdent) {
 
     EXPECT_FALSE(r()->Resolve());
     EXPECT_EQ(r()->error(), R"(12:34 error: variable 'a' does not take template arguments
-56:78 note: const 'a' declared here)");
+56:78 note: 'const a' declared here)");
 }
 
 TEST_F(ResolverVariableTest, GlobalOverride_UseTemplatedIdent) {
@@ -1348,7 +1353,7 @@ TEST_F(ResolverVariableTest, GlobalOverride_UseTemplatedIdent) {
 
     EXPECT_FALSE(r()->Resolve());
     EXPECT_EQ(r()->error(), R"(12:34 error: variable 'a' does not take template arguments
-56:78 note: override 'a' declared here)");
+56:78 note: 'override a' declared here)");
 }
 
 TEST_F(ResolverVariableTest, Param_UseTemplatedIdent) {
@@ -1380,7 +1385,7 @@ TEST_F(ResolverVariableTest, LocalVar_UseTemplatedIdent) {
 
     EXPECT_FALSE(r()->Resolve());
     EXPECT_EQ(r()->error(), R"(12:34 error: variable 'a' does not take template arguments
-56:78 note: var 'a' declared here)");
+56:78 note: 'var a' declared here)");
 }
 
 TEST_F(ResolverVariableTest, Let_UseTemplatedIdent) {
@@ -1397,7 +1402,7 @@ TEST_F(ResolverVariableTest, Let_UseTemplatedIdent) {
 
     EXPECT_FALSE(r()->Resolve());
     EXPECT_EQ(r()->error(), R"(12:34 error: variable 'a' does not take template arguments
-56:78 note: let 'a' declared here)");
+56:78 note: 'let a' declared here)");
 }
 
 }  // namespace

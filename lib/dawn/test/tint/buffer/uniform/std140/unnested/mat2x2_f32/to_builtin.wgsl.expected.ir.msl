@@ -1,29 +1,13 @@
-SKIP: FAILED
+#include <metal_stdlib>
+using namespace metal;
 
-<dawn>/src/tint/lang/msl/writer/printer/printer.cc:355 internal compiler error: %b1 = block {  # root
-  %u:ptr<uniform, mat2x2<f32>, read> = var @binding_point(0, 0)
+struct tint_module_vars_struct {
+  const constant float2x2* u;
+};
+
+kernel void f(const constant float2x2* u [[buffer(0)]]) {
+  tint_module_vars_struct const tint_module_vars = tint_module_vars_struct{.u=u};
+  float2x2 const t = transpose((*tint_module_vars.u));
+  float const l = length((*tint_module_vars.u)[1]);
+  float const a = abs((*tint_module_vars.u)[0].yx[0u]);
 }
-
-%f = @compute @workgroup_size(1, 1, 1) func():void -> %b2 {
-  %b2 = block {
-    %3:mat2x2<f32> = load %u
-    %t:mat2x2<f32> = transpose %3
-    %5:ptr<uniform, vec2<f32>, read> = access %u, 1i
-    %6:vec2<f32> = load %5
-    %l:f32 = length %6
-    %8:ptr<uniform, vec2<f32>, read> = access %u, 0i
-    %9:vec2<f32> = load %8
-    %10:vec2<f32> = swizzle %9, yx
-    %11:f32 = access %10, 0u
-    %a:f32 = abs %11
-    ret
-  }
-}
-
-unhandled variable address space
-********************************************************************
-*  The tint shader compiler has encountered an unexpected error.   *
-*                                                                  *
-*  Please help us fix this issue by submitting a bug report at     *
-*  crbug.com/tint with the source program that triggered the bug.  *
-********************************************************************

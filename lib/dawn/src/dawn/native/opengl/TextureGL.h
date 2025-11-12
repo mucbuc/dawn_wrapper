@@ -36,20 +36,33 @@ namespace dawn::native::opengl {
 
 class Device;
 struct GLFormat;
+class SharedTextureMemory;
+
+enum class OwnsHandle : uint8_t {
+    Yes,
+    No,
+};
 
 class Texture final : public TextureBase {
   public:
     static ResultOrError<Ref<Texture>> Create(Device* device,
                                               const UnpackedPtr<TextureDescriptor>& descriptor);
-    Texture(Device* device, const UnpackedPtr<TextureDescriptor>& descriptor, GLuint handle);
+    static ResultOrError<Ref<Texture>> CreateFromSharedTextureMemory(
+        SharedTextureMemory* memory,
+        const UnpackedPtr<TextureDescriptor>& descriptor);
+
+    Texture(Device* device,
+            const UnpackedPtr<TextureDescriptor>& descriptor,
+            GLuint handle,
+            OwnsHandle ownsHandle);
 
     GLuint GetHandle() const;
     GLenum GetGLTarget() const;
     const GLFormat& GetGLFormat() const;
-    uint32_t GetGenID() const;
-    void Touch();
 
     MaybeError EnsureSubresourceContentInitialized(const SubresourceRange& range);
+
+    MaybeError SynchronizeTextureBeforeUse();
 
   private:
     Texture(Device* device, const UnpackedPtr<TextureDescriptor>& descriptor);
@@ -59,19 +72,17 @@ class Texture final : public TextureBase {
     MaybeError ClearTexture(const SubresourceRange& range, TextureBase::ClearValue clearValue);
 
     GLuint mHandle;
-    bool mOwnsHandle = false;
+    OwnsHandle mOwnsHandle = OwnsHandle::No;
     GLenum mTarget;
-    uint32_t mGenID = 0;
 };
 
 class TextureView final : public TextureViewBase {
   public:
-    TextureView(TextureBase* texture, const TextureViewDescriptor* descriptor);
+    TextureView(TextureBase* texture, const UnpackedPtr<TextureViewDescriptor>& descriptor);
 
     GLuint GetHandle() const;
     GLenum GetGLTarget() const;
     void BindToFramebuffer(GLenum target, GLenum attachment, GLuint depthLayer = 0);
-    void CopyIfNeeded();
 
   private:
     ~TextureView() override;
@@ -82,8 +93,6 @@ class TextureView final : public TextureViewBase {
     GLuint mHandle;
     GLenum mTarget;
     bool mOwnsHandle;
-    bool mUseCopy = false;
-    uint32_t mGenID = 0;
 };
 
 }  // namespace dawn::native::opengl

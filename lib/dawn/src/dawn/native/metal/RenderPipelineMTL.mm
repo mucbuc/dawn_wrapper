@@ -28,7 +28,7 @@
 #include "dawn/native/metal/RenderPipelineMTL.h"
 
 #include "dawn/native/Adapter.h"
-#include "dawn/native/CreatePipelineAsyncTask.h"
+#include "dawn/native/CreatePipelineAsyncEvent.h"
 #include "dawn/native/Instance.h"
 #include "dawn/native/metal/BackendMTL.h"
 #include "dawn/native/metal/DeviceMTL.h"
@@ -43,38 +43,56 @@ namespace dawn::native::metal {
 namespace {
 MTLVertexFormat VertexFormatType(wgpu::VertexFormat format) {
     switch (format) {
+        case wgpu::VertexFormat::Uint8:
+            return MTLVertexFormatUChar;
         case wgpu::VertexFormat::Uint8x2:
             return MTLVertexFormatUChar2;
         case wgpu::VertexFormat::Uint8x4:
             return MTLVertexFormatUChar4;
+        case wgpu::VertexFormat::Sint8:
+            return MTLVertexFormatChar;
         case wgpu::VertexFormat::Sint8x2:
             return MTLVertexFormatChar2;
         case wgpu::VertexFormat::Sint8x4:
             return MTLVertexFormatChar4;
+        case wgpu::VertexFormat::Unorm8:
+            return MTLVertexFormatUCharNormalized;
         case wgpu::VertexFormat::Unorm8x2:
             return MTLVertexFormatUChar2Normalized;
         case wgpu::VertexFormat::Unorm8x4:
             return MTLVertexFormatUChar4Normalized;
+        case wgpu::VertexFormat::Snorm8:
+            return MTLVertexFormatCharNormalized;
         case wgpu::VertexFormat::Snorm8x2:
             return MTLVertexFormatChar2Normalized;
         case wgpu::VertexFormat::Snorm8x4:
             return MTLVertexFormatChar4Normalized;
+        case wgpu::VertexFormat::Uint16:
+            return MTLVertexFormatUShort;
         case wgpu::VertexFormat::Uint16x2:
             return MTLVertexFormatUShort2;
         case wgpu::VertexFormat::Uint16x4:
             return MTLVertexFormatUShort4;
+        case wgpu::VertexFormat::Sint16:
+            return MTLVertexFormatShort;
         case wgpu::VertexFormat::Sint16x2:
             return MTLVertexFormatShort2;
         case wgpu::VertexFormat::Sint16x4:
             return MTLVertexFormatShort4;
+        case wgpu::VertexFormat::Unorm16:
+            return MTLVertexFormatUShortNormalized;
         case wgpu::VertexFormat::Unorm16x2:
             return MTLVertexFormatUShort2Normalized;
         case wgpu::VertexFormat::Unorm16x4:
             return MTLVertexFormatUShort4Normalized;
+        case wgpu::VertexFormat::Snorm16:
+            return MTLVertexFormatShortNormalized;
         case wgpu::VertexFormat::Snorm16x2:
             return MTLVertexFormatShort2Normalized;
         case wgpu::VertexFormat::Snorm16x4:
             return MTLVertexFormatShort4Normalized;
+        case wgpu::VertexFormat::Float16:
+            return MTLVertexFormatHalf;
         case wgpu::VertexFormat::Float16x2:
             return MTLVertexFormatHalf2;
         case wgpu::VertexFormat::Float16x4:
@@ -105,6 +123,8 @@ MTLVertexFormat VertexFormatType(wgpu::VertexFormat format) {
             return MTLVertexFormatInt4;
         case wgpu::VertexFormat::Unorm10_10_10_2:
             return MTLVertexFormatUInt1010102Normalized;
+        case wgpu::VertexFormat::Unorm8x4BGRA:
+            return MTLVertexFormatUChar4Normalized_BGRA;
         default:
             DAWN_UNREACHABLE();
     }
@@ -117,8 +137,10 @@ MTLVertexStepFunction VertexStepModeFunction(wgpu::VertexStepMode mode) {
         case wgpu::VertexStepMode::Instance:
             return MTLVertexStepFunctionPerInstance;
         case wgpu::VertexStepMode::VertexBufferNotUsed:
-            DAWN_UNREACHABLE();
+        case wgpu::VertexStepMode::Undefined:
+            break;
     }
+    DAWN_UNREACHABLE();
 }
 
 MTLPrimitiveType MTLPrimitiveTopology(wgpu::PrimitiveTopology primitiveTopology) {
@@ -133,7 +155,10 @@ MTLPrimitiveType MTLPrimitiveTopology(wgpu::PrimitiveTopology primitiveTopology)
             return MTLPrimitiveTypeTriangle;
         case wgpu::PrimitiveTopology::TriangleStrip:
             return MTLPrimitiveTypeTriangleStrip;
+        case wgpu::PrimitiveTopology::Undefined:
+            break;
     }
+    DAWN_UNREACHABLE();
 }
 
 MTLPrimitiveTopologyClass MTLInputPrimitiveTopology(wgpu::PrimitiveTopology primitiveTopology) {
@@ -146,7 +171,10 @@ MTLPrimitiveTopologyClass MTLInputPrimitiveTopology(wgpu::PrimitiveTopology prim
         case wgpu::PrimitiveTopology::TriangleList:
         case wgpu::PrimitiveTopology::TriangleStrip:
             return MTLPrimitiveTopologyClassTriangle;
+        case wgpu::PrimitiveTopology::Undefined:
+            break;
     }
+    DAWN_UNREACHABLE();
 }
 
 MTLBlendFactor MetalBlendFactor(wgpu::BlendFactor factor, bool alpha) {
@@ -185,7 +213,10 @@ MTLBlendFactor MetalBlendFactor(wgpu::BlendFactor factor, bool alpha) {
             return MTLBlendFactorSource1Alpha;
         case wgpu::BlendFactor::OneMinusSrc1Alpha:
             return MTLBlendFactorOneMinusSource1Alpha;
+        case wgpu::BlendFactor::Undefined:
+            break;
     }
+    DAWN_UNREACHABLE();
 }
 
 MTLBlendOperation MetalBlendOperation(wgpu::BlendOperation operation) {
@@ -200,7 +231,10 @@ MTLBlendOperation MetalBlendOperation(wgpu::BlendOperation operation) {
             return MTLBlendOperationMin;
         case wgpu::BlendOperation::Max:
             return MTLBlendOperationMax;
+        case wgpu::BlendOperation::Undefined:
+            break;
     }
+    DAWN_UNREACHABLE();
 }
 
 MTLColorWriteMask MetalColorWriteMask(wgpu::ColorWriteMask writeMask,
@@ -262,51 +296,10 @@ MTLStencilOperation MetalStencilOperation(wgpu::StencilOperation stencilOperatio
             return MTLStencilOperationIncrementWrap;
         case wgpu::StencilOperation::DecrementWrap:
             return MTLStencilOperationDecrementWrap;
+        case wgpu::StencilOperation::Undefined:
+            break;
     }
-}
-
-NSRef<MTLDepthStencilDescriptor> MakeDepthStencilDesc(const DepthStencilState* descriptor) {
-    NSRef<MTLDepthStencilDescriptor> mtlDepthStencilDescRef =
-        AcquireNSRef([MTLDepthStencilDescriptor new]);
-    MTLDepthStencilDescriptor* mtlDepthStencilDescriptor = mtlDepthStencilDescRef.Get();
-
-    mtlDepthStencilDescriptor.depthCompareFunction =
-        ToMetalCompareFunction(descriptor->depthCompare);
-    mtlDepthStencilDescriptor.depthWriteEnabled = descriptor->depthWriteEnabled;
-
-    if (StencilTestEnabled(descriptor)) {
-        NSRef<MTLStencilDescriptor> backFaceStencilRef = AcquireNSRef([MTLStencilDescriptor new]);
-        MTLStencilDescriptor* backFaceStencil = backFaceStencilRef.Get();
-        NSRef<MTLStencilDescriptor> frontFaceStencilRef = AcquireNSRef([MTLStencilDescriptor new]);
-        MTLStencilDescriptor* frontFaceStencil = frontFaceStencilRef.Get();
-
-        backFaceStencil.stencilCompareFunction =
-            ToMetalCompareFunction(descriptor->stencilBack.compare);
-        backFaceStencil.stencilFailureOperation =
-            MetalStencilOperation(descriptor->stencilBack.failOp);
-        backFaceStencil.depthFailureOperation =
-            MetalStencilOperation(descriptor->stencilBack.depthFailOp);
-        backFaceStencil.depthStencilPassOperation =
-            MetalStencilOperation(descriptor->stencilBack.passOp);
-        backFaceStencil.readMask = descriptor->stencilReadMask;
-        backFaceStencil.writeMask = descriptor->stencilWriteMask;
-
-        frontFaceStencil.stencilCompareFunction =
-            ToMetalCompareFunction(descriptor->stencilFront.compare);
-        frontFaceStencil.stencilFailureOperation =
-            MetalStencilOperation(descriptor->stencilFront.failOp);
-        frontFaceStencil.depthFailureOperation =
-            MetalStencilOperation(descriptor->stencilFront.depthFailOp);
-        frontFaceStencil.depthStencilPassOperation =
-            MetalStencilOperation(descriptor->stencilFront.passOp);
-        frontFaceStencil.readMask = descriptor->stencilReadMask;
-        frontFaceStencil.writeMask = descriptor->stencilWriteMask;
-
-        mtlDepthStencilDescriptor.backFaceStencil = backFaceStencil;
-        mtlDepthStencilDescriptor.frontFaceStencil = frontFaceStencil;
-    }
-
-    return mtlDepthStencilDescRef;
+    DAWN_UNREACHABLE();
 }
 
 MTLWinding MTLFrontFace(wgpu::FrontFace face) {
@@ -315,7 +308,10 @@ MTLWinding MTLFrontFace(wgpu::FrontFace face) {
             return MTLWindingClockwise;
         case wgpu::FrontFace::CCW:
             return MTLWindingCounterClockwise;
+        case wgpu::FrontFace::Undefined:
+            break;
     }
+    DAWN_UNREACHABLE();
 }
 
 MTLCullMode ToMTLCullMode(wgpu::CullMode mode) {
@@ -326,7 +322,10 @@ MTLCullMode ToMTLCullMode(wgpu::CullMode mode) {
             return MTLCullModeFront;
         case wgpu::CullMode::Back:
             return MTLCullModeBack;
+        case wgpu::CullMode::Undefined:
+            break;
     }
+    DAWN_UNREACHABLE();
 }
 
 }  // anonymous namespace
@@ -343,7 +342,7 @@ RenderPipeline::RenderPipeline(DeviceBase* dev, const UnpackedPtr<RenderPipeline
 
 RenderPipeline::~RenderPipeline() = default;
 
-MaybeError RenderPipeline::Initialize() {
+MaybeError RenderPipeline::InitializeImpl() {
     mMtlPrimitiveTopology = MTLPrimitiveTopology(GetPrimitiveTopology());
     mMtlFrontFace = MTLFrontFace(GetFrontFace());
     mMtlCullMode = ToMTLCullMode(GetCullMode());
@@ -368,6 +367,10 @@ MaybeError RenderPipeline::Initialize() {
     NSRef<NSString> label = MakeDebugName(GetDevice(), "Dawn_RenderPipeline", GetLabel());
     descriptorMTL.label = label.Get();
 
+    // Only put this flag on if the feature is enabled because it may have a performance cost.
+    descriptorMTL.supportIndirectCommandBuffers =
+        GetDevice()->HasFeature(Feature::MultiDrawIndirect);
+
     NSRef<MTLVertexDescriptor> vertexDesc;
     if (GetDevice()->IsToggleEnabled(Toggle::MetalEnableVertexPulling)) {
         vertexDesc = AcquireNSRef([MTLVertexDescriptor new]);
@@ -379,9 +382,10 @@ MaybeError RenderPipeline::Initialize() {
     const PerStage<ProgrammableStage>& allStages = GetAllStages();
     const ProgrammableStage& vertexStage = allStages[wgpu::ShaderStage::Vertex];
     ShaderModule::MetalFunctionData vertexData;
-    DAWN_TRY(ToBackend(vertexStage.module.Get())
-                 ->CreateFunction(SingleShaderStage::Vertex, vertexStage, ToBackend(GetLayout()),
-                                  &vertexData, 0xFFFFFFFF, this));
+    DAWN_TRY_CONTEXT(ToBackend(vertexStage.module.Get())
+                         ->CreateFunction(SingleShaderStage::Vertex, vertexStage,
+                                          ToBackend(GetLayout()), &vertexData, 0xFFFFFFFF, this),
+                     " getting vertex MTLFunction for %s", this);
 
     descriptorMTL.vertexFunction = vertexData.function.Get();
     if (vertexData.needsStorageBufferLength) {
@@ -391,10 +395,11 @@ MaybeError RenderPipeline::Initialize() {
     if (GetStageMask() & wgpu::ShaderStage::Fragment) {
         const ProgrammableStage& fragmentStage = allStages[wgpu::ShaderStage::Fragment];
         ShaderModule::MetalFunctionData fragmentData;
-        DAWN_TRY(ToBackend(fragmentStage.module.Get())
-                     ->CreateFunction(SingleShaderStage::Fragment, fragmentStage,
-                                      ToBackend(GetLayout()), &fragmentData, GetSampleMask(),
-                                      this));
+        DAWN_TRY_CONTEXT(
+            ToBackend(fragmentStage.module.Get())
+                ->CreateFunction(SingleShaderStage::Fragment, fragmentStage, ToBackend(GetLayout()),
+                                 &fragmentData, GetSampleMask(), this),
+            " getting fragment MTLFunction for %s", this);
 
         descriptorMTL.fragmentFunction = fragmentData.function.Get();
         if (fragmentData.needsStorageBufferLength) {
@@ -471,8 +476,7 @@ MaybeError RenderPipeline::Initialize() {
     // Create depth stencil state and cache it, fetch the cached depth stencil state when we
     // call setDepthStencilState() for a given render pipeline in CommandEncoder, in order
     // to improve performance.
-    NSRef<MTLDepthStencilDescriptor> depthStencilDesc =
-        MakeDepthStencilDesc(GetDepthStencilState());
+    NSRef<MTLDepthStencilDescriptor> depthStencilDesc = MakeDepthStencilDesc();
     mMtlDepthStencilState =
         AcquireNSPRef([mtlDevice newDepthStencilStateWithDescriptor:depthStencilDesc.Get()]);
 
@@ -559,21 +563,51 @@ NSRef<MTLVertexDescriptor> RenderPipeline::MakeVertexDesc() const {
     return AcquireNSRef(mtlVertexDescriptor);
 }
 
-void RenderPipeline::InitializeAsync(Ref<RenderPipelineBase> renderPipeline,
-                                     WGPUCreateRenderPipelineAsyncCallback callback,
-                                     void* userdata) {
-    PhysicalDeviceBase* physicalDevice = renderPipeline->GetDevice()->GetPhysicalDevice();
-    std::unique_ptr<CreateRenderPipelineAsyncTask> asyncTask =
-        std::make_unique<CreateRenderPipelineAsyncTask>(std::move(renderPipeline), callback,
-                                                        userdata);
-    // Workaround a crash where the validation layers on AMD crash with partition alloc.
-    // See crbug.com/dawn/1200.
-    if (IsMetalValidationEnabled(physicalDevice) &&
-        gpu_info::IsAMD(physicalDevice->GetVendorId())) {
-        asyncTask->Run();
-        return;
+NSRef<MTLDepthStencilDescriptor> RenderPipeline::MakeDepthStencilDesc() {
+    const DepthStencilState* descriptor = GetDepthStencilState();
+
+    NSRef<MTLDepthStencilDescriptor> mtlDepthStencilDescRef =
+        AcquireNSRef([MTLDepthStencilDescriptor new]);
+    MTLDepthStencilDescriptor* mtlDepthStencilDescriptor = mtlDepthStencilDescRef.Get();
+
+    mtlDepthStencilDescriptor.depthCompareFunction =
+        ToMetalCompareFunction(descriptor->depthCompare);
+    mtlDepthStencilDescriptor.depthWriteEnabled =
+        descriptor->depthWriteEnabled == wgpu::OptionalBool::True;
+
+    if (UsesStencil()) {
+        NSRef<MTLStencilDescriptor> backFaceStencilRef = AcquireNSRef([MTLStencilDescriptor new]);
+        MTLStencilDescriptor* backFaceStencil = backFaceStencilRef.Get();
+        NSRef<MTLStencilDescriptor> frontFaceStencilRef = AcquireNSRef([MTLStencilDescriptor new]);
+        MTLStencilDescriptor* frontFaceStencil = frontFaceStencilRef.Get();
+
+        backFaceStencil.stencilCompareFunction =
+            ToMetalCompareFunction(descriptor->stencilBack.compare);
+        backFaceStencil.stencilFailureOperation =
+            MetalStencilOperation(descriptor->stencilBack.failOp);
+        backFaceStencil.depthFailureOperation =
+            MetalStencilOperation(descriptor->stencilBack.depthFailOp);
+        backFaceStencil.depthStencilPassOperation =
+            MetalStencilOperation(descriptor->stencilBack.passOp);
+        backFaceStencil.readMask = descriptor->stencilReadMask;
+        backFaceStencil.writeMask = descriptor->stencilWriteMask;
+
+        frontFaceStencil.stencilCompareFunction =
+            ToMetalCompareFunction(descriptor->stencilFront.compare);
+        frontFaceStencil.stencilFailureOperation =
+            MetalStencilOperation(descriptor->stencilFront.failOp);
+        frontFaceStencil.depthFailureOperation =
+            MetalStencilOperation(descriptor->stencilFront.depthFailOp);
+        frontFaceStencil.depthStencilPassOperation =
+            MetalStencilOperation(descriptor->stencilFront.passOp);
+        frontFaceStencil.readMask = descriptor->stencilReadMask;
+        frontFaceStencil.writeMask = descriptor->stencilWriteMask;
+
+        mtlDepthStencilDescriptor.backFaceStencil = backFaceStencil;
+        mtlDepthStencilDescriptor.frontFaceStencil = frontFaceStencil;
     }
-    CreateRenderPipelineAsyncTask::RunAsync(std::move(asyncTask));
+
+    return mtlDepthStencilDescRef;
 }
 
 }  // namespace dawn::native::metal

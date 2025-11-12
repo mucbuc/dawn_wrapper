@@ -40,9 +40,11 @@ cc_library(
   name = "ir",
   srcs = [
     "builtin_call.cc",
+    "unary.cc",
   ],
   hdrs = [
     "builtin_call.h",
+    "unary.h",
   ],
   deps = [
     "//src/tint/api/common",
@@ -66,6 +68,7 @@ cc_library(
     "//src/tint/utils/symbol",
     "//src/tint/utils/text",
     "//src/tint/utils/traits",
+    "//src/utils",
   ],
   copts = COPTS,
   visibility = ["//visibility:public"],

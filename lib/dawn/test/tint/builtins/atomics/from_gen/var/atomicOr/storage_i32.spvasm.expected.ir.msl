@@ -1,54 +1,37 @@
-SKIP: FAILED
+#include <metal_stdlib>
+using namespace metal;
 
-<dawn>/src/tint/lang/msl/writer/printer/printer.cc:355 internal compiler error: SB_RW_atomic = struct @align(4) {
-  arg_0:atomic<i32> @offset(0)
-}
+struct SB_RW_atomic {
+  /* 0x0000 */ atomic_int arg_0;
+};
 
-%b1 = block {  # root
-  %sb_rw:ptr<storage, SB_RW_atomic, read_write> = var @binding_point(0, 0)
-}
+struct tint_module_vars_struct {
+  device SB_RW_atomic* sb_rw;
+};
 
-%atomicOr_8d96a0 = func():void -> %b2 {
-  %b2 = block {
-    %arg_1:ptr<function, i32, read_write> = var, 0i
-    %res:ptr<function, i32, read_write> = var, 0i
-    store %arg_1, 1i
-    %x_20:i32 = load %arg_1
-    %6:ptr<storage, atomic<i32>, read_write> = access %sb_rw, 0u
-    %x_13:i32 = atomicOr %6, %x_20
-    store %res, %x_13
-    ret
-  }
-}
-%fragment_main_1 = func():void -> %b3 {
-  %b3 = block {
-    %9:void = call %atomicOr_8d96a0
-    ret
-  }
-}
-%fragment_main = @fragment func():void -> %b4 {
-  %b4 = block {
-    %11:void = call %fragment_main_1
-    ret
-  }
-}
-%compute_main_1 = func():void -> %b5 {
-  %b5 = block {
-    %13:void = call %atomicOr_8d96a0
-    ret
-  }
-}
-%compute_main = @compute @workgroup_size(1, 1, 1) func():void -> %b6 {
-  %b6 = block {
-    %15:void = call %compute_main_1
-    ret
-  }
+void atomicOr_8d96a0(tint_module_vars_struct tint_module_vars) {
+  int arg_1 = 0;
+  int res = 0;
+  arg_1 = 1;
+  int const x_20 = arg_1;
+  int const x_13 = atomic_fetch_or_explicit((&(*tint_module_vars.sb_rw).arg_0), x_20, memory_order_relaxed);
+  res = x_13;
 }
 
-unhandled variable address space
-********************************************************************
-*  The tint shader compiler has encountered an unexpected error.   *
-*                                                                  *
-*  Please help us fix this issue by submitting a bug report at     *
-*  crbug.com/tint with the source program that triggered the bug.  *
-********************************************************************
+void fragment_main_1(tint_module_vars_struct tint_module_vars) {
+  atomicOr_8d96a0(tint_module_vars);
+}
+
+fragment void fragment_main(device SB_RW_atomic* sb_rw [[buffer(0)]]) {
+  tint_module_vars_struct const tint_module_vars = tint_module_vars_struct{.sb_rw=sb_rw};
+  fragment_main_1(tint_module_vars);
+}
+
+void compute_main_1(tint_module_vars_struct tint_module_vars) {
+  atomicOr_8d96a0(tint_module_vars);
+}
+
+kernel void compute_main(device SB_RW_atomic* sb_rw [[buffer(0)]]) {
+  tint_module_vars_struct const tint_module_vars = tint_module_vars_struct{.sb_rw=sb_rw};
+  compute_main_1(tint_module_vars);
+}

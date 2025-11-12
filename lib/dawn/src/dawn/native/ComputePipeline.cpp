@@ -39,6 +39,8 @@ MaybeError ValidateComputePipelineDescriptor(DeviceBase* device,
     UnpackedPtr<ComputePipelineDescriptor> unpacked;
     DAWN_TRY_ASSIGN(unpacked, ValidateAndUnpack(descriptor));
     auto* fullSubgroupsOption = unpacked.Get<DawnComputePipelineFullSubgroups>();
+    // TODO(349125474): Decide what to do with fullSubgroupsOption before removing deprecated
+    // ChromiumExperimentalSubgroups.
     DAWN_INVALID_IF(
         (fullSubgroupsOption && !device->HasFeature(Feature::ChromiumExperimentalSubgroups)),
         "DawnComputePipelineFullSubgroups is used without %s enabled.",
@@ -83,7 +85,7 @@ ComputePipelineBase::ComputePipelineBase(DeviceBase* device,
 
 ComputePipelineBase::ComputePipelineBase(DeviceBase* device,
                                          ObjectBase::ErrorTag tag,
-                                         const char* label)
+                                         StringView label)
     : PipelineBase(device, tag, label) {}
 
 ComputePipelineBase::~ComputePipelineBase() = default;
@@ -97,19 +99,19 @@ bool ComputePipelineBase::IsFullSubgroupsRequired() const {
 }
 
 // static
-ComputePipelineBase* ComputePipelineBase::MakeError(DeviceBase* device, const char* label) {
+Ref<ComputePipelineBase> ComputePipelineBase::MakeError(DeviceBase* device, StringView label) {
     class ErrorComputePipeline final : public ComputePipelineBase {
       public:
-        explicit ErrorComputePipeline(DeviceBase* device, const char* label)
+        explicit ErrorComputePipeline(DeviceBase* device, StringView label)
             : ComputePipelineBase(device, ObjectBase::kError, label) {}
 
-        MaybeError Initialize() override {
+        MaybeError InitializeImpl() override {
             DAWN_UNREACHABLE();
             return {};
         }
     };
 
-    return new ErrorComputePipeline(device, label);
+    return AcquireRef(new ErrorComputePipeline(device, label));
 }
 
 ObjectType ComputePipelineBase::GetType() const {

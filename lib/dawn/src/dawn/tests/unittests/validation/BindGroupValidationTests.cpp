@@ -96,12 +96,8 @@ class BindGroupValidationTest : public ValidationTest {
         return desc;
     }
 
-    WGPUDevice CreateTestDevice(native::Adapter dawnAdapter,
-                                wgpu::DeviceDescriptor descriptor) override {
-        wgpu::FeatureName requiredFeatures[1] = {wgpu::FeatureName::Depth32FloatStencil8};
-        descriptor.requiredFeatures = requiredFeatures;
-        descriptor.requiredFeatureCount = 1;
-        return dawnAdapter.CreateDevice(&descriptor);
+    std::vector<wgpu::FeatureName> GetRequiredFeatures() override {
+        return {wgpu::FeatureName::Depth32FloatStencil8};
     }
 
     void DoTextureSampleTypeTest(bool success,
@@ -158,7 +154,7 @@ TEST_F(BindGroupValidationTest, NextInChainNullptr) {
 
     // Check that nextInChain != nullptr is an error.
     wgpu::ChainedStruct chainedDescriptor;
-    chainedDescriptor.sType = wgpu::SType::Invalid;
+    chainedDescriptor.sType = wgpu::SType(0u);
     descriptor.nextInChain = &chainedDescriptor;
     ASSERT_DEVICE_ERROR(device.CreateBindGroup(&descriptor));
 }
@@ -464,10 +460,30 @@ TEST_F(BindGroupValidationTest, TextureUsage) {
     utils::MakeBindGroup(device, layout, {{0, mSampledTextureView}});
 
     // Make an render attachment texture and try to set it for a SampledTexture binding
-    wgpu::Texture outputTexture =
-        CreateTexture(wgpu::TextureUsage::RenderAttachment, wgpu::TextureFormat::RGBA8Unorm, 1);
-    wgpu::TextureView outputTextureView = outputTexture.CreateView();
-    ASSERT_DEVICE_ERROR(utils::MakeBindGroup(device, layout, {{0, outputTextureView}}));
+    {
+        wgpu::Texture outputTexture =
+            CreateTexture(wgpu::TextureUsage::RenderAttachment, wgpu::TextureFormat::RGBA8Unorm, 1);
+        wgpu::TextureView outputTextureView = outputTexture.CreateView();
+        ASSERT_DEVICE_ERROR(utils::MakeBindGroup(device, layout, {{0, outputTextureView}}));
+    }
+
+    // Make a sampled/render attachment texture and a view without sampling and attempt to bind it
+    {
+        wgpu::Texture outputTexture =
+            CreateTexture(wgpu::TextureUsage::RenderAttachment | wgpu::TextureUsage::TextureBinding,
+                          wgpu::TextureFormat::RGBA8Unorm, 1);
+        wgpu::TextureViewDescriptor viewDescriptor;
+        viewDescriptor.format = wgpu::TextureFormat::RGBA8Unorm;
+        viewDescriptor.dimension = wgpu::TextureViewDimension::e2D;
+        viewDescriptor.baseMipLevel = 0;
+        viewDescriptor.mipLevelCount = 1;
+        viewDescriptor.baseArrayLayer = 0;
+        viewDescriptor.arrayLayerCount = 1;
+        viewDescriptor.usage = wgpu::TextureUsage::RenderAttachment;
+
+        wgpu::TextureView outputTextureView = outputTexture.CreateView(&viewDescriptor);
+        ASSERT_DEVICE_ERROR(utils::MakeBindGroup(device, layout, {{0, outputTextureView}}));
+    }
 }
 
 // Check that a storage texture binding must have the correct usage
@@ -630,12 +646,8 @@ TEST_F(BindGroupValidationTest, TextureSampleType) {
 
 class BindGroupValidationTest_Float32Filterable : public BindGroupValidationTest {
   protected:
-    WGPUDevice CreateTestDevice(dawn::native::Adapter dawnAdapter,
-                                wgpu::DeviceDescriptor descriptor) override {
-        wgpu::FeatureName requiredFeatures[1] = {wgpu::FeatureName::Float32Filterable};
-        descriptor.requiredFeatures = requiredFeatures;
-        descriptor.requiredFeatureCount = 1;
-        return dawnAdapter.CreateDevice(&descriptor);
+    std::vector<wgpu::FeatureName> GetRequiredFeatures() override {
+        return {wgpu::FeatureName::Float32Filterable};
     }
 };
 
@@ -1753,10 +1765,239 @@ TEST_F(BindGroupLayoutValidationTest, MultisampledTextureSampleType) {
                                });
 }
 
+// Tests that creating a bind group layout with a valid static sampler raises an error
+// if the required feature is not enabled.
+TEST_F(BindGroupLayoutValidationTest, StaticSamplerNotSupportedWithoutFeatureEnabled) {
+    wgpu::BindGroupLayoutEntry binding = {};
+    binding.binding = 0;
+    wgpu::StaticSamplerBindingLayout staticSamplerBinding = {};
+    staticSamplerBinding.sampler = device.CreateSampler();
+    binding.nextInChain = &staticSamplerBinding;
+
+    wgpu::BindGroupLayoutDescriptor desc = {};
+    desc.entryCount = 1;
+    desc.entries = &binding;
+
+    ASSERT_DEVICE_ERROR(device.CreateBindGroupLayout(&desc));
+}
+
+class BindGroupLayoutWithStaticSamplersValidationTest : public BindGroupLayoutValidationTest {
+    std::vector<wgpu::FeatureName> GetRequiredFeatures() override {
+        return {wgpu::FeatureName::StaticSamplers};
+    }
+};
+
+// Tests that creating a bind group layout with a valid static sampler succeeds if the
+// required feature is enabled.
+TEST_F(BindGroupLayoutWithStaticSamplersValidationTest, StaticSamplerSupportedWhenFeatureEnabled) {
+    wgpu::BindGroupLayoutEntry binding = {};
+    binding.binding = 0;
+    wgpu::StaticSamplerBindingLayout staticSamplerBinding = {};
+    staticSamplerBinding.sampler = device.CreateSampler();
+    binding.nextInChain = &staticSamplerBinding;
+
+    wgpu::BindGroupLayoutDescriptor desc = {};
+    desc.entryCount = 1;
+    desc.entries = &binding;
+
+    device.CreateBindGroupLayout(&desc);
+}
+
+// Tests that creating a bind group layout with a static sampler that has an
+// invalid sampler object fails.
+TEST_F(BindGroupLayoutWithStaticSamplersValidationTest, StaticSamplerWithInvalidSamplerObject) {
+    wgpu::BindGroupLayoutEntry binding = {};
+    binding.binding = 0;
+    wgpu::StaticSamplerBindingLayout staticSamplerBinding = {};
+
+    wgpu::SamplerDescriptor samplerDesc;
+    samplerDesc.minFilter = static_cast<wgpu::FilterMode>(0xFFFFFFFF);
+
+    wgpu::Sampler errorSampler;
+    ASSERT_DEVICE_ERROR(errorSampler = device.CreateSampler(&samplerDesc));
+
+    staticSamplerBinding.sampler = errorSampler;
+    binding.nextInChain = &staticSamplerBinding;
+
+    wgpu::BindGroupLayoutDescriptor desc = {};
+    desc.entryCount = 1;
+    desc.entries = &binding;
+
+    ASSERT_DEVICE_ERROR(device.CreateBindGroupLayout(&desc));
+}
+
+// Verifies that creation of a bind group with no entry for a static sampler
+// succeeds.
+TEST_F(BindGroupLayoutWithStaticSamplersValidationTest, CreateBindGroupWithStaticSamplerSupported) {
+    wgpu::BindGroupLayoutEntry binding = {};
+    binding.binding = 0;
+    wgpu::StaticSamplerBindingLayout staticSamplerBinding = {};
+    staticSamplerBinding.sampler = device.CreateSampler();
+    binding.nextInChain = &staticSamplerBinding;
+
+    wgpu::BindGroupLayoutDescriptor desc = {};
+    desc.entryCount = 1;
+    desc.entries = &binding;
+
+    wgpu::BindGroupLayout layout = device.CreateBindGroupLayout(&desc);
+
+    wgpu::BindGroupDescriptor descriptor;
+    descriptor.layout = layout;
+    descriptor.entryCount = 0;
+
+    device.CreateBindGroup(&descriptor);
+}
+
+// Verifies that creation of a correctly-specified bind group for a layout that
+// has a static sampler and a sampler succeeds.
+TEST_F(BindGroupLayoutWithStaticSamplersValidationTest,
+       CreateBindGroupWithStaticSamplerAndSamplerSupported) {
+    std::vector<wgpu::BindGroupLayoutEntry> entries;
+
+    wgpu::BindGroupLayoutEntry binding0 = {};
+    binding0.binding = 0;
+    wgpu::StaticSamplerBindingLayout staticSamplerBinding = {};
+    staticSamplerBinding.sampler = device.CreateSampler();
+    binding0.nextInChain = &staticSamplerBinding;
+    entries.push_back(binding0);
+
+    wgpu::BindGroupLayoutEntry binding1 = {};
+    binding1.binding = 1;
+    binding1.sampler.type = wgpu::SamplerBindingType::Filtering;
+    entries.push_back(binding1);
+
+    wgpu::BindGroupLayoutDescriptor desc = {};
+    desc.entryCount = 2;
+    desc.entries = entries.data();
+
+    wgpu::BindGroupLayout layout = device.CreateBindGroupLayout(&desc);
+
+    wgpu::SamplerDescriptor samplerDesc;
+    samplerDesc.minFilter = wgpu::FilterMode::Linear;
+    utils::MakeBindGroup(device, layout, {{1, device.CreateSampler(&samplerDesc)}});
+}
+
+// Verifies that creation of a correctly-specified bind group for a layout that
+// has a sampler and a static sampler succeeds.
+TEST_F(BindGroupLayoutWithStaticSamplersValidationTest,
+       CreateBindGroupWithSamplerAndStaticSamplerSupported) {
+    std::vector<wgpu::BindGroupLayoutEntry> entries;
+
+    wgpu::BindGroupLayoutEntry binding0 = {};
+    binding0.binding = 0;
+    binding0.sampler.type = wgpu::SamplerBindingType::Filtering;
+    entries.push_back(binding0);
+
+    wgpu::BindGroupLayoutEntry binding1 = {};
+    binding1.binding = 1;
+    wgpu::StaticSamplerBindingLayout staticSamplerBinding = {};
+    staticSamplerBinding.sampler = device.CreateSampler();
+    binding1.nextInChain = &staticSamplerBinding;
+    entries.push_back(binding1);
+
+    wgpu::BindGroupLayoutDescriptor desc = {};
+    desc.entryCount = 2;
+    desc.entries = entries.data();
+
+    wgpu::BindGroupLayout layout = device.CreateBindGroupLayout(&desc);
+
+    wgpu::SamplerDescriptor samplerDesc;
+    samplerDesc.minFilter = wgpu::FilterMode::Linear;
+    utils::MakeBindGroup(device, layout, {{0, device.CreateSampler(&samplerDesc)}});
+}
+
+// Verifies that creating a bind group with an entry for a static sampler causes
+// an error.
+TEST_F(BindGroupLayoutWithStaticSamplersValidationTest,
+       EntryForStaticSamplerInBindGroupCausesError) {
+    wgpu::BindGroupLayoutEntry binding = {};
+    binding.binding = 0;
+    wgpu::StaticSamplerBindingLayout staticSamplerBinding = {};
+    staticSamplerBinding.sampler = device.CreateSampler();
+    binding.nextInChain = &staticSamplerBinding;
+
+    wgpu::BindGroupLayoutDescriptor desc = {};
+    desc.entryCount = 1;
+    desc.entries = &binding;
+
+    wgpu::BindGroupLayout layout = device.CreateBindGroupLayout(&desc);
+
+    wgpu::SamplerDescriptor samplerDesc;
+    samplerDesc.minFilter = wgpu::FilterMode::Linear;
+    ASSERT_DEVICE_ERROR(
+        utils::MakeBindGroup(device, layout, {{0, device.CreateSampler(&samplerDesc)}}));
+}
+
+// Verifies that creation of a bind group with the correct number of entries for a layout that has a
+// sampler and a static sampler raises an error if the entry is specified at the
+// index of the static sampler rather than that of the sampler.
+TEST_F(BindGroupLayoutWithStaticSamplersValidationTest,
+       CorrectNumberOfEntriesButEntryForStaticSamplerAtSecondIndexInBindGroupCausesError) {
+    std::vector<wgpu::BindGroupLayoutEntry> entries;
+
+    wgpu::BindGroupLayoutEntry binding0 = {};
+    binding0.binding = 0;
+    binding0.sampler.type = wgpu::SamplerBindingType::Filtering;
+    entries.push_back(binding0);
+
+    wgpu::BindGroupLayoutEntry binding1 = {};
+    binding1.binding = 1;
+    wgpu::StaticSamplerBindingLayout staticSamplerBinding = {};
+    staticSamplerBinding.sampler = device.CreateSampler();
+    binding1.nextInChain = &staticSamplerBinding;
+    entries.push_back(binding1);
+
+    wgpu::BindGroupLayoutDescriptor desc = {};
+    desc.entryCount = 2;
+    desc.entries = entries.data();
+
+    wgpu::BindGroupLayout layout = device.CreateBindGroupLayout(&desc);
+
+    wgpu::SamplerDescriptor samplerDesc;
+    samplerDesc.minFilter = wgpu::FilterMode::Linear;
+    ASSERT_DEVICE_ERROR(
+        utils::MakeBindGroup(device, layout, {{1, device.CreateSampler(&samplerDesc)}}));
+}
+
+// Verifies that creation of a bind group with the correct number of entries for a layout that has a
+// static sampler and a sampler raises an error if the entry is specified at the
+// index of the static sampler rather than that of the sampler.
+TEST_F(BindGroupLayoutWithStaticSamplersValidationTest,
+       CorrectNumberOfEntriesButEntryForStaticSamplerInBindGroupCausesError) {
+    std::vector<wgpu::BindGroupLayoutEntry> entries;
+
+    wgpu::BindGroupLayoutEntry binding0 = {};
+    binding0.binding = 0;
+    wgpu::StaticSamplerBindingLayout staticSamplerBinding = {};
+    staticSamplerBinding.sampler = device.CreateSampler();
+    binding0.nextInChain = &staticSamplerBinding;
+    entries.push_back(binding0);
+
+    wgpu::BindGroupLayoutEntry binding1 = {};
+    binding1.binding = 1;
+    binding1.sampler.type = wgpu::SamplerBindingType::Filtering;
+    entries.push_back(binding1);
+
+    wgpu::BindGroupLayoutDescriptor desc = {};
+    desc.entryCount = 2;
+    desc.entries = entries.data();
+
+    wgpu::BindGroupLayout layout = device.CreateBindGroupLayout(&desc);
+
+    wgpu::SamplerDescriptor samplerDesc;
+    samplerDesc.minFilter = wgpu::FilterMode::Linear;
+    ASSERT_DEVICE_ERROR(
+        utils::MakeBindGroup(device, layout, {{0, device.CreateSampler(&samplerDesc)}}));
+}
+
 constexpr uint32_t kBindingSize = 8;
 
 class SetBindGroupValidationTest : public ValidationTest {
   public:
+    std::vector<wgpu::FeatureName> GetRequiredFeatures() override {
+        return {wgpu::FeatureName::StaticSamplers};
+    }
+
     void SetUp() override {
         ValidationTest::SetUp();
 
@@ -1833,7 +2074,6 @@ class SetBindGroupValidationTest : public ValidationTest {
         wgpu::ComputePipelineDescriptor csDesc;
         csDesc.layout = pipelineLayout;
         csDesc.compute.module = csModule;
-        csDesc.compute.entryPoint = "main";
 
         return device.CreateComputePipeline(&csDesc);
     }
@@ -2243,7 +2483,7 @@ TEST_F(SetBindGroupValidationTest, BindGroupSlotBoundary) {
 
     PlaceholderRenderPass renderPass(device);
 
-    auto TestIndex = [=](wgpu::BindGroup bg, uint32_t i, bool valid) {
+    auto TestIndex = [this, renderPass](wgpu::BindGroup bg, uint32_t i, bool valid) {
         {
             wgpu::CommandEncoder encoder = device.CreateCommandEncoder();
             wgpu::ComputePassEncoder cp = encoder.BeginComputePass();
@@ -2299,7 +2539,7 @@ TEST_F(SetBindGroupValidationTest, BindGroupSlotBoundary) {
 
 // Test that dynamic offset count must be zero when unsetting a bindgroup.
 TEST_F(SetBindGroupValidationTest, UnsetWithDynamicOffsetIsInvalid) {
-    auto TestDynamicOffsetCount = [=](uint32_t count, uint32_t* offsets, bool valid) {
+    auto TestDynamicOffsetCount = [this](uint32_t count, uint32_t* offsets, bool valid) {
         {
             wgpu::CommandEncoder encoder = device.CreateCommandEncoder();
             wgpu::ComputePassEncoder cp = encoder.BeginComputePass();
@@ -2357,7 +2597,6 @@ TEST_F(SetBindGroupValidationTest, EmptyBindGroupsAreRequired) {
 
     wgpu::ComputePipelineDescriptor pipelineDesc;
     pipelineDesc.layout = pl;
-    pipelineDesc.compute.entryPoint = "main";
     pipelineDesc.compute.module = utils::CreateShaderModule(device, R"(
         @compute @workgroup_size(1) fn main() {
         }
@@ -2392,6 +2631,63 @@ TEST_F(SetBindGroupValidationTest, EmptyBindGroupsAreRequired) {
         pass.End();
         ASSERT_DEVICE_ERROR(encoder.Finish());
     }
+}
+
+// Test that a static sampler is valid to access from a shader module.
+TEST_F(SetBindGroupValidationTest, StaticSamplerAccessedFromShader) {
+    wgpu::BindGroupLayoutEntry binding = {};
+    binding.binding = 0;
+    binding.visibility = wgpu::ShaderStage::Compute;
+    wgpu::StaticSamplerBindingLayout staticSamplerBinding = {};
+    staticSamplerBinding.sampler = device.CreateSampler();
+    binding.nextInChain = &staticSamplerBinding;
+
+    wgpu::BindGroupLayoutDescriptor desc = {};
+    desc.entryCount = 1;
+    desc.entries = &binding;
+
+    wgpu::BindGroupLayout layout = device.CreateBindGroupLayout(&desc);
+
+    wgpu::PipelineLayout pl = utils::MakePipelineLayout(device, {layout});
+
+    wgpu::ComputePipelineDescriptor pipelineDesc;
+    pipelineDesc.layout = pl;
+    pipelineDesc.compute.module = utils::CreateShaderModule(device, R"(
+        @group(0) @binding(0) var s : sampler;
+        @compute @workgroup_size(1) fn main() {
+            _ = s;
+        }
+    )");
+    device.CreateComputePipeline(&pipelineDesc);
+}
+
+// Test that a static sampler cannot be accessed from a shader module as a
+// non-sampler variable type.
+TEST_F(SetBindGroupValidationTest, StaticSamplerAccessedFromShaderAsNonSamplerTypeCausesError) {
+    wgpu::BindGroupLayoutEntry binding = {};
+    binding.binding = 0;
+    binding.visibility = wgpu::ShaderStage::Compute;
+    wgpu::StaticSamplerBindingLayout staticSamplerBinding = {};
+    staticSamplerBinding.sampler = device.CreateSampler();
+    binding.nextInChain = &staticSamplerBinding;
+
+    wgpu::BindGroupLayoutDescriptor desc = {};
+    desc.entryCount = 1;
+    desc.entries = &binding;
+
+    wgpu::BindGroupLayout layout = device.CreateBindGroupLayout(&desc);
+
+    wgpu::PipelineLayout pl = utils::MakePipelineLayout(device, {layout});
+
+    wgpu::ComputePipelineDescriptor pipelineDesc;
+    pipelineDesc.layout = pl;
+    pipelineDesc.compute.module = utils::CreateShaderModule(device, R"(
+        @group(0) @binding(0) var t : texture_2d<f32>;
+        @compute @workgroup_size(1) fn main() {
+            _ = textureDimensions(t);
+        }
+    )");
+    ASSERT_DEVICE_ERROR(device.CreateComputePipeline(&pipelineDesc));
 }
 
 class SetBindGroupPersistenceValidationTest : public ValidationTest {
@@ -2648,7 +2944,6 @@ class BindGroupLayoutCompatibilityTest : public ValidationTest {
         wgpu::ComputePipelineDescriptor csDesc;
         csDesc.layout = pipelineLayout;
         csDesc.compute.module = csModule;
-        csDesc.compute.entryPoint = "main";
 
         return device.CreateComputePipeline(&csDesc);
     }
@@ -3126,8 +3421,10 @@ TEST_F(SamplerTypeBindingTest, ShaderAndBGLMatches) {
             })");
     }
 
-    // Test that a filtering sampler can be used to sample a depth texture.
+    // TODO(crbug.com/376497143): switch this to an error. depth with filtering sampler is
+    // deprecated. Test that a filtering sampler can be used to sample a depth texture.
     {
+        ++mLastWarningCount;
         wgpu::BindGroupLayout bindGroupLayout = utils::MakeBindGroupLayout(
             device, {{0, wgpu::ShaderStage::Fragment, wgpu::SamplerBindingType::Filtering},
                      {1, wgpu::ShaderStage::Fragment, wgpu::TextureSampleType::Depth}});
@@ -3193,6 +3490,62 @@ TEST_F(SamplerTypeBindingTest, ShaderAndBGLMatches) {
             @group(0) @binding(1) var myTexture: texture_2d<f32>;
             @fragment fn main() {
                 _ = textureSample(myTexture, mySampler, vec2f(0.0, 0.0));
+            })");
+    }
+
+    // Test that a filtering sampler can not be used to sample an sint texture.
+    {
+        wgpu::BindGroupLayout bindGroupLayout = utils::MakeBindGroupLayout(
+            device, {{0, wgpu::ShaderStage::Fragment, wgpu::SamplerBindingType::Filtering},
+                     {1, wgpu::ShaderStage::Fragment, wgpu::TextureSampleType::Sint}});
+
+        ASSERT_DEVICE_ERROR(CreateFragmentPipeline(&bindGroupLayout, R"(
+            @group(0) @binding(0) var mySampler: sampler;
+            @group(0) @binding(1) var myTexture: texture_2d<i32>;
+            @fragment fn main() {
+                _ = textureGather(0, myTexture, mySampler, vec2f(0.0, 0.0));
+            })"));
+    }
+
+    // Test that a non-filtering sampler can be used to sample an sint texture.
+    {
+        wgpu::BindGroupLayout bindGroupLayout = utils::MakeBindGroupLayout(
+            device, {{0, wgpu::ShaderStage::Fragment, wgpu::SamplerBindingType::NonFiltering},
+                     {1, wgpu::ShaderStage::Fragment, wgpu::TextureSampleType::Sint}});
+
+        CreateFragmentPipeline(&bindGroupLayout, R"(
+            @group(0) @binding(0) var mySampler: sampler;
+            @group(0) @binding(1) var myTexture: texture_2d<i32>;
+            @fragment fn main() {
+                _ = textureGather(0, myTexture, mySampler, vec2f(0.0, 0.0));
+            })");
+    }
+
+    // Test that a filtering sampler can not be used to sample an uint texture.
+    {
+        wgpu::BindGroupLayout bindGroupLayout = utils::MakeBindGroupLayout(
+            device, {{0, wgpu::ShaderStage::Fragment, wgpu::SamplerBindingType::Filtering},
+                     {1, wgpu::ShaderStage::Fragment, wgpu::TextureSampleType::Uint}});
+
+        ASSERT_DEVICE_ERROR(CreateFragmentPipeline(&bindGroupLayout, R"(
+            @group(0) @binding(0) var mySampler: sampler;
+            @group(0) @binding(1) var myTexture: texture_2d<u32>;
+            @fragment fn main() {
+                _ = textureGather(0, myTexture, mySampler, vec2f(0.0, 0.0));
+            })"));
+    }
+
+    // Test that a non-filtering sampler can be used to sample an uint texture.
+    {
+        wgpu::BindGroupLayout bindGroupLayout = utils::MakeBindGroupLayout(
+            device, {{0, wgpu::ShaderStage::Fragment, wgpu::SamplerBindingType::NonFiltering},
+                     {1, wgpu::ShaderStage::Fragment, wgpu::TextureSampleType::Uint}});
+
+        CreateFragmentPipeline(&bindGroupLayout, R"(
+            @group(0) @binding(0) var mySampler: sampler;
+            @group(0) @binding(1) var myTexture: texture_2d<u32>;
+            @fragment fn main() {
+                _ = textureGather(0, myTexture, mySampler, vec2f(0.0, 0.0));
             })");
     }
 }

@@ -83,7 +83,7 @@ class ExpectBetweenTimestamps : public detail::Expectation {
             if (actual[i] < mMinValue || actual[i] > mMaxValue) {
                 return testing::AssertionFailure()
                        << "Expected data[" << i << "] to be between " << mMinValue << " and "
-                       << mMaxValue << ", actual " << actual[i] << std::endl;
+                       << mMaxValue << ", actual " << actual[i] << "\n";
             }
         }
 
@@ -138,7 +138,6 @@ class GPUTimestampCalibrationTests : public DawnTestWithParams<GPUTimestampCalib
 
         wgpu::ComputePipelineDescriptor descriptor;
         descriptor.compute.module = module;
-        descriptor.compute.entryPoint = "main";
 
         return device.CreateComputePipeline(&descriptor);
     }

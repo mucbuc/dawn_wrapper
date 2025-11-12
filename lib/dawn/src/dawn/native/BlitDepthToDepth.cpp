@@ -73,7 +73,7 @@ ResultOrError<Ref<RenderPipelineBase>> GetOrCreateDepthBlitPipeline(DeviceBase* 
         }
     }
 
-    ShaderModuleWGSLDescriptor wgslDesc = {};
+    ShaderSourceWGSL wgslDesc = {};
     ShaderModuleDescriptor shaderModuleDesc = {};
     shaderModuleDesc.nextInChain = &wgslDesc;
     wgslDesc.code = kBlitToDepthShaders;
@@ -87,7 +87,7 @@ ResultOrError<Ref<RenderPipelineBase>> GetOrCreateDepthBlitPipeline(DeviceBase* 
 
     DepthStencilState dsState = {};
     dsState.format = format;
-    dsState.depthWriteEnabled = true;
+    dsState.depthWriteEnabled = wgpu::OptionalBool::True;
     dsState.depthCompare = wgpu::CompareFunction::Always;
 
     RenderPipelineDescriptor renderPipelineDesc = {};
@@ -99,7 +99,7 @@ ResultOrError<Ref<RenderPipelineBase>> GetOrCreateDepthBlitPipeline(DeviceBase* 
     Ref<RenderPipelineBase> pipeline;
     DAWN_TRY_ASSIGN(pipeline, device->CreateRenderPipeline(&renderPipelineDesc));
 
-    store->depthBlitPipelines[format] = pipeline;
+    store->depthBlitPipelines.emplace(format, pipeline);
     return pipeline;
 }
 

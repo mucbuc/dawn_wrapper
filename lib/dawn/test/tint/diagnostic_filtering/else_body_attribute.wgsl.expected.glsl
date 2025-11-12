@@ -12,15 +12,16 @@
 
 #version 310 es
 precision highp float;
+precision highp int;
 
-layout(location = 0) in float x_1;
-void tint_symbol(float x) {
+uniform highp sampler2D t_s;
+layout(location = 0) in float tint_symbol_loc0_Input;
+void tint_symbol_inner(float x) {
   if ((x > 0.0f)) {
   } else {
+    texture(t_s, vec2(0.0f));
   }
 }
-
 void main() {
-  tint_symbol(x_1);
-  return;
+  tint_symbol_inner(tint_symbol_loc0_Input);
 }

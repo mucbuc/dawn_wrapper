@@ -25,17 +25,17 @@
 // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#include <utility>
+#include <gtest/gtest.h>
+#include <webgpu/webgpu_cpp.h>
 
-#include "dawn/webgpu_cpp.h"
-#include "gtest/gtest.h"
+#include <utility>
 
 class Object : public wgpu::ObjectBase<Object, int*> {
   public:
     using ObjectBase::ObjectBase;
     using ObjectBase::operator=;
 
-    static void WGPUReference(int* handle) {
+    static void WGPUAddRef(int* handle) {
         ASSERT_LE(0, *handle);
         *handle += 1;
     }

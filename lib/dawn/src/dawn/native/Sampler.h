@@ -52,12 +52,13 @@ class SamplerBase : public ApiObjectBase,
     SamplerBase(DeviceBase* device, const SamplerDescriptor* descriptor);
     ~SamplerBase() override;
 
-    static SamplerBase* MakeError(DeviceBase* device, const char* label);
+    static Ref<SamplerBase> MakeError(DeviceBase* device, StringView label);
 
     ObjectType GetType() const override;
 
     bool IsComparison() const;
     bool IsFiltering() const;
+    bool IsYCbCr() const;
 
     // Functions necessary for the unordered_set<SamplerBase*>-based cache.
     size_t ComputeContentHash() override;
@@ -71,8 +72,14 @@ class SamplerBase : public ApiObjectBase,
   protected:
     void DestroyImpl() override;
 
+    // Valid to call only if `IsYCbCr()` is true.
+    YCbCrVkDescriptor GetYCbCrVkDescriptor() {
+        DAWN_ASSERT(IsYCbCr());
+        return mYCbCrVkDescriptor;
+    }
+
   private:
-    SamplerBase(DeviceBase* device, ObjectBase::ErrorTag tag, const char* label);
+    SamplerBase(DeviceBase* device, ObjectBase::ErrorTag tag, StringView label);
 
     // TODO(cwallez@chromium.org): Store a crypto hash of the items instead?
     wgpu::AddressMode mAddressModeU;
@@ -85,6 +92,8 @@ class SamplerBase : public ApiObjectBase,
     float mLodMaxClamp;
     wgpu::CompareFunction mCompareFunction;
     uint16_t mMaxAnisotropy;
+    bool mIsYCbCr = false;
+    YCbCrVkDescriptor mYCbCrVkDescriptor = {};
 };
 
 }  // namespace dawn::native

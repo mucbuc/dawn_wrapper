@@ -28,12 +28,10 @@
 #include "src/tint/lang/wgsl/resolver/resolver.h"
 
 #include "gmock/gmock.h"
-#include "gtest/gtest-spi.h"
 #include "src/tint/lang/core/builtin_value.h"
 #include "src/tint/lang/core/type/sampled_texture.h"
 #include "src/tint/lang/core/type/texture_dimension.h"
 #include "src/tint/lang/wgsl/ast/assignment_statement.h"
-#include "src/tint/lang/wgsl/ast/bitcast_expression.h"
 #include "src/tint/lang/wgsl/ast/break_statement.h"
 #include "src/tint/lang/wgsl/ast/builtin_texture_helper_test.h"
 #include "src/tint/lang/wgsl/ast/call_statement.h"
@@ -63,6 +61,7 @@ using namespace tint::core::fluent_types;     // NOLINT
 using namespace tint::core::number_suffixes;  // NOLINT
 
 using ResolverValidationTest = ResolverTest;
+using ResolverValidationDeathTest = ResolverValidationTest;
 
 class FakeStmt final : public Castable<FakeStmt, ast::Statement> {
   public:
@@ -134,14 +133,66 @@ TEST_F(ResolverValidationTest, WorkgroupMemoryUsedInFragmentStage) {
 9:10 note: called by entry point 'f0')");
 }
 
-TEST_F(ResolverValidationTest, UnhandledStmt) {
-    EXPECT_FATAL_FAILURE(
+TEST_F(ResolverValidationTest, RWStorageBufferUsedInVertexStage) {
+    // @group(0) @binding(0) var<storage, read_write> v : vec4<f32>;
+    // @vertex
+    // fn main() -> @builtin(position) vec4f {
+    //   return v;
+    // }
+
+    GlobalVar(Source{{1, 2}}, "v", ty.vec4<f32>(), core::AddressSpace::kStorage,
+              core::Access::kReadWrite, Binding(0_a), Group(0_a));
+    Func("main", tint::Empty, ty.vec4<f32>(),
+         Vector{
+             Return(Expr(Source{{3, 4}}, "v")),
+         },
+         Vector{
+             Stage(ast::PipelineStage::kVertex),
+         },
+         Vector{
+             Builtin(core::BuiltinValue::kPosition),
+         });
+
+    EXPECT_FALSE(r()->Resolve());
+    EXPECT_EQ(
+        r()->error(),
+        R"(3:4 error: var with 'storage' address space and 'read_write' access mode cannot be used by vertex pipeline stage
+1:2 note: variable is declared here)");
+}
+
+TEST_F(ResolverValidationTest, RWStorageTextureUsedInVertexStage) {
+    auto type = ty.storage_texture(core::type::TextureDimension::k2d, core::TexelFormat::kR32Uint,
+                                   core::Access::kReadWrite);
+    GlobalVar(Source{{1, 2}}, "v", type, Binding(0_a), Group(0_a));
+    GlobalVar("res", ty.vec4<f32>(), core::AddressSpace::kPrivate);
+    Func("main", tint::Empty, ty.vec4<f32>(),
+         Vector{
+             Assign(Phony(), Expr(Source{{3, 4}}, "v")),
+             Return(Expr(Source{{3, 4}}, "res")),
+         },
+         Vector{
+             Stage(ast::PipelineStage::kVertex),
+         },
+         Vector{
+             Builtin(core::BuiltinValue::kPosition),
+         });
+
+    EXPECT_FALSE(r()->Resolve());
+    EXPECT_EQ(
+        r()->error(),
+        R"(3:4 error: storage texture with 'read_write' access mode cannot be used by vertex pipeline stage
+1:2 note: variable is declared here)");
+}
+
+TEST_F(ResolverValidationDeathTest, UnhandledStmt) {
+    EXPECT_DEATH_IF_SUPPORTED(
         {
             ProgramBuilder b;
             b.WrapInFunction(b.create<FakeStmt>());
             resolver::Resolve(b);
         },
-        "internal compiler error: Switch() matched no cases. Type: tint::resolver::FakeStmt");
+        testing::HasSubstr(
+            "internal compiler error: Switch() matched no cases. Type: tint::resolver::FakeStmt"));
 }
 
 TEST_F(ResolverValidationTest, Stmt_If_NonBool) {
@@ -164,14 +215,15 @@ TEST_F(ResolverValidationTest, Stmt_ElseIf_NonBool) {
     EXPECT_EQ(r()->error(), R"(12:34 error: if statement condition must be bool, got f32)");
 }
 
-TEST_F(ResolverValidationTest, Expr_ErrUnknownExprType) {
-    EXPECT_FATAL_FAILURE(
+TEST_F(ResolverValidationDeathTest, Expr_ErrUnknownExprType) {
+    EXPECT_DEATH_IF_SUPPORTED(
         {
             ProgramBuilder b;
             b.WrapInFunction(b.create<FakeExpr>());
             Resolver(&b, {}).Resolve();
         },
-        "internal compiler error: Switch() matched no cases. Type: tint::resolver::FakeExpr");
+        testing::HasSubstr(
+            "internal compiler error: Switch() matched no cases. Type: tint::resolver::FakeExpr"));
 }
 
 TEST_F(ResolverValidationTest, UsingUndefinedVariable_Fail) {
@@ -316,7 +368,7 @@ TEST_F(ResolverValidationTest, AddressSpace_SamplerExplicitAddressSpace) {
     EXPECT_FALSE(r()->Resolve());
 
     EXPECT_EQ(r()->error(),
-              R"(12:34 error: variables of type 'sampler' must not specifiy an address space)");
+              R"(12:34 error: variables of type 'sampler' must not specify an address space)");
 }
 
 TEST_F(ResolverValidationTest, AddressSpace_TextureExplicitAddressSpace) {
@@ -327,7 +379,7 @@ TEST_F(ResolverValidationTest, AddressSpace_TextureExplicitAddressSpace) {
 
     EXPECT_EQ(
         r()->error(),
-        R"(12:34 error: variables of type 'texture_1d<f32>' must not specifiy an address space)");
+        R"(12:34 error: variables of type 'texture_1d<f32>' must not specify an address space)");
 }
 
 TEST_F(ResolverValidationTest, Expr_MemberAccessor_VectorSwizzle_BadChar) {
@@ -383,12 +435,10 @@ TEST_F(ResolverValidationTest, Expr_MemberAccessor_BadParent) {
     WrapInFunction(Decl(param), Decl(ret));
 
     EXPECT_FALSE(r()->Resolve());
-    EXPECT_EQ(r()->error(),
-              "12:34 error: invalid member accessor expression. Expected vector or struct, got "
-              "'ptr<function, vec4<f32>, read_write>'");
+    EXPECT_EQ(r()->error(), "error: cannot dereference expression of type 'f32'");
 }
 
-TEST_F(ResolverValidationTest, EXpr_MemberAccessor_FuncGoodParent) {
+TEST_F(ResolverValidationTest, Expr_MemberAccessor_FuncGoodParent) {
     // fn func(p: ptr<function, vec4<f32>>) -> f32 {
     //     let x: f32 = (*p).z;
     //     return x;
@@ -405,7 +455,7 @@ TEST_F(ResolverValidationTest, EXpr_MemberAccessor_FuncGoodParent) {
     EXPECT_TRUE(r()->Resolve()) << r()->error();
 }
 
-TEST_F(ResolverValidationTest, EXpr_MemberAccessor_FuncBadParent) {
+TEST_F(ResolverValidationTest, Expr_MemberAccessor_FuncBadParent) {
     // fn func(p: ptr<function, vec4<f32>>) -> f32 {
     //     let x: f32 = *p.z;
     //     return x;
@@ -421,9 +471,7 @@ TEST_F(ResolverValidationTest, EXpr_MemberAccessor_FuncBadParent) {
          });
 
     EXPECT_FALSE(r()->Resolve());
-    EXPECT_EQ(r()->error(),
-              "12:34 error: invalid member accessor expression. Expected vector or struct, got "
-              "'ptr<function, vec4<f32>, read_write>'");
+    EXPECT_EQ(r()->error(), "error: cannot dereference expression of type 'f32'");
 }
 
 TEST_F(ResolverValidationTest,
@@ -589,6 +637,69 @@ TEST_F(ResolverValidationTest,
     EXPECT_FALSE(r()->Resolve()) << r()->error();
     EXPECT_EQ(r()->error(),
               R"(12:34 error: continue statement bypasses declaration of 'z'
+56:78 note: identifier 'z' declared here
+90:12 note: identifier 'z' referenced in continuing block here)");
+}
+
+TEST_F(ResolverValidationTest,
+       Stmt_Loop_ContinueInLoopBodyBeforeDecl_UsageInNestedContinuingInBody) {
+    // loop  {
+    //     continue;
+    //     var z : i32;
+    //     loop {
+    //         continue;
+    //         continuing {
+    //             z = 2i;
+    //             break if true;
+    //         }
+    //     }
+    //     continuing {
+    //         break if true;
+    //     }
+    // }
+
+    auto cont_loc = Source{{12, 34}};
+    auto decl_loc = Source{{56, 78}};
+    auto ref_loc = Source{{90, 12}};
+    auto* nested_loop =
+        Loop(Block(Continue()), Block(Assign(Expr(ref_loc, "z"), 2_i), BreakIf(true)));
+    auto* body = Block(Continue(cont_loc), Decl(Var(decl_loc, "z", ty.i32())), nested_loop);
+    auto* continuing = Block(BreakIf(true));
+    auto* loop_stmt = Loop(body, continuing);
+    WrapInFunction(loop_stmt);
+
+    ASSERT_TRUE(r()->Resolve()) << r()->error();
+}
+
+TEST_F(ResolverValidationTest,
+       Stmt_Loop_ContinueInLoopBodyBeforeDecl_UsageInNestedContinuingInContinuing) {
+    // loop  {
+    //     continue;
+    //     var z : i32;
+    //     continuing {
+    //         loop {
+    //             continuing {
+    //               z = 2i;
+    //               break if true;
+    //             }
+    //         }
+    //         break if true;
+    //     }
+    // }
+
+    auto cont_loc = Source{{12, 34}};
+    auto decl_loc = Source{{56, 78}};
+    auto ref_loc = Source{{90, 12}};
+    auto* body = Block(Continue(cont_loc), Decl(Var(decl_loc, "z", ty.i32())));
+    auto* nested_loop = Loop(Block(), Block(Assign(Expr(ref_loc, "z"), 2_i), BreakIf(true)));
+    auto* continuing = Block(nested_loop, BreakIf(true));
+    auto* loop_stmt = Loop(body, continuing);
+    WrapInFunction(loop_stmt);
+
+    EXPECT_FALSE(r()->Resolve()) << r()->error();
+    EXPECT_EQ(r()->error(),
+              R"(warning: code is unreachable
+12:34 error: continue statement bypasses declaration of 'z'
 56:78 note: identifier 'z' declared here
 90:12 note: identifier 'z' referenced in continuing block here)");
 }
@@ -998,6 +1109,22 @@ TEST_F(ResolverValidationTest, Stmt_BreakInSwitch) {
     EXPECT_TRUE(r()->Resolve()) << r()->error();
 }
 
+TEST_F(ResolverValidationTest, Stmt_BreakInSwitchInContinuing) {
+    // loop {
+    //   continuing {
+    //     switch(1) {
+    //       default:
+    //         break;
+    //     }
+    //   }
+    // }
+
+    auto* cont = Block(Switch(1_i, DefaultCase(Block(Break()))));
+
+    WrapInFunction(Loop(Block(Break()), cont));
+    EXPECT_TRUE(r()->Resolve()) << r()->error();
+}
+
 TEST_F(ResolverValidationTest, Stmt_BreakInIfTrueInContinuing) {
     auto* cont = Block(                           // continuing {
         If(true, Block(                           //   if(true) {
@@ -1006,9 +1133,9 @@ TEST_F(ResolverValidationTest, Stmt_BreakInIfTrueInContinuing) {
                                                   // }
     WrapInFunction(Loop(Block(), cont));
     EXPECT_FALSE(r()->Resolve());
-    EXPECT_EQ(r()->error(),
-              "12:34 error: `break` must not be used to exit from a continuing block. "
-              "Use `break-if` instead.");
+    EXPECT_EQ(
+        r()->error(),
+        R"(12:34 error: 'break' must not be used to exit from a continuing block. Use 'break if' instead.)");
 }
 
 TEST_F(ResolverValidationTest, Stmt_BreakInIfElseInContinuing) {
@@ -1020,9 +1147,9 @@ TEST_F(ResolverValidationTest, Stmt_BreakInIfElseInContinuing) {
                                              // }
     WrapInFunction(Loop(Block(), cont));
     EXPECT_FALSE(r()->Resolve());
-    EXPECT_EQ(r()->error(),
-              "12:34 error: `break` must not be used to exit from a continuing block. "
-              "Use `break-if` instead.");
+    EXPECT_EQ(
+        r()->error(),
+        R"(12:34 error: 'break' must not be used to exit from a continuing block. Use 'break if' instead.)");
 }
 
 TEST_F(ResolverValidationTest, Stmt_BreakInContinuing) {
@@ -1031,9 +1158,9 @@ TEST_F(ResolverValidationTest, Stmt_BreakInContinuing) {
                                           // }
     WrapInFunction(Loop(Block(), cont));
     EXPECT_FALSE(r()->Resolve());
-    EXPECT_EQ(r()->error(),
-              "12:34 error: `break` must not be used to exit from a continuing block. "
-              "Use `break-if` instead.");
+    EXPECT_EQ(
+        r()->error(),
+        R"(12:34 error: 'break' must not be used to exit from a continuing block. Use 'break if' instead.)");
 }
 
 TEST_F(ResolverValidationTest, Stmt_BreakInIfInIfInContinuing) {
@@ -1046,9 +1173,9 @@ TEST_F(ResolverValidationTest, Stmt_BreakInIfInIfInContinuing) {
                                                              // }
     WrapInFunction(Loop(Block(), cont));
     EXPECT_FALSE(r()->Resolve());
-    EXPECT_EQ(r()->error(),
-              "12:34 error: `break` must not be used to exit from a continuing block. "
-              "Use `break-if` instead.");
+    EXPECT_EQ(
+        r()->error(),
+        R"(12:34 error: 'break' must not be used to exit from a continuing block. Use 'break if' instead.)");
 }
 
 TEST_F(ResolverValidationTest, Stmt_BreakInIfTrueMultipleStmtsInContinuing) {
@@ -1060,9 +1187,9 @@ TEST_F(ResolverValidationTest, Stmt_BreakInIfTrueMultipleStmtsInContinuing) {
                                                     // }
     WrapInFunction(Loop(Block(), cont));
     EXPECT_FALSE(r()->Resolve());
-    EXPECT_EQ(r()->error(),
-              "12:34 error: `break` must not be used to exit from a continuing block. "
-              "Use `break-if` instead.");
+    EXPECT_EQ(
+        r()->error(),
+        R"(12:34 error: 'break' must not be used to exit from a continuing block. Use 'break if' instead.)");
 }
 
 TEST_F(ResolverValidationTest, Stmt_BreakInIfElseMultipleStmtsInContinuing) {
@@ -1075,9 +1202,9 @@ TEST_F(ResolverValidationTest, Stmt_BreakInIfElseMultipleStmtsInContinuing) {
                                                     // }
     WrapInFunction(Loop(Block(), cont));
     EXPECT_FALSE(r()->Resolve());
-    EXPECT_EQ(r()->error(),
-              "12:34 error: `break` must not be used to exit from a continuing block. "
-              "Use `break-if` instead.");
+    EXPECT_EQ(
+        r()->error(),
+        R"(12:34 error: 'break' must not be used to exit from a continuing block. Use 'break if' instead.)");
 }
 
 TEST_F(ResolverValidationTest, Stmt_BreakInIfElseIfInContinuing) {
@@ -1089,9 +1216,9 @@ TEST_F(ResolverValidationTest, Stmt_BreakInIfElseIfInContinuing) {
                                                         // }
     WrapInFunction(Loop(Block(), cont));
     EXPECT_FALSE(r()->Resolve());
-    EXPECT_EQ(r()->error(),
-              "12:34 error: `break` must not be used to exit from a continuing block. "
-              "Use `break-if` instead.");
+    EXPECT_EQ(
+        r()->error(),
+        R"(12:34 error: 'break' must not be used to exit from a continuing block. Use 'break if' instead.)");
 }
 
 TEST_F(ResolverValidationTest, Stmt_BreakInIfNonEmptyElseInContinuing) {
@@ -1104,9 +1231,9 @@ TEST_F(ResolverValidationTest, Stmt_BreakInIfNonEmptyElseInContinuing) {
                                                  // }
     WrapInFunction(Loop(Block(), cont));
     EXPECT_FALSE(r()->Resolve());
-    EXPECT_EQ(r()->error(),
-              "12:34 error: `break` must not be used to exit from a continuing block. "
-              "Use `break-if` instead.");
+    EXPECT_EQ(
+        r()->error(),
+        R"(12:34 error: 'break' must not be used to exit from a continuing block. Use 'break if' instead.)");
 }
 
 TEST_F(ResolverValidationTest, Stmt_BreakInIfElseNonEmptyTrueInContinuing) {
@@ -1119,9 +1246,9 @@ TEST_F(ResolverValidationTest, Stmt_BreakInIfElseNonEmptyTrueInContinuing) {
                                                            // }
     WrapInFunction(Loop(Block(), cont));
     EXPECT_FALSE(r()->Resolve());
-    EXPECT_EQ(r()->error(),
-              "12:34 error: `break` must not be used to exit from a continuing block. "
-              "Use `break-if` instead.");
+    EXPECT_EQ(
+        r()->error(),
+        R"(12:34 error: 'break' must not be used to exit from a continuing block. Use 'break if' instead.)");
 }
 
 TEST_F(ResolverValidationTest, Stmt_BreakInIfInContinuingNotLast) {
@@ -1133,9 +1260,9 @@ TEST_F(ResolverValidationTest, Stmt_BreakInIfInContinuingNotLast) {
                                              // }
     WrapInFunction(Loop(Block(), cont));
     EXPECT_FALSE(r()->Resolve());
-    EXPECT_EQ(r()->error(),
-              "12:34 error: `break` must not be used to exit from a continuing block. "
-              "Use `break-if` instead.");
+    EXPECT_EQ(
+        r()->error(),
+        R"(12:34 error: 'break' must not be used to exit from a continuing block. Use 'break if' instead.)");
 }
 
 TEST_F(ResolverValidationTest, Stmt_BreakNotInLoopOrSwitch) {
@@ -1183,7 +1310,7 @@ TEST_F(ResolverValidationTest, NegativeStructMemberAlignAttribute) {
 
     EXPECT_FALSE(r()->Resolve());
     EXPECT_EQ(r()->error(),
-              R"(12:34 error: @align value must be a positive, power-of-two integer)");
+              R"(12:34 error: '@align' value must be a positive, power-of-two integer)");
 }
 
 TEST_F(ResolverValidationTest, NonPOTStructMemberAlignAttribute) {
@@ -1193,7 +1320,7 @@ TEST_F(ResolverValidationTest, NonPOTStructMemberAlignAttribute) {
 
     EXPECT_FALSE(r()->Resolve());
     EXPECT_EQ(r()->error(),
-              R"(12:34 error: @align value must be a positive, power-of-two integer)");
+              R"(12:34 error: '@align' value must be a positive, power-of-two integer)");
 }
 
 TEST_F(ResolverValidationTest, ZeroStructMemberAlignAttribute) {
@@ -1203,7 +1330,7 @@ TEST_F(ResolverValidationTest, ZeroStructMemberAlignAttribute) {
 
     EXPECT_FALSE(r()->Resolve());
     EXPECT_EQ(r()->error(),
-              R"(12:34 error: @align value must be a positive, power-of-two integer)");
+              R"(12:34 error: '@align' value must be a positive, power-of-two integer)");
 }
 
 TEST_F(ResolverValidationTest, ZeroStructMemberSizeAttribute) {
@@ -1212,7 +1339,8 @@ TEST_F(ResolverValidationTest, ZeroStructMemberSizeAttribute) {
                    });
 
     EXPECT_FALSE(r()->Resolve());
-    EXPECT_EQ(r()->error(), R"(12:34 error: @size must be at least as big as the type's size (4))");
+    EXPECT_EQ(r()->error(),
+              R"(12:34 error: '@size' must be at least as big as the type's size (4))");
 }
 
 TEST_F(ResolverValidationTest, OffsetAndSizeAttribute) {
@@ -1222,7 +1350,7 @@ TEST_F(ResolverValidationTest, OffsetAndSizeAttribute) {
                    });
 
     EXPECT_FALSE(r()->Resolve());
-    EXPECT_EQ(r()->error(), R"(12:34 error: @offset cannot be used with @align or @size)");
+    EXPECT_EQ(r()->error(), R"(12:34 error: '@offset' cannot be used with '@align' or '@size')");
 }
 
 TEST_F(ResolverValidationTest, OffsetAndAlignAttribute) {
@@ -1232,7 +1360,7 @@ TEST_F(ResolverValidationTest, OffsetAndAlignAttribute) {
                    });
 
     EXPECT_FALSE(r()->Resolve());
-    EXPECT_EQ(r()->error(), R"(12:34 error: @offset cannot be used with @align or @size)");
+    EXPECT_EQ(r()->error(), R"(12:34 error: '@offset' cannot be used with '@align' or '@size')");
 }
 
 TEST_F(ResolverValidationTest, OffsetAndAlignAndSizeAttribute) {
@@ -1242,7 +1370,7 @@ TEST_F(ResolverValidationTest, OffsetAndAlignAndSizeAttribute) {
                    });
 
     EXPECT_FALSE(r()->Resolve());
-    EXPECT_EQ(r()->error(), R"(12:34 error: @offset cannot be used with @align or @size)");
+    EXPECT_EQ(r()->error(), R"(12:34 error: '@offset' cannot be used with '@align' or '@size')");
 }
 
 TEST_F(ResolverTest, Expr_Initializer_Cast_Pointer) {
@@ -1276,22 +1404,72 @@ TEST_F(ResolverTest, U32_Overflow) {
     EXPECT_EQ(r()->error(), R"(12:24 error: value 4294967296 cannot be represented as 'u32')");
 }
 
-//    var a: array<i32,2>;
-//    *&a[0] = 1;
-TEST_F(ResolverTest, PointerIndexing_Fail) {
-    // var a: array<i32,2>;
-    // let p = &a;
-    // *p[0] = 0;
+TEST_F(ResolverValidationTest, ShiftLeft_I32_PartialEval_Valid) {
+    auto* lhs = GlobalVar("v", ty.i32(), core::AddressSpace::kPrivate);
+    auto* let = Let("res", Shl(lhs, Expr(31_u)));
+    WrapInFunction(Decl(let));
 
-    auto* a = Var("a", ty.array<i32, 2>());
-    auto* p = AddressOf("a");
-    auto* idx = Assign(Deref(IndexAccessor(p, 0_u)), 0_u);
+    EXPECT_TRUE(r()->Resolve()) << r()->error();
+}
 
-    WrapInFunction(a, idx);
+TEST_F(ResolverValidationTest, ShiftLeft_I32_PartialEval_Invalid) {
+    auto* lhs = GlobalVar("v", ty.i32(), core::AddressSpace::kPrivate);
+    auto* let = Let("res", Shl(Source{{1, 2}}, lhs, Expr(32_u)));
+    WrapInFunction(Decl(let));
 
     EXPECT_FALSE(r()->Resolve());
-    EXPECT_EQ(r()->error(),
-              R"(error: cannot index type 'ptr<function, array<i32, 2>, read_write>')");
+    EXPECT_EQ(
+        r()->error(),
+        R"(1:2 error: shift left value must be less than the bit width of the lhs, which is 32)");
+}
+
+TEST_F(ResolverValidationTest, ShiftRight_U32_PartialEval_Invalid) {
+    auto* lhs = GlobalVar("v", ty.u32(), core::AddressSpace::kPrivate);
+    auto* let = Let("res", Shr(Source{{1, 2}}, lhs, Expr(64_u)));
+    WrapInFunction(Decl(let));
+
+    EXPECT_FALSE(r()->Resolve());
+    EXPECT_EQ(
+        r()->error(),
+        R"(1:2 error: shift right value must be less than the bit width of the lhs, which is 32)");
+}
+
+TEST_F(ResolverValidationTest, ShiftLeft_VecI32_PartialEval_Valid) {
+    auto* lhs = GlobalVar("v", ty.vec3(ty.i32()), core::AddressSpace::kPrivate);
+    auto* let = Let("res", Shl(lhs, Call<vec3<u32>>(0_u, 1_u, 2_u)));
+    WrapInFunction(Decl(let));
+
+    EXPECT_TRUE(r()->Resolve()) << r()->error();
+}
+
+TEST_F(ResolverValidationTest, ShiftLeft_VecI32_PartialEval_Invalid) {
+    auto* lhs = GlobalVar("v", ty.vec3(ty.i32()), core::AddressSpace::kPrivate);
+    auto* let = Let("res", Shl(Source{{1, 2}}, lhs, Call<vec3<u32>>(31_u, 32_u, 33_u)));
+    WrapInFunction(Decl(let));
+
+    EXPECT_FALSE(r()->Resolve());
+    EXPECT_EQ(
+        r()->error(),
+        R"(1:2 error: shift left value must be less than the bit width of the lhs, which is 32)");
+}
+
+TEST_F(ResolverValidationTest, ShiftLeft_I32_CompoundAssign_Valid) {
+    GlobalVar("v", ty.i32(), core::AddressSpace::kPrivate);
+    auto* expr = CompoundAssign(Source{{1, 2}}, "v", 1_u, core::BinaryOp::kShiftLeft);
+    WrapInFunction(expr);
+
+    EXPECT_TRUE(r()->Resolve()) << r()->error();
+}
+
+TEST_F(ResolverValidationTest, ShiftLeft_I32_CompoundAssign_Invalid) {
+    GlobalVar("v", ty.i32(), core::AddressSpace::kPrivate);
+    auto* expr = CompoundAssign(Source{{1, 2}}, "v", 64_u, core::BinaryOp::kShiftLeft);
+    WrapInFunction(expr);
+
+    EXPECT_FALSE(r()->Resolve());
+    EXPECT_EQ(
+        r()->error(),
+        R"(1:2 error: shift left value must be less than the bit width of the lhs, which is 32)");
 }
 
 }  // namespace

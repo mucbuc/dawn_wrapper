@@ -1,9 +1,21 @@
-SKIP: FAILED
+#include <metal_stdlib>
+using namespace metal;
 
-<dawn>/src/tint/lang/msl/writer/printer/printer.cc:247 internal compiler error: Switch() matched no cases. Type: tint::core::ir::Loop
-********************************************************************
-*  The tint shader compiler has encountered an unexpected error.   *
-*                                                                  *
-*  Please help us fix this issue by submitting a bug report at     *
-*  crbug.com/tint with the source program that triggered the bug.  *
-********************************************************************
+#define TINT_ISOLATE_UB(VOLATILE_NAME) \
+  {volatile bool VOLATILE_NAME = false; if (VOLATILE_NAME) break;}
+
+fragment void tint_symbol() {
+  {
+    while(true) {
+      TINT_ISOLATE_UB(tint_volatile_false)
+      if (false) {
+      } else {
+        break;
+      }
+      {
+        if (false) { break; }
+      }
+      continue;
+    }
+  }
+}

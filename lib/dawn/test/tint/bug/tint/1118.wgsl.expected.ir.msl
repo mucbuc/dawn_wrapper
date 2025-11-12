@@ -1,197 +1,141 @@
-SKIP: FAILED
+#include <metal_stdlib>
+using namespace metal;
 
-<dawn>/src/tint/lang/msl/writer/printer/printer.cc:355 internal compiler error: Scene = struct @align(16) {
-  vEyePosition:vec4<f32> @offset(0)
-}
+struct Scene {
+  /* 0x0000 */ float4 vEyePosition;
+};
 
-Material = struct @align(16) {
-  vDiffuseColor:vec4<f32> @offset(0)
-  vAmbientColor:vec3<f32> @offset(16)
-  placeholder:f32 @offset(28)
-  vEmissiveColor:vec3<f32> @offset(32)
-  placeholder2:f32 @offset(44)
-}
+struct Material_packed_vec3 {
+  /* 0x0000 */ float4 vDiffuseColor;
+  /* 0x0010 */ packed_float3 vAmbientColor;
+  /* 0x001c */ float placeholder;
+  /* 0x0020 */ packed_float3 vEmissiveColor;
+  /* 0x002c */ float placeholder2;
+};
 
-Mesh = struct @align(4) {
-  visibility:f32 @offset(0)
-}
+struct Mesh {
+  /* 0x0000 */ float visibility;
+};
 
-main_out = struct @align(16) {
-  glFragColor_1:vec4<f32> @offset(0), @location(0)
-}
+struct tint_module_vars_struct {
+  thread float* fClipDistance3;
+  thread float* fClipDistance4;
+  const constant Scene* x_29;
+  const constant Material_packed_vec3* x_49;
+  const constant Mesh* x_137;
+  thread float4* glFragColor;
+  thread bool* continue_execution;
+};
 
-%b1 = block {  # root
-  %fClipDistance3:ptr<private, f32, read_write> = var
-  %fClipDistance4:ptr<private, f32, read_write> = var
-  %x_29:ptr<uniform, Scene, read> = var @binding_point(0, 0)
-  %x_49:ptr<uniform, Material, read> = var @binding_point(0, 1)
-  %x_137:ptr<uniform, Mesh, read> = var @binding_point(0, 2)
-  %glFragColor:ptr<private, vec4<f32>, read_write> = var
-}
+struct main_out {
+  float4 glFragColor_1;
+};
 
-%main_1 = func():void -> %b2 {
-  %b2 = block {
-    %viewDirectionW:ptr<function, vec3<f32>, read_write> = var
-    %baseColor:ptr<function, vec4<f32>, read_write> = var
-    %diffuseColor:ptr<function, vec3<f32>, read_write> = var
-    %alpha:ptr<function, f32, read_write> = var
-    %normalW:ptr<function, vec3<f32>, read_write> = var
-    %uvOffset:ptr<function, vec2<f32>, read_write> = var
-    %baseAmbientColor:ptr<function, vec3<f32>, read_write> = var
-    %glossiness:ptr<function, f32, read_write> = var
-    %diffuseBase:ptr<function, vec3<f32>, read_write> = var
-    %shadow:ptr<function, f32, read_write> = var
-    %refractionColor:ptr<function, vec4<f32>, read_write> = var
-    %reflectionColor:ptr<function, vec4<f32>, read_write> = var
-    %emissiveColor:ptr<function, vec3<f32>, read_write> = var
-    %finalDiffuse:ptr<function, vec3<f32>, read_write> = var
-    %finalSpecular:ptr<function, vec3<f32>, read_write> = var
-    %color:ptr<function, vec4<f32>, read_write> = var
-    %x_9:f32 = load %fClipDistance3
-    %25:bool = gt %x_9, 0.0f
-    if %25 [t: %b3] {  # if_1
-      %b3 = block {  # true
-        discard
-        exit_if  # if_1
-      }
-    }
-    %x_17:f32 = load %fClipDistance4
-    %27:bool = gt %x_17, 0.0f
-    if %27 [t: %b4] {  # if_2
-      %b4 = block {  # true
-        discard
-        exit_if  # if_2
-      }
-    }
-    %28:ptr<uniform, vec4<f32>, read> = access %x_29, 0u
-    %x_34:vec4<f32> = load %28
-    %x_38:vec3<f32> = let vec3<f32>(0.0f)
-    %31:f32 = access %x_34, 0u
-    %32:f32 = access %x_34, 1u
-    %33:f32 = access %x_34, 2u
-    %34:vec3<f32> = construct %31, %32, %33
-    %35:vec3<f32> = sub %34, %x_38
-    %36:vec3<f32> = normalize %35
-    store %viewDirectionW, %36
-    store %baseColor, vec4<f32>(1.0f)
-    %37:ptr<uniform, vec4<f32>, read> = access %x_49, 0u
-    %x_52:vec4<f32> = load %37
-    %39:f32 = access %x_52, 0u
-    %40:f32 = access %x_52, 1u
-    %41:f32 = access %x_52, 2u
-    %42:vec3<f32> = construct %39, %40, %41
-    store %diffuseColor, %42
-    %43:ptr<uniform, vec4<f32>, read> = access %x_49, 0u
-    %x_60:f32 = load_vector_element %43, 3u
-    store %alpha, %x_60
-    %x_62:vec3<f32> = let vec3<f32>(0.0f)
-    %x_64:vec3<f32> = let vec3<f32>(0.0f)
-    store %uvOffset, vec2<f32>(0.0f)
-    %x_74:vec4<f32> = let vec4<f32>(0.0f)
-    %x_76:vec4<f32> = load %baseColor
-    %49:f32 = access %x_76, 0u
-    %50:f32 = access %x_76, 1u
-    %51:f32 = access %x_76, 2u
-    %52:vec3<f32> = construct %49, %50, %51
-    %53:f32 = access %x_74, 0u
-    %54:f32 = access %x_74, 1u
-    %55:f32 = access %x_74, 2u
-    %56:vec3<f32> = construct %53, %54, %55
-    %x_78:vec3<f32> = mul %52, %56
-    %x_79:vec4<f32> = load %baseColor
-    %59:f32 = access %x_78, 0u
-    %60:f32 = access %x_78, 1u
-    %61:f32 = access %x_78, 2u
-    %62:f32 = access %x_79, 3u
-    %63:vec4<f32> = construct %59, %60, %61, %62
-    store %baseColor, %63
-    store %baseAmbientColor, vec3<f32>(1.0f)
-    store %glossiness, 0.0f
-    store %diffuseBase, vec3<f32>(0.0f)
-    store %shadow, 1.0f
-    store %refractionColor, vec4<f32>(0.0f, 0.0f, 0.0f, 1.0f)
-    store %reflectionColor, vec4<f32>(0.0f, 0.0f, 0.0f, 1.0f)
-    %64:ptr<uniform, vec3<f32>, read> = access %x_49, 3u
-    %x_94:vec3<f32> = load %64
-    store %emissiveColor, %x_94
-    %x_96:vec3<f32> = load %diffuseBase
-    %x_97:vec3<f32> = load %diffuseColor
-    %x_99:vec3<f32> = load %emissiveColor
-    %69:ptr<uniform, vec3<f32>, read> = access %x_49, 1u
-    %x_103:vec3<f32> = load %69
-    %x_108:vec4<f32> = load %baseColor
-    %72:vec3<f32> = mul %x_96, %x_97
-    %73:vec3<f32> = add %72, %x_99
-    %74:vec3<f32> = add %73, %x_103
-    %75:vec3<f32> = clamp %74, vec3<f32>(0.0f), vec3<f32>(1.0f)
-    %76:f32 = access %x_108, 0u
-    %77:f32 = access %x_108, 1u
-    %78:f32 = access %x_108, 2u
-    %79:vec3<f32> = construct %76, %77, %78
-    %80:vec3<f32> = mul %75, %79
-    store %finalDiffuse, %80
-    store %finalSpecular, vec3<f32>(0.0f)
-    %x_113:vec3<f32> = load %finalDiffuse
-    %x_114:vec3<f32> = load %baseAmbientColor
-    %x_116:vec3<f32> = load %finalSpecular
-    %x_118:vec4<f32> = load %reflectionColor
-    %x_121:vec4<f32> = load %refractionColor
-    %86:vec3<f32> = mul %x_113, %x_114
-    %87:vec3<f32> = add %86, %x_116
-    %88:f32 = access %x_118, 0u
-    %89:f32 = access %x_118, 1u
-    %90:f32 = access %x_118, 2u
-    %91:vec3<f32> = construct %88, %89, %90
-    %92:vec3<f32> = add %87, %91
-    %93:f32 = access %x_121, 0u
-    %94:f32 = access %x_121, 1u
-    %95:f32 = access %x_121, 2u
-    %96:vec3<f32> = construct %93, %94, %95
-    %x_123:vec3<f32> = add %92, %96
-    %x_124:f32 = load %alpha
-    %99:f32 = access %x_123, 0u
-    %100:f32 = access %x_123, 1u
-    %101:f32 = access %x_123, 2u
-    %102:vec4<f32> = construct %99, %100, %101, %x_124
-    store %color, %102
-    %x_129:vec4<f32> = load %color
-    %104:f32 = access %x_129, 0u
-    %105:f32 = access %x_129, 1u
-    %106:f32 = access %x_129, 2u
-    %107:vec3<f32> = construct %104, %105, %106
-    %x_132:vec3<f32> = max %107, vec3<f32>(0.0f)
-    %x_133:vec4<f32> = load %color
-    %110:f32 = access %x_132, 0u
-    %111:f32 = access %x_132, 1u
-    %112:f32 = access %x_132, 2u
-    %113:f32 = access %x_133, 3u
-    %114:vec4<f32> = construct %110, %111, %112, %113
-    store %color, %114
-    %115:ptr<uniform, f32, read> = access %x_137, 0u
-    %x_140:f32 = load %115
-    %x_142:f32 = load_vector_element %color, 3u
-    %118:f32 = mul %x_142, %x_140
-    store_vector_element %color, 3u, %118
-    %x_147:vec4<f32> = load %color
-    store %glFragColor, %x_147
-    ret
+struct tint_symbol_outputs {
+  float4 main_out_glFragColor_1 [[color(0)]];
+};
+
+struct tint_symbol_inputs {
+  float fClipDistance3_param [[user(locn2)]];
+  float fClipDistance4_param [[user(locn3)]];
+};
+
+void main_1(tint_module_vars_struct tint_module_vars) {
+  float3 viewDirectionW = 0.0f;
+  float4 baseColor = 0.0f;
+  float3 diffuseColor = 0.0f;
+  float alpha = 0.0f;
+  float3 normalW = 0.0f;
+  float2 uvOffset = 0.0f;
+  float3 baseAmbientColor = 0.0f;
+  float glossiness = 0.0f;
+  float3 diffuseBase = 0.0f;
+  float shadow = 0.0f;
+  float4 refractionColor = 0.0f;
+  float4 reflectionColor = 0.0f;
+  float3 emissiveColor = 0.0f;
+  float3 finalDiffuse = 0.0f;
+  float3 finalSpecular = 0.0f;
+  float4 color = 0.0f;
+  float const x_9 = (*tint_module_vars.fClipDistance3);
+  if ((x_9 > 0.0f)) {
+    (*tint_module_vars.continue_execution) = false;
   }
-}
-%tint_symbol = @fragment func(%fClipDistance3_param:f32 [@location(2)], %fClipDistance4_param:f32 [@location(3)]):main_out -> %b5 {
-  %b5 = block {
-    store %fClipDistance3, %fClipDistance3_param
-    store %fClipDistance4, %fClipDistance4_param
-    %123:void = call %main_1
-    %124:vec4<f32> = load %glFragColor
-    %125:main_out = construct %124
-    ret %125
+  float const x_17 = (*tint_module_vars.fClipDistance4);
+  if ((x_17 > 0.0f)) {
+    (*tint_module_vars.continue_execution) = false;
   }
+  float4 const x_34 = (*tint_module_vars.x_29).vEyePosition;
+  float3 const x_38 = float3(0.0f);
+  viewDirectionW = normalize((float3(x_34[0u], x_34[1u], x_34[2u]) - x_38));
+  baseColor = float4(1.0f);
+  float4 const x_52 = (*tint_module_vars.x_49).vDiffuseColor;
+  diffuseColor = float3(x_52[0u], x_52[1u], x_52[2u]);
+  float const x_60 = (*tint_module_vars.x_49).vDiffuseColor[3u];
+  alpha = x_60;
+  float3 const x_62 = float3(0.0f);
+  float3 const x_64 = float3(0.0f);
+  uvOffset = float2(0.0f);
+  float4 const x_74 = float4(0.0f);
+  float4 const x_76 = baseColor;
+  float3 const v = float3(x_76[0u], x_76[1u], x_76[2u]);
+  float3 const x_78 = (v * float3(x_74[0u], x_74[1u], x_74[2u]));
+  float4 const x_79 = baseColor;
+  baseColor = float4(x_78[0u], x_78[1u], x_78[2u], x_79[3u]);
+  baseAmbientColor = float3(1.0f);
+  glossiness = 0.0f;
+  diffuseBase = float3(0.0f);
+  shadow = 1.0f;
+  refractionColor = float4(0.0f, 0.0f, 0.0f, 1.0f);
+  reflectionColor = float4(0.0f, 0.0f, 0.0f, 1.0f);
+  float3 const x_94 = float3((*tint_module_vars.x_49).vEmissiveColor);
+  emissiveColor = x_94;
+  float3 const x_96 = diffuseBase;
+  float3 const x_97 = diffuseColor;
+  float3 const x_99 = emissiveColor;
+  float3 const x_103 = float3((*tint_module_vars.x_49).vAmbientColor);
+  float4 const x_108 = baseColor;
+  float3 const v_1 = clamp((((x_96 * x_97) + x_99) + x_103), float3(0.0f), float3(1.0f));
+  finalDiffuse = (v_1 * float3(x_108[0u], x_108[1u], x_108[2u]));
+  finalSpecular = float3(0.0f);
+  float3 const x_113 = finalDiffuse;
+  float3 const x_114 = baseAmbientColor;
+  float3 const x_116 = finalSpecular;
+  float4 const x_118 = reflectionColor;
+  float4 const x_121 = refractionColor;
+  float3 const v_2 = (((x_113 * x_114) + x_116) + float3(x_118[0u], x_118[1u], x_118[2u]));
+  float3 const x_123 = (v_2 + float3(x_121[0u], x_121[1u], x_121[2u]));
+  float const x_124 = alpha;
+  color = float4(x_123[0u], x_123[1u], x_123[2u], x_124);
+  float4 const x_129 = color;
+  float3 const x_132 = max(float3(x_129[0u], x_129[1u], x_129[2u]), float3(0.0f));
+  float4 const x_133 = color;
+  color = float4(x_132[0u], x_132[1u], x_132[2u], x_133[3u]);
+  float const x_140 = (*tint_module_vars.x_137).visibility;
+  float const x_142 = color[3u];
+  color[3u] = (x_142 * x_140);
+  float4 const x_147 = color;
+  (*tint_module_vars.glFragColor) = x_147;
 }
 
-unhandled variable address space
-********************************************************************
-*  The tint shader compiler has encountered an unexpected error.   *
-*                                                                  *
-*  Please help us fix this issue by submitting a bug report at     *
-*  crbug.com/tint with the source program that triggered the bug.  *
-********************************************************************
+main_out tint_symbol_inner(float fClipDistance3_param, float fClipDistance4_param, tint_module_vars_struct tint_module_vars) {
+  (*tint_module_vars.fClipDistance3) = fClipDistance3_param;
+  (*tint_module_vars.fClipDistance4) = fClipDistance4_param;
+  main_1(tint_module_vars);
+  main_out const v_3 = main_out{.glFragColor_1=(*tint_module_vars.glFragColor)};
+  if (!((*tint_module_vars.continue_execution))) {
+    discard_fragment();
+  }
+  return v_3;
+}
+
+fragment tint_symbol_outputs tint_symbol(tint_symbol_inputs inputs [[stage_in]], const constant Scene* x_29 [[buffer(0)]], const constant Material_packed_vec3* x_49 [[buffer(1)]], const constant Mesh* x_137 [[buffer(2)]]) {
+  thread float fClipDistance3 = 0.0f;
+  thread float fClipDistance4 = 0.0f;
+  thread float4 glFragColor = 0.0f;
+  thread bool continue_execution = true;
+  tint_module_vars_struct const tint_module_vars = tint_module_vars_struct{.fClipDistance3=(&fClipDistance3), .fClipDistance4=(&fClipDistance4), .x_29=x_29, .x_49=x_49, .x_137=x_137, .glFragColor=(&glFragColor), .continue_execution=(&continue_execution)};
+  tint_symbol_outputs tint_wrapper_result = {};
+  tint_wrapper_result.main_out_glFragColor_1 = tint_symbol_inner(inputs.fClipDistance3_param, inputs.fClipDistance4_param, tint_module_vars).glFragColor_1;
+  return tint_wrapper_result;
+}

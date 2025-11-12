@@ -32,13 +32,14 @@
 #include <mutex>
 #include <optional>
 #include <string>
-#include <unordered_map>
 #include <utility>
+#include <vector>
 
 #include "dawn/common/HashUtils.h"
 #include "dawn/common/vulkan_platform.h"
 #include "dawn/native/Error.h"
 #include "dawn/native/ShaderModule.h"
+#include "partition_alloc/pointers/raw_ptr.h"
 
 namespace dawn::native {
 
@@ -47,10 +48,11 @@ struct ProgrammableStage;
 namespace vulkan {
 
 struct TransformedShaderModuleCacheKey {
-    const PipelineLayoutBase* layout;
+    uintptr_t layoutPtr;
     std::string entryPoint;
     PipelineConstantEntries constants;
     std::optional<uint32_t> maxSubgroupSizeForFullSubgroups;
+    bool emitPointSize;
 
     bool operator==(const TransformedShaderModuleCacheKey& other) const;
 };
@@ -68,12 +70,14 @@ class ShaderModule final : public ShaderModuleBase {
         VkShaderModule module;
         const uint32_t* spirv;
         size_t wordCount;
-        const char* remappedEntryPoint;
+        std::string remappedEntryPoint;
+        bool hasInputAttachment;
     };
 
     static ResultOrError<Ref<ShaderModule>> Create(
         Device* device,
         const UnpackedPtr<ShaderModuleDescriptor>& descriptor,
+        const std::vector<tint::wgsl::Extension>& internalExtensions,
         ShaderModuleParseResult* parseResult,
         OwnedCompilationMessages* compilationMessages);
 
@@ -82,10 +86,13 @@ class ShaderModule final : public ShaderModuleBase {
         const ProgrammableStage& programmableStage,
         const PipelineLayout* layout,
         bool clampFragDepth,
+        bool emitPointSize,
         std::optional<uint32_t> maxSubgroupSizeForFullSubgroups);
 
   private:
-    ShaderModule(Device* device, const UnpackedPtr<ShaderModuleDescriptor>& descriptor);
+    ShaderModule(Device* device,
+                 const UnpackedPtr<ShaderModuleDescriptor>& descriptor,
+                 std::vector<tint::wgsl::Extension> internalExtensions);
     ~ShaderModule() override;
     MaybeError Initialize(ShaderModuleParseResult* parseResult,
                           OwnedCompilationMessages* compilationMessages);

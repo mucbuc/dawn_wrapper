@@ -25,6 +25,7 @@
 // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+#include <atomic>
 #include <mutex>
 #include <utility>
 
@@ -33,6 +34,7 @@
 #include "dawn/native/Device.h"
 #include "dawn/native/ObjectBase.h"
 #include "dawn/native/ObjectType_autogen.h"
+#include "dawn/native/utils/WGPUHelpers.h"
 
 namespace dawn::native {
 
@@ -51,7 +53,7 @@ ObjectBase::ObjectBase(DeviceBase* device) : ErrorMonad(), mDevice(device) {}
 ObjectBase::ObjectBase(DeviceBase* device, ErrorTag) : ErrorMonad(kError), mDevice(device) {}
 
 InstanceBase* ObjectBase::GetInstance() const {
-    return mDevice->GetAdapter()->GetPhysicalDevice()->GetInstance();
+    return mDevice->GetInstance();
 }
 
 DeviceBase* ObjectBase::GetDevice() const {
@@ -59,27 +61,23 @@ DeviceBase* ObjectBase::GetDevice() const {
 }
 
 void ApiObjectList::Track(ApiObjectBase* object) {
-    if (mMarkedDestroyed) {
+    if (mMarkedDestroyed.load(std::memory_order_acquire)) {
         object->DestroyImpl();
         return;
     }
-    std::lock_guard<std::mutex> lock(mMutex);
-    mObjects.Prepend(object);
+    mObjects.Use([&object](auto lockedObjects) { lockedObjects->Prepend(object); });
 }
 
 bool ApiObjectList::Untrack(ApiObjectBase* object) {
-    std::lock_guard<std::mutex> lock(mMutex);
-    return object->RemoveFromList();
+    return mObjects.Use([&object](auto lockedObjects) { return object->RemoveFromList(); });
 }
 
 void ApiObjectList::Destroy() {
     LinkedList<ApiObjectBase> objects;
-    {
-        std::lock_guard<std::mutex> lock(mMutex);
-        mMarkedDestroyed = true;
-        mObjects.MoveInto(&objects);
-    }
-
+    mObjects.Use([&objects, this](auto lockedObjects) {
+        mMarkedDestroyed.store(true, std::memory_order_release);
+        lockedObjects->MoveInto(&objects);
+    });
     while (!objects.empty()) {
         auto* head = objects.head();
         bool removed = head->RemoveFromList();
@@ -88,17 +86,13 @@ void ApiObjectList::Destroy() {
     }
 }
 
-ApiObjectBase::ApiObjectBase(DeviceBase* device, const char* label) : ObjectBase(device) {
-    if (label) {
-        mLabel = label;
-    }
+ApiObjectBase::ApiObjectBase(DeviceBase* device, StringView label) : ObjectBase(device) {
+    mLabel = std::string(label);
 }
 
-ApiObjectBase::ApiObjectBase(DeviceBase* device, ErrorTag tag, const char* label)
+ApiObjectBase::ApiObjectBase(DeviceBase* device, ErrorTag tag, StringView label)
     : ObjectBase(device, tag) {
-    if (label) {
-        mLabel = label;
-    }
+    mLabel = std::string(label);
 }
 
 ApiObjectBase::ApiObjectBase(DeviceBase* device, LabelNotImplementedTag tag) : ObjectBase(device) {}
@@ -107,8 +101,8 @@ ApiObjectBase::~ApiObjectBase() {
     DAWN_ASSERT(!IsAlive());
 }
 
-void ApiObjectBase::APISetLabel(const char* label) {
-    SetLabel(label);
+void ApiObjectBase::APISetLabel(StringView label) {
+    SetLabel(std::string(utils::NormalizeMessageString(label)));
 }
 
 void ApiObjectBase::SetLabel(std::string label) {
@@ -124,6 +118,8 @@ void ApiObjectBase::FormatLabel(absl::FormatSink* s) const {
     s->Append(ObjectTypeAsString(GetType()));
     if (!mLabel.empty()) {
         s->Append(absl::StrFormat(" \"%s\"", mLabel));
+    } else {
+        s->Append(" (unlabeled)");
     }
 }
 

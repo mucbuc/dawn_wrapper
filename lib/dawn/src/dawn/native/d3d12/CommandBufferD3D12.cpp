@@ -37,6 +37,7 @@
 #include "dawn/native/CommandValidation.h"
 #include "dawn/native/DynamicUploader.h"
 #include "dawn/native/Error.h"
+#include "dawn/native/Queue.h"
 #include "dawn/native/RenderBundle.h"
 #include "dawn/native/d3d12/BindGroupD3D12.h"
 #include "dawn/native/d3d12/BindGroupLayoutD3D12.h"
@@ -50,6 +51,8 @@
 #include "dawn/native/d3d12/ShaderVisibleDescriptorAllocatorD3D12.h"
 #include "dawn/native/d3d12/StagingDescriptorAllocatorD3D12.h"
 #include "dawn/native/d3d12/UtilsD3D12.h"
+#include "partition_alloc/pointers/raw_ptr.h"
+#include "partition_alloc/pointers/raw_ptr_exclusion.h"
 
 namespace dawn::native::d3d12 {
 
@@ -87,7 +90,6 @@ bool CanUseCopyResource(const TextureCopy& src, const TextureCopy& dst, const Ex
     // https://docs.microsoft.com/en-us/windows/win32/api/d3d12/nf-d3d12-id3d12graphicscommandlist-copyresource
     // In order to use D3D12's copy resource, the textures must be the same dimensions, and
     // the copy must be of the entire resource.
-    // TODO(dawn:129): Support 1D textures.
     return src.aspect == src.texture->GetFormat().aspects &&
            src.texture->GetDimension() == dst.texture->GetDimension() &&  //
            dst.texture->GetNumMipLevels() == 1 &&                         //
@@ -100,6 +102,12 @@ bool CanUseCopyResource(const TextureCopy& src, const TextureCopy& dst, const Ex
            copySize.height == srcSize.height &&    //
            copySize.depthOrArrayLayers == dstSize.depthOrArrayLayers &&  //
            copySize.depthOrArrayLayers == srcSize.depthOrArrayLayers;
+}
+
+bool CanUseCopyResource(CopyBufferToBufferCmd* copy) {
+    return copy->sourceOffset == 0 && copy->destinationOffset == 0 &&
+           copy->size == copy->source->GetSize() && copy->size == copy->destination->GetSize() &&
+           copy->source->GetAllocatedSize() == copy->destination->GetAllocatedSize();
 }
 
 void RecordWriteTimestampCmd(ID3D12GraphicsCommandList* commandList,
@@ -399,15 +407,15 @@ MaybeError TransitionAndClearForSyncScope(CommandRecordingContext* commandContex
 
 class DescriptorHeapState;
 
+template <typename PipelineType>
 class BindGroupStateTracker : public BindGroupTrackerBase<false, uint64_t> {
     using Base = BindGroupTrackerBase;
 
   public:
-    BindGroupStateTracker(Device* device, DescriptorHeapState* heapState, bool inCompute)
+    BindGroupStateTracker(Device* device, DescriptorHeapState* heapState)
         : BindGroupTrackerBase(),
           mDevice(device),
           mHeapState(heapState),
-          mInCompute(inCompute),
           mViewAllocator(device->GetViewShaderVisibleDescriptorAllocator()),
           mSamplerAllocator(device->GetSamplerShaderVisibleDescriptorAllocator()) {}
 
@@ -475,15 +483,84 @@ class BindGroupStateTracker : public BindGroupTrackerBase<false, uint64_t> {
     void SetID3D12DescriptorHeaps(ID3D12GraphicsCommandList* commandList);
 
   private:
+    enum class RootBufferViewType { CBV, SRV, UAV };
+
+    static constexpr bool kIsRenderPipeline = std::is_same_v<PipelineType, RenderPipeline>;
+    static constexpr bool kIsComputePipeline = std::is_same_v<PipelineType, ComputePipeline>;
+
+    void SetRootSignature(ID3D12GraphicsCommandList* commandList, PipelineLayoutBase* layout) {
+        if constexpr (kIsRenderPipeline) {
+            commandList->SetGraphicsRootSignature(ToBackend(layout)->GetRootSignature());
+        } else {
+            static_assert(kIsComputePipeline);
+            commandList->SetComputeRootSignature(ToBackend(layout)->GetRootSignature());
+        }
+    }
+
+    void SetRootBufferView(ID3D12GraphicsCommandList* commandList,
+                           wgpu::BufferBindingType bindingType,
+                           uint32_t parameterIndex,
+                           const D3D12_GPU_VIRTUAL_ADDRESS& bufferLocation) {
+        switch (bindingType) {
+            case wgpu::BufferBindingType::Uniform:
+                if constexpr (kIsRenderPipeline) {
+                    commandList->SetGraphicsRootConstantBufferView(parameterIndex, bufferLocation);
+                } else {
+                    static_assert(kIsComputePipeline);
+                    commandList->SetComputeRootConstantBufferView(parameterIndex, bufferLocation);
+                }
+                break;
+            case wgpu::BufferBindingType::Storage:
+            case kInternalStorageBufferBinding:
+                if constexpr (kIsRenderPipeline) {
+                    commandList->SetGraphicsRootUnorderedAccessView(parameterIndex, bufferLocation);
+                } else {
+                    static_assert(kIsComputePipeline);
+                    commandList->SetComputeRootUnorderedAccessView(parameterIndex, bufferLocation);
+                }
+                break;
+            case wgpu::BufferBindingType::ReadOnlyStorage:
+                if constexpr (kIsRenderPipeline) {
+                    commandList->SetGraphicsRootShaderResourceView(parameterIndex, bufferLocation);
+                } else {
+                    static_assert(kIsComputePipeline);
+                    commandList->SetComputeRootShaderResourceView(parameterIndex, bufferLocation);
+                }
+                break;
+            case wgpu::BufferBindingType::Undefined:
+                DAWN_UNREACHABLE();
+        }
+    }
+
+    void SetRootDescriptorTable(ID3D12GraphicsCommandList* commandList,
+                                uint32_t parameterIndex,
+                                const D3D12_GPU_DESCRIPTOR_HANDLE& baseDescriptor) {
+        if constexpr (kIsRenderPipeline) {
+            commandList->SetGraphicsRootDescriptorTable(parameterIndex, baseDescriptor);
+        } else {
+            static_assert(kIsComputePipeline);
+            commandList->SetComputeRootDescriptorTable(parameterIndex, baseDescriptor);
+        }
+    }
+
+    void SetRootConstant(ID3D12GraphicsCommandList* commandList,
+                         uint32_t parameterIndex,
+                         uint32_t rootConstantsLength,
+                         const void* rootConstantsData,
+                         uint32_t registerOffset) {
+        if constexpr (kIsRenderPipeline) {
+            commandList->SetGraphicsRoot32BitConstants(parameterIndex, rootConstantsLength,
+                                                       rootConstantsData, registerOffset);
+        } else {
+            static_assert(kIsComputePipeline);
+            commandList->SetComputeRoot32BitConstants(parameterIndex, rootConstantsLength,
+                                                      rootConstantsData, registerOffset);
+        }
+    }
+
     void UpdateRootSignatureIfNecessary(ID3D12GraphicsCommandList* commandList) {
         if (mLastAppliedPipelineLayout != mPipelineLayout) {
-            if (mInCompute) {
-                commandList->SetComputeRootSignature(
-                    ToBackend(mPipelineLayout)->GetRootSignature());
-            } else {
-                commandList->SetGraphicsRootSignature(
-                    ToBackend(mPipelineLayout)->GetRootSignature());
-            }
+            SetRootSignature(commandList, mPipelineLayout);
             // Invalidate the root sampler tables previously set in the root signature.
             ResetRootSamplerTables();
         }
@@ -521,39 +598,9 @@ class BindGroupStateTracker : public BindGroupTrackerBase<false, uint64_t> {
                 D3D12_GPU_VIRTUAL_ADDRESS bufferLocation =
                     ToBackend(binding.buffer)->GetVA() + offset;
 
-                DAWN_ASSERT(bindingInfo.bindingType == BindingInfoType::Buffer);
-                switch (bindingInfo.buffer.type) {
-                    case wgpu::BufferBindingType::Uniform:
-                        if (mInCompute) {
-                            commandList->SetComputeRootConstantBufferView(parameterIndex,
-                                                                          bufferLocation);
-                        } else {
-                            commandList->SetGraphicsRootConstantBufferView(parameterIndex,
-                                                                           bufferLocation);
-                        }
-                        break;
-                    case wgpu::BufferBindingType::Storage:
-                    case kInternalStorageBufferBinding:
-                        if (mInCompute) {
-                            commandList->SetComputeRootUnorderedAccessView(parameterIndex,
-                                                                           bufferLocation);
-                        } else {
-                            commandList->SetGraphicsRootUnorderedAccessView(parameterIndex,
-                                                                            bufferLocation);
-                        }
-                        break;
-                    case wgpu::BufferBindingType::ReadOnlyStorage:
-                        if (mInCompute) {
-                            commandList->SetComputeRootShaderResourceView(parameterIndex,
-                                                                          bufferLocation);
-                        } else {
-                            commandList->SetGraphicsRootShaderResourceView(parameterIndex,
-                                                                           bufferLocation);
-                        }
-                        break;
-                    case wgpu::BufferBindingType::Undefined:
-                        DAWN_UNREACHABLE();
-                }
+                SetRootBufferView(commandList,
+                                  std::get<BufferBindingInfo>(bindingInfo.bindingLayout).type,
+                                  parameterIndex, bufferLocation);
             }
         }
 
@@ -569,11 +616,7 @@ class BindGroupStateTracker : public BindGroupTrackerBase<false, uint64_t> {
         if (cbvUavSrvCount > 0) {
             uint32_t parameterIndex = pipelineLayout->GetCbvUavSrvRootParameterIndex(index);
             const D3D12_GPU_DESCRIPTOR_HANDLE baseDescriptor = group->GetBaseViewDescriptor();
-            if (mInCompute) {
-                commandList->SetComputeRootDescriptorTable(parameterIndex, baseDescriptor);
-            } else {
-                commandList->SetGraphicsRootDescriptorTable(parameterIndex, baseDescriptor);
-            }
+            SetRootDescriptorTable(commandList, parameterIndex, baseDescriptor);
         }
 
         if (samplerCount > 0) {
@@ -582,12 +625,7 @@ class BindGroupStateTracker : public BindGroupTrackerBase<false, uint64_t> {
             // Check if the group requires its sampler table to be set in the pipeline.
             // This because sampler heap allocations could be cached and use the same table.
             if (mBoundRootSamplerTables[index].ptr != baseDescriptor.ptr) {
-                if (mInCompute) {
-                    commandList->SetComputeRootDescriptorTable(parameterIndex, baseDescriptor);
-                } else {
-                    commandList->SetGraphicsRootDescriptorTable(parameterIndex, baseDescriptor);
-                }
-
+                SetRootDescriptorTable(commandList, parameterIndex, baseDescriptor);
                 mBoundRootSamplerTables[index] = baseDescriptor;
             }
         }
@@ -599,35 +637,28 @@ class BindGroupStateTracker : public BindGroupTrackerBase<false, uint64_t> {
             uint32_t firstRegisterOffset =
                 pipelineLayout->GetDynamicStorageBufferLengthInfo()[index].firstRegisterOffset;
 
-            if (mInCompute) {
-                commandList->SetComputeRoot32BitConstants(
-                    parameterIndex, dynamicStorageBufferLengths.size(),
-                    dynamicStorageBufferLengths.data(), firstRegisterOffset);
-            } else {
-                commandList->SetGraphicsRoot32BitConstants(
-                    parameterIndex, dynamicStorageBufferLengths.size(),
-                    dynamicStorageBufferLengths.data(), firstRegisterOffset);
-            }
+            SetRootConstant(commandList, parameterIndex, dynamicStorageBufferLengths.size(),
+                            dynamicStorageBufferLengths.data(), firstRegisterOffset);
         }
     }
 
-    Device* mDevice;
-    DescriptorHeapState* mHeapState;
-
-    bool mInCompute = false;
+    raw_ptr<Device> mDevice;
+    raw_ptr<DescriptorHeapState> mHeapState;
 
     PerBindGroup<D3D12_GPU_DESCRIPTOR_HANDLE> mBoundRootSamplerTables = {};
 
-    MutexProtected<ShaderVisibleDescriptorAllocator>& mViewAllocator;
-    MutexProtected<ShaderVisibleDescriptorAllocator>& mSamplerAllocator;
+    // TODO(https://crbug.com/dawn/2361): Rewrite those members with raw_ref<T>.
+    // This is currently failing with MSVC cl.exe compiler.
+    RAW_PTR_EXCLUSION MutexProtected<ShaderVisibleDescriptorAllocator>& mViewAllocator;
+    RAW_PTR_EXCLUSION MutexProtected<ShaderVisibleDescriptorAllocator>& mSamplerAllocator;
 };
 
 class DescriptorHeapState {
   public:
     explicit DescriptorHeapState(Device* device)
         : mDevice(device),
-          mComputeBindingTracker(device, this, true),
-          mGraphicsBindingTracker(device, this, false) {}
+          mComputeBindingTracker(device, this),
+          mGraphicsBindingTracker(device, this) {}
 
     void SetID3D12DescriptorHeaps(ID3D12GraphicsCommandList* commandList) {
         DAWN_ASSERT(commandList != nullptr);
@@ -646,16 +677,22 @@ class DescriptorHeapState {
         mGraphicsBindingTracker.ResetRootSamplerTables();
     }
 
-    BindGroupStateTracker* GetComputeBindingTracker() { return &mComputeBindingTracker; }
-    BindGroupStateTracker* GetGraphicsBindingTracker() { return &mGraphicsBindingTracker; }
+    BindGroupStateTracker<ComputePipeline>* GetComputeBindingTracker() {
+        return &mComputeBindingTracker;
+    }
+    BindGroupStateTracker<RenderPipeline>* GetGraphicsBindingTracker() {
+        return &mGraphicsBindingTracker;
+    }
 
   private:
-    Device* mDevice;
-    BindGroupStateTracker mComputeBindingTracker;
-    BindGroupStateTracker mGraphicsBindingTracker;
+    raw_ptr<Device> mDevice;
+    BindGroupStateTracker<ComputePipeline> mComputeBindingTracker;
+    BindGroupStateTracker<RenderPipeline> mGraphicsBindingTracker;
 };
 
-void BindGroupStateTracker::SetID3D12DescriptorHeaps(ID3D12GraphicsCommandList* commandList) {
+template <typename PipelineType>
+void BindGroupStateTracker<PipelineType>::SetID3D12DescriptorHeaps(
+    ID3D12GraphicsCommandList* commandList) {
     mHeapState->SetID3D12DescriptorHeaps(commandList);
 }
 
@@ -713,7 +750,7 @@ class VertexBufferTracker {
     // If there are multiple calls to SetVertexBuffer, the start and end
     // represent the union of the dirty ranges (the union may have non-dirty
     // data in the middle of the range).
-    const RenderPipeline* mLastAppliedRenderPipeline = nullptr;
+    raw_ptr<const RenderPipeline> mLastAppliedRenderPipeline = nullptr;
     VertexBufferSlot mStartSlot{kMaxVertexBuffers};
     VertexBufferSlot mEndSlot{};
     PerVertexBuffer<D3D12_VERTEX_BUFFER_VIEW> mD3D12BufferViews = {};
@@ -818,17 +855,21 @@ MaybeError CommandBuffer::RecordCommands(CommandRecordingContext* commandContext
                 Buffer* dstBuffer = ToBackend(copy->destination.Get());
 
                 DAWN_TRY(srcBuffer->EnsureDataInitialized(commandContext));
-                bool cleared;
+                [[maybe_unused]] bool cleared;
                 DAWN_TRY_ASSIGN(cleared, dstBuffer->EnsureDataInitializedAsDestination(
                                              commandContext, copy->destinationOffset, copy->size));
-                DAWN_UNUSED(cleared);
 
                 srcBuffer->TrackUsageAndTransitionNow(commandContext, wgpu::BufferUsage::CopySrc);
                 dstBuffer->TrackUsageAndTransitionNow(commandContext, wgpu::BufferUsage::CopyDst);
 
-                commandList->CopyBufferRegion(
-                    dstBuffer->GetD3D12Resource(), copy->destinationOffset,
-                    srcBuffer->GetD3D12Resource(), copy->sourceOffset, copy->size);
+                if (CanUseCopyResource(copy)) {
+                    commandList->CopyResource(dstBuffer->GetD3D12Resource(),
+                                              srcBuffer->GetD3D12Resource());
+                } else {
+                    commandList->CopyBufferRegion(
+                        dstBuffer->GetD3D12Resource(), copy->destinationOffset,
+                        srcBuffer->GetD3D12Resource(), copy->sourceOffset, copy->size);
+                }
                 break;
             }
 
@@ -982,6 +1023,8 @@ MaybeError CommandBuffer::RecordCommands(CommandRecordingContext* commandContext
                             uint32_t sourceLayer = 0;
                             uint32_t sourceZ = 0;
                             switch (source->GetDimension()) {
+                                case wgpu::TextureDimension::Undefined:
+                                    DAWN_UNREACHABLE();
                                 case wgpu::TextureDimension::e1D:
                                     DAWN_ASSERT(copy->source.origin.z == 0);
                                     break;
@@ -996,6 +1039,8 @@ MaybeError CommandBuffer::RecordCommands(CommandRecordingContext* commandContext
                             uint32_t destinationLayer = 0;
                             uint32_t destinationZ = 0;
                             switch (destination->GetDimension()) {
+                                case wgpu::TextureDimension::Undefined:
+                                    DAWN_UNREACHABLE();
                                 case wgpu::TextureDimension::e1D:
                                     DAWN_ASSERT(copy->destination.origin.z == 0);
                                     break;
@@ -1057,11 +1102,10 @@ MaybeError CommandBuffer::RecordCommands(CommandRecordingContext* commandContext
                 Buffer* destination = ToBackend(cmd->destination.Get());
                 uint64_t destinationOffset = cmd->destinationOffset;
 
-                bool cleared;
+                [[maybe_unused]] bool cleared;
                 DAWN_TRY_ASSIGN(
                     cleared, destination->EnsureDataInitializedAsDestination(
                                  commandContext, destinationOffset, queryCount * sizeof(uint64_t)));
-                DAWN_UNUSED(cleared);
 
                 // Resolving unavailable queries is undefined behaviour on D3D12, we only can
                 // resolve the available part of sparse queries. In order to resolve the
@@ -1145,16 +1189,17 @@ MaybeError CommandBuffer::RecordCommands(CommandRecordingContext* commandContext
                 uint8_t* data = mCommands.NextData<uint8_t>(size);
 
                 UploadHandle uploadHandle;
-                DAWN_TRY_ASSIGN(uploadHandle, device->GetDynamicUploader()->Allocate(
-                                                  size, device->GetPendingCommandSerial(),
-                                                  kCopyBufferToBufferOffsetAlignment));
+                DAWN_TRY_ASSIGN(uploadHandle,
+                                device->GetDynamicUploader()->Allocate(
+                                    size, device->GetQueue()->GetPendingCommandSerial(),
+                                    kCopyBufferToBufferOffsetAlignment));
                 DAWN_ASSERT(uploadHandle.mappedBuffer != nullptr);
                 memcpy(uploadHandle.mappedBuffer, data, size);
 
-                bool cleared;
+                [[maybe_unused]] bool cleared;
                 DAWN_TRY_ASSIGN(cleared, dstBuffer->EnsureDataInitializedAsDestination(
                                              commandContext, offset, size));
-                DAWN_UNUSED(cleared);
+
                 dstBuffer->TrackUsageAndTransitionNow(commandContext, wgpu::BufferUsage::CopyDst);
                 commandList->CopyBufferRegion(
                     dstBuffer->GetD3D12Resource(), offset,
@@ -1172,7 +1217,7 @@ MaybeError CommandBuffer::RecordCommands(CommandRecordingContext* commandContext
 }
 
 MaybeError CommandBuffer::RecordComputePass(CommandRecordingContext* commandContext,
-                                            BindGroupStateTracker* bindingTracker,
+                                            BindGroupStateTracker<ComputePipeline>* bindingTracker,
                                             BeginComputePassCmd* computePass,
                                             const ComputePassResourceUsage& resourceUsages) {
     uint64_t currentDispatch = 0;
@@ -1476,7 +1521,7 @@ void CommandBuffer::EmulateBeginRenderPass(CommandRecordingContext* commandConte
 }
 
 MaybeError CommandBuffer::RecordRenderPass(CommandRecordingContext* commandContext,
-                                           BindGroupStateTracker* bindingTracker,
+                                           BindGroupStateTracker<RenderPipeline>* bindingTracker,
                                            BeginRenderPassCmd* renderPass,
                                            const bool passHasUAV) {
     Device* device = ToBackend(GetDevice());
@@ -1584,6 +1629,56 @@ MaybeError CommandBuffer::RecordRenderPass(CommandRecordingContext* commandConte
                     lastPipeline->GetDrawIndexedIndirectCommandSignature();
                 commandList->ExecuteIndirect(signature.Get(), 1, buffer->GetD3D12Resource(),
                                              draw->indirectOffset, nullptr, 0);
+                break;
+            }
+
+            case Command::MultiDrawIndirect: {
+                MultiDrawIndirectCmd* draw = iter->NextCommand<MultiDrawIndirectCmd>();
+
+                DAWN_TRY(bindingTracker->Apply(commandContext));
+                vertexBufferTracker.Apply(commandList, lastPipeline);
+
+                Buffer* indirectBuffer = ToBackend(draw->indirectBuffer.Get());
+                DAWN_ASSERT(indirectBuffer != nullptr);
+
+                Buffer* countBuffer = ToBackend(draw->drawCountBuffer.Get());
+
+                // There is no distinction between DrawIndirect and MultiDrawIndirect in D3D12.
+                // This is why we can use the same command signature for both.
+                ComPtr<ID3D12CommandSignature> signature =
+                    lastPipeline->GetDrawIndirectCommandSignature();
+
+                commandList->ExecuteIndirect(
+                    signature.Get(), draw->maxDrawCount, indirectBuffer->GetD3D12Resource(),
+                    draw->indirectOffset,
+                    countBuffer != nullptr ? countBuffer->GetD3D12Resource() : nullptr,
+                    countBuffer != nullptr ? draw->drawCountOffset : 0);
+
+                break;
+            }
+
+            case Command::MultiDrawIndexedIndirect: {
+                MultiDrawIndexedIndirectCmd* draw =
+                    iter->NextCommand<MultiDrawIndexedIndirectCmd>();
+
+                DAWN_TRY(bindingTracker->Apply(commandContext));
+                vertexBufferTracker.Apply(commandList, lastPipeline);
+
+                Buffer* indirectBuffer = ToBackend(draw->indirectBuffer.Get());
+                DAWN_ASSERT(indirectBuffer != nullptr);
+
+                Buffer* countBuffer = ToBackend(draw->drawCountBuffer.Get());
+
+                // There is no distinction between DrawIndexedIndirect and MultiDrawIndexedIndirect
+                // in D3D12. This is why we can use the same command signature for both.
+                ComPtr<ID3D12CommandSignature> signature =
+                    lastPipeline->GetDrawIndexedIndirectCommandSignature();
+
+                commandList->ExecuteIndirect(
+                    signature.Get(), draw->maxDrawCount, indirectBuffer->GetD3D12Resource(),
+                    draw->indirectOffset,
+                    countBuffer != nullptr ? countBuffer->GetD3D12Resource() : nullptr,
+                    countBuffer != nullptr ? draw->drawCountOffset : 0);
                 break;
             }
 

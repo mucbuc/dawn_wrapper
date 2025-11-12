@@ -27,17 +27,20 @@
 
 #include "src/dawn/node/binding/GPUAdapterInfo.h"
 
+#include <iomanip>
+#include <sstream>
+
 namespace wgpu::binding {
 
 ////////////////////////////////////////////////////////////////////////////////
 // wgpu::bindings::GPUAdapterInfo
 ////////////////////////////////////////////////////////////////////////////////
 
-GPUAdapterInfo::GPUAdapterInfo(WGPUAdapterProperties properties)
-    : vendor_(properties.vendorName),
-      architecture_(properties.architecture),
-      device_(properties.name),
-      description_(properties.driverDescription) {}
+GPUAdapterInfo::GPUAdapterInfo(const wgpu::AdapterInfo& info)
+    : vendor_(info.vendor),
+      architecture_(info.architecture),
+      device_(info.device),
+      description_(info.description) {}
 
 std::string GPUAdapterInfo::getVendor(Napi::Env) {
     return vendor_;

@@ -14,6 +14,9 @@ struct tint_array {
     T elements[N];
 };
 
+#define TINT_ISOLATE_UB(VOLATILE_NAME) \
+  {volatile bool VOLATILE_NAME = false; if (VOLATILE_NAME) break;}
+
 struct strided_arr {
   /* 0x0000 */ float2 el;
   /* 0x0008 */ tint_array<int8_t, 8> tint_pad;
@@ -24,8 +27,8 @@ struct SSBO {
 };
 
 tint_array<strided_arr, 2> mat2x2_stride_16_to_arr(float2x2 m) {
-  strided_arr const tint_symbol_2 = {.el=m[0u]};
-  strided_arr const tint_symbol_3 = {.el=m[1u]};
+  strided_arr const tint_symbol_2 = strided_arr{.el=m[0u]};
+  strided_arr const tint_symbol_3 = strided_arr{.el=m[1u]};
   tint_array<strided_arr, 2> const tint_symbol_4 = tint_array<strided_arr, 2>{tint_symbol_2, tint_symbol_3};
   return tint_symbol_4;
 }
@@ -40,7 +43,7 @@ void assign_and_preserve_padding_1(device strided_arr* const dest, strided_arr v
 
 void assign_and_preserve_padding(device tint_array<strided_arr, 2>* const dest, tint_array<strided_arr, 2> value) {
   for(uint i = 0u; (i < 2u); i = (i + 1u)) {
-    __asm__("");
+    TINT_ISOLATE_UB(tint_volatile_false);
     assign_and_preserve_padding_1(&((*(dest))[i]), value[i]);
   }
 }

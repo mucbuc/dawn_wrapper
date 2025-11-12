@@ -29,25 +29,23 @@
 
 #include <utility>
 
-#include "dawn/common/Log.h"
-
 #include "dawn/native/D3D11Backend.h"
 #include "dawn/native/d3d/D3DError.h"
+#include "dawn/native/d3d/KeyedMutex.h"
 #include "dawn/native/d3d/UtilsD3D.h"
 #include "dawn/native/d3d11/DeviceD3D11.h"
-#include "dawn/native/d3d11/SharedFenceD3D11.h"
 #include "dawn/native/d3d11/TextureD3D11.h"
 
 namespace dawn::native::d3d11 {
 
 namespace {
 
-ResultOrError<SharedTextureMemoryProperties> PropertiesFromD3D11Texture(
-    Device* device,
-    ID3D11Texture2D* d3d11Texture) {
+ResultOrError<SharedTextureMemoryProperties>
+PropertiesFromD3D11Texture(Device* device, ID3D11Texture2D* d3d11Texture, bool isSharedWithHandle) {
     D3D11_TEXTURE2D_DESC desc;
     d3d11Texture->GetDesc(&desc);
-    DAWN_INVALID_IF(desc.ArraySize != 1, "Resource ArraySize (%d) was not 1", desc.ArraySize);
+    DAWN_INVALID_IF(isSharedWithHandle && desc.ArraySize != 1,
+                    "Resource shared with HANDLE, the ArraySize (%d) was not 1", desc.ArraySize);
     DAWN_INVALID_IF(desc.MipLevels != 1, "Resource MipLevels (%d) was not 1", desc.MipLevels);
     DAWN_INVALID_IF(desc.SampleDesc.Count != 1, "Resource SampleDesc.Count (%d) was not 1",
                     desc.SampleDesc.Count);
@@ -61,7 +59,8 @@ ResultOrError<SharedTextureMemoryProperties> PropertiesFromD3D11Texture(
                     limits.v1.maxTextureDimension2D);
 
     SharedTextureMemoryProperties properties;
-    properties.size = {static_cast<uint32_t>(desc.Width), static_cast<uint32_t>(desc.Height), 1};
+    properties.size = {static_cast<uint32_t>(desc.Width), static_cast<uint32_t>(desc.Height),
+                       desc.ArraySize};
 
     DAWN_TRY_ASSIGN(properties.format, d3d::FromUncompressedColorDXGITextureFormat(desc.Format));
 
@@ -81,6 +80,7 @@ ResultOrError<SharedTextureMemoryProperties> PropertiesFromD3D11Texture(
 
     properties.usage = wgpu::TextureUsage::CopySrc | wgpu::TextureUsage::CopyDst |
                        textureBindingUsage | storageBindingUsage | renderAttachmentUsage;
+
     return properties;
 }
 
@@ -89,7 +89,7 @@ ResultOrError<SharedTextureMemoryProperties> PropertiesFromD3D11Texture(
 // static
 ResultOrError<Ref<SharedTextureMemory>> SharedTextureMemory::Create(
     Device* device,
-    const char* label,
+    StringView label,
     const SharedTextureMemoryDXGISharedHandleDescriptor* descriptor) {
     DAWN_INVALID_IF(descriptor->handle == nullptr, "shared HANDLE is missing.");
 
@@ -108,7 +108,8 @@ ResultOrError<Ref<SharedTextureMemory>> SharedTextureMemory::Create(
         CheckHRESULT(d3d11Resource.As(&d3d11Texture), "Cannot get ID3D11Texture2D from texture"));
 
     SharedTextureMemoryProperties properties;
-    DAWN_TRY_ASSIGN(properties, PropertiesFromD3D11Texture(device, d3d11Texture.Get()));
+    DAWN_TRY_ASSIGN(properties, PropertiesFromD3D11Texture(device, d3d11Texture.Get(),
+                                                           /*isSharedWithHandle=*/true));
 
     auto result =
         AcquireRef(new SharedTextureMemory(device, label, properties, std::move(d3d11Resource)));
@@ -119,7 +120,7 @@ ResultOrError<Ref<SharedTextureMemory>> SharedTextureMemory::Create(
 // static
 ResultOrError<Ref<SharedTextureMemory>> SharedTextureMemory::Create(
     Device* device,
-    const char* label,
+    StringView label,
     const SharedTextureMemoryD3D11Texture2DDescriptor* descriptor) {
     DAWN_INVALID_IF(!descriptor->texture, "D3D11 texture is missing.");
 
@@ -134,7 +135,8 @@ ResultOrError<Ref<SharedTextureMemory>> SharedTextureMemory::Create(
                     device);
 
     SharedTextureMemoryProperties properties;
-    DAWN_TRY_ASSIGN(properties, PropertiesFromD3D11Texture(device, descriptor->texture.Get()));
+    DAWN_TRY_ASSIGN(properties, PropertiesFromD3D11Texture(device, descriptor->texture.Get(),
+                                                           /*isSharedWithHandle=*/false));
 
     auto result =
         AcquireRef(new SharedTextureMemory(device, label, properties, std::move(d3d11Resource)));
@@ -143,13 +145,19 @@ ResultOrError<Ref<SharedTextureMemory>> SharedTextureMemory::Create(
 }
 
 SharedTextureMemory::SharedTextureMemory(Device* device,
-                                         const char* label,
+                                         StringView label,
                                          SharedTextureMemoryProperties properties,
                                          ComPtr<ID3D11Resource> resource)
-    : d3d::SharedTextureMemory(device, label, properties, resource.Get()),
-      mResource(std::move(resource)) {}
+    : d3d::SharedTextureMemory(device, label, properties), mResource(std::move(resource)) {
+    ComPtr<IDXGIKeyedMutex> dxgiKeyedMutex;
+    mResource.As(&dxgiKeyedMutex);
+    if (dxgiKeyedMutex) {
+        mKeyedMutex = AcquireRef(new d3d::KeyedMutex(device, std::move(dxgiKeyedMutex)));
+    }
+}
 
 void SharedTextureMemory::DestroyImpl() {
+    mKeyedMutex = nullptr;
     mResource = nullptr;
 }
 
@@ -157,14 +165,13 @@ ID3D11Resource* SharedTextureMemory::GetD3DResource() const {
     return mResource.Get();
 }
 
+d3d::KeyedMutex* SharedTextureMemory::GetKeyedMutex() const {
+    return mKeyedMutex.Get();
+}
+
 ResultOrError<Ref<TextureBase>> SharedTextureMemory::CreateTextureImpl(
     const UnpackedPtr<TextureDescriptor>& descriptor) {
     return Texture::CreateFromSharedTextureMemory(this, descriptor);
-}
-
-ResultOrError<Ref<SharedFenceBase>> SharedTextureMemory::CreateFenceImpl(
-    const SharedFenceDXGISharedHandleDescriptor* desc) {
-    return SharedFence::Create(ToBackend(GetDevice()), "Internal shared DXGI fence", desc);
 }
 
 }  // namespace dawn::native::d3d11

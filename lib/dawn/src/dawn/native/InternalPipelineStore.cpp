@@ -27,8 +27,6 @@
 
 #include "dawn/native/InternalPipelineStore.h"
 
-#include <unordered_map>
-
 #include "dawn/native/ComputePipeline.h"
 #include "dawn/native/Device.h"
 #include "dawn/native/RenderPipeline.h"
@@ -46,5 +44,10 @@ InternalPipelineStore::InternalPipelineStore(DeviceBase* device)
           wgpu::BufferUsage::CopyDst | wgpu::BufferUsage::Indirect | wgpu::BufferUsage::Storage) {}
 
 InternalPipelineStore::~InternalPipelineStore() = default;
+
+void InternalPipelineStore::ResetScratchBuffers() {
+    scratchStorage.Reset();
+    scratchIndirectStorage.Reset();
+}
 
 }  // namespace dawn::native

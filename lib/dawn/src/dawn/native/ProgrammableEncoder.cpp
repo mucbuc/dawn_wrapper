@@ -38,11 +38,12 @@
 #include "dawn/native/Device.h"
 #include "dawn/native/ObjectType_autogen.h"
 #include "dawn/native/ValidationUtils_autogen.h"
+#include "dawn/native/utils/WGPUHelpers.h"
 
 namespace dawn::native {
 
 ProgrammableEncoder::ProgrammableEncoder(DeviceBase* device,
-                                         const char* label,
+                                         StringView label,
                                          EncodingContext* encodingContext)
     : ApiObjectBase(device, label),
       mEncodingContext(encodingContext),
@@ -51,7 +52,7 @@ ProgrammableEncoder::ProgrammableEncoder(DeviceBase* device,
 ProgrammableEncoder::ProgrammableEncoder(DeviceBase* device,
                                          EncodingContext* encodingContext,
                                          ErrorTag errorTag,
-                                         const char* label)
+                                         StringView label)
     : ApiObjectBase(device, errorTag, label),
       mEncodingContext(encodingContext),
       mValidationEnabled(device->IsValidationEnabled()) {}
@@ -67,20 +68,18 @@ MaybeError ProgrammableEncoder::ValidateProgrammableEncoderEnd() const {
     return {};
 }
 
-void ProgrammableEncoder::APIInsertDebugMarker(const char* groupLabel) {
+void ProgrammableEncoder::APIInsertDebugMarker(StringView markerIn) {
+    std::string_view marker = utils::NormalizeMessageString(markerIn);
     mEncodingContext->TryEncode(
         this,
         [&](CommandAllocator* allocator) -> MaybeError {
             InsertDebugMarkerCmd* cmd =
                 allocator->Allocate<InsertDebugMarkerCmd>(Command::InsertDebugMarker);
-            cmd->length = strlen(groupLabel);
-
-            char* label = allocator->AllocateData<char>(cmd->length + 1);
-            memcpy(label, groupLabel, cmd->length + 1);
+            AddNullTerminatedString(allocator, marker, &cmd->length);
 
             return {};
         },
-        "encoding %s.InsertDebugMarker(\"%s\").", this, groupLabel);
+        "encoding %s.InsertDebugMarker(%s).", this, marker);
 }
 
 void ProgrammableEncoder::APIPopDebugGroup() {
@@ -100,23 +99,21 @@ void ProgrammableEncoder::APIPopDebugGroup() {
         "encoding %s.PopDebugGroup().", this);
 }
 
-void ProgrammableEncoder::APIPushDebugGroup(const char* groupLabel) {
+void ProgrammableEncoder::APIPushDebugGroup(StringView groupLabelIn) {
+    std::string_view groupLabel = utils::NormalizeMessageString(groupLabelIn);
     mEncodingContext->TryEncode(
         this,
         [&](CommandAllocator* allocator) -> MaybeError {
             PushDebugGroupCmd* cmd =
                 allocator->Allocate<PushDebugGroupCmd>(Command::PushDebugGroup);
-            cmd->length = strlen(groupLabel);
-
-            char* label = allocator->AllocateData<char>(cmd->length + 1);
-            memcpy(label, groupLabel, cmd->length + 1);
+            const char* label = AddNullTerminatedString(allocator, groupLabel, &cmd->length);
 
             mDebugGroupStackSize++;
-            mEncodingContext->PushDebugGroupLabel(groupLabel);
+            mEncodingContext->PushDebugGroupLabel(std::string_view(label, cmd->length));
 
             return {};
         },
-        "encoding %s.PushDebugGroup(\"%s\").", this, groupLabel);
+        "encoding %s.PushDebugGroup(%s).", this, groupLabel);
 }
 
 MaybeError ProgrammableEncoder::ValidateSetBindGroup(BindGroupIndex index,
@@ -149,12 +146,12 @@ MaybeError ProgrammableEncoder::ValidateSetBindGroup(BindGroupIndex index,
         const BindingInfo& bindingInfo = layout->GetBindingInfo(i);
 
         // BGL creation sorts bindings such that the dynamic buffer bindings are first.
-        // DAWN_ASSERT that this true.
-        DAWN_ASSERT(bindingInfo.bindingType == BindingInfoType::Buffer);
-        DAWN_ASSERT(bindingInfo.buffer.hasDynamicOffset);
+        const BufferBindingInfo& bindingLayout =
+            std::get<BufferBindingInfo>(bindingInfo.bindingLayout);
+        DAWN_ASSERT(bindingLayout.hasDynamicOffset);
 
         uint64_t requiredAlignment;
-        switch (bindingInfo.buffer.type) {
+        switch (bindingLayout.type) {
             case wgpu::BufferBindingType::Uniform:
                 requiredAlignment = GetDevice()->GetLimits().v1.minUniformBufferOffsetAlignment;
                 break;

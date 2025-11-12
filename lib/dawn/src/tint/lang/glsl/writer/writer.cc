@@ -30,7 +30,6 @@
 #include <memory>
 #include <utility>
 
-#include "src/tint/lang/glsl/writer/ast_printer/ast_printer.h"
 #include "src/tint/lang/glsl/writer/printer/printer.h"
 #include "src/tint/lang/glsl/writer/raise/raise.h"
 
@@ -40,7 +39,7 @@ Result<Output> Generate(core::ir::Module& ir, const Options& options, const std:
     Output output;
 
     // Raise from core-dialect to GLSL-dialect.
-    if (auto res = raise::Raise(ir); res != Success) {
+    if (auto res = Raise(ir, options); res != Success) {
         return res.Failure();
     }
 
@@ -50,42 +49,6 @@ Result<Output> Generate(core::ir::Module& ir, const Options& options, const std:
         return result.Failure();
     }
     output.glsl = result.Get();
-
-    return output;
-}
-
-Result<Output> Generate(const Program& program,
-                        const Options& options,
-                        const std::string& entry_point) {
-    if (!program.IsValid()) {
-        return Failure{program.Diagnostics()};
-    }
-
-    Output output;
-
-    // Sanitize the program.
-    auto sanitized_result = Sanitize(program, options, entry_point);
-    if (!sanitized_result.program.IsValid()) {
-        return Failure{sanitized_result.program.Diagnostics()};
-    }
-
-    // Generate the GLSL code.
-    auto impl = std::make_unique<ASTPrinter>(sanitized_result.program, options.version);
-    if (!impl->Generate()) {
-        return Failure{impl->Diagnostics()};
-    }
-
-    output.glsl = impl->Result();
-    output.needs_internal_uniform_buffer = sanitized_result.needs_internal_uniform_buffer;
-    output.bindpoint_to_data = std::move(sanitized_result.bindpoint_to_data);
-
-    // Collect the list of entry points in the sanitized program.
-    for (auto* func : sanitized_result.program.AST().Functions()) {
-        if (func->IsEntryPoint()) {
-            auto name = func->name->symbol.Name();
-            output.entry_points.push_back({name, func->PipelineStage()});
-        }
-    }
 
     return output;
 }

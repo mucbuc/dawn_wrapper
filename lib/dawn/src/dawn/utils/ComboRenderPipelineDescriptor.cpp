@@ -63,7 +63,6 @@ ComboRenderPipelineDescriptor::ComboRenderPipelineDescriptor() {
     {
         wgpu::VertexState* vertex = &descriptor->vertex;
         vertex->module = nullptr;
-        vertex->entryPoint = "main";
         vertex->bufferCount = 0;
 
         // Fill the default values for vertexBuffers and vertexAttributes in buffers.
@@ -105,7 +104,7 @@ ComboRenderPipelineDescriptor::ComboRenderPipelineDescriptor() {
         stencilFace.passOp = wgpu::StencilOperation::Keep;
 
         cDepthStencil.format = wgpu::TextureFormat::Depth24PlusStencil8;
-        cDepthStencil.depthWriteEnabled = false;
+        cDepthStencil.depthWriteEnabled = wgpu::OptionalBool::False;
         cDepthStencil.depthCompare = wgpu::CompareFunction::Always;
         cDepthStencil.stencilBack = stencilFace;
         cDepthStencil.stencilFront = stencilFace;
@@ -127,7 +126,6 @@ ComboRenderPipelineDescriptor::ComboRenderPipelineDescriptor() {
     // Set the defaults for the fragment state
     {
         cFragment.module = nullptr;
-        cFragment.entryPoint = "main";
         cFragment.targetCount = 1;
         cFragment.targets = &cTargets[0];
         descriptor->fragment = &cFragment;

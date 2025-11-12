@@ -35,18 +35,15 @@
 ////////////////////////////////////////////////////////////////////////////////
 
 
+// flags: --hlsl_shader_model 62
+
+
 enable f16;
 
 // fn frexp(f16) -> __frexp_result<f16>
 fn frexp_5257dd() {
   var res = frexp(1.h);
 }
-@vertex
-fn vertex_main() -> @builtin(position) vec4<f32> {
-  frexp_5257dd();
-  return vec4<f32>();
-}
-
 @fragment
 fn fragment_main() {
   frexp_5257dd();
@@ -55,4 +52,16 @@ fn fragment_main() {
 @compute @workgroup_size(1)
 fn compute_main() {
   frexp_5257dd();
+}
+
+struct VertexOutput {
+    @builtin(position) pos: vec4<f32>,
+};
+
+@vertex
+fn vertex_main() -> VertexOutput {
+  var out : VertexOutput;
+  out.pos = vec4<f32>();
+  frexp_5257dd();
+  return out;
 }

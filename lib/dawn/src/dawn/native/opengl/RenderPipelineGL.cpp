@@ -27,6 +27,7 @@
 
 #include "dawn/native/opengl/RenderPipelineGL.h"
 
+#include "dawn/common/BitSetIterator.h"
 #include "dawn/native/opengl/DeviceGL.h"
 #include "dawn/native/opengl/Forward.h"
 #include "dawn/native/opengl/PersistentPipelineStateGL.h"
@@ -48,6 +49,8 @@ GLenum GLPrimitiveTopology(wgpu::PrimitiveTopology primitiveTopology) {
             return GL_TRIANGLES;
         case wgpu::PrimitiveTopology::TriangleStrip:
             return GL_TRIANGLE_STRIP;
+        case wgpu::PrimitiveTopology::Undefined:
+            break;
     }
     DAWN_UNREACHABLE();
 }
@@ -106,7 +109,8 @@ GLenum GLBlendFactor(wgpu::BlendFactor factor, bool alpha) {
             return GL_SRC1_ALPHA;
         case wgpu::BlendFactor::OneMinusSrc1Alpha:
             return GL_ONE_MINUS_SRC1_ALPHA;
-            DAWN_UNREACHABLE();
+        case wgpu::BlendFactor::Undefined:
+            break;
     }
     DAWN_UNREACHABLE();
 }
@@ -123,6 +127,8 @@ GLenum GLBlendMode(wgpu::BlendOperation operation) {
             return GL_MIN;
         case wgpu::BlendOperation::Max:
             return GL_MAX;
+        case wgpu::BlendOperation::Undefined:
+            break;
     }
     DAWN_UNREACHABLE();
 }
@@ -189,48 +195,10 @@ GLuint OpenGLStencilOperation(wgpu::StencilOperation stencilOperation) {
             return GL_INCR_WRAP;
         case wgpu::StencilOperation::DecrementWrap:
             return GL_DECR_WRAP;
+        case wgpu::StencilOperation::Undefined:
+            break;
     }
     DAWN_UNREACHABLE();
-}
-
-void ApplyDepthStencilState(const OpenGLFunctions& gl,
-                            const DepthStencilState* descriptor,
-                            PersistentPipelineState* persistentPipelineState) {
-    // Depth writes only occur if depth is enabled
-    if (descriptor->depthCompare == wgpu::CompareFunction::Always &&
-        !descriptor->depthWriteEnabled) {
-        gl.Disable(GL_DEPTH_TEST);
-    } else {
-        gl.Enable(GL_DEPTH_TEST);
-    }
-
-    if (descriptor->depthWriteEnabled) {
-        gl.DepthMask(GL_TRUE);
-    } else {
-        gl.DepthMask(GL_FALSE);
-    }
-
-    gl.DepthFunc(ToOpenGLCompareFunction(descriptor->depthCompare));
-
-    if (StencilTestEnabled(descriptor)) {
-        gl.Enable(GL_STENCIL_TEST);
-    } else {
-        gl.Disable(GL_STENCIL_TEST);
-    }
-
-    GLenum backCompareFunction = ToOpenGLCompareFunction(descriptor->stencilBack.compare);
-    GLenum frontCompareFunction = ToOpenGLCompareFunction(descriptor->stencilFront.compare);
-    persistentPipelineState->SetStencilFuncsAndMask(gl, backCompareFunction, frontCompareFunction,
-                                                    descriptor->stencilReadMask);
-
-    gl.StencilOpSeparate(GL_BACK, OpenGLStencilOperation(descriptor->stencilBack.failOp),
-                         OpenGLStencilOperation(descriptor->stencilBack.depthFailOp),
-                         OpenGLStencilOperation(descriptor->stencilBack.passOp));
-    gl.StencilOpSeparate(GL_FRONT, OpenGLStencilOperation(descriptor->stencilFront.failOp),
-                         OpenGLStencilOperation(descriptor->stencilFront.depthFailOp),
-                         OpenGLStencilOperation(descriptor->stencilFront.passOp));
-
-    gl.StencilMask(descriptor->stencilWriteMask);
 }
 
 }  // anonymous namespace
@@ -248,9 +216,15 @@ RenderPipeline::RenderPipeline(Device* device,
       mVertexArrayObject(0),
       mGlPrimitiveTopology(GLPrimitiveTopology(GetPrimitiveTopology())) {}
 
-MaybeError RenderPipeline::Initialize() {
-    DAWN_TRY(
-        InitializeBase(ToBackend(GetDevice())->GetGL(), ToBackend(GetLayout()), GetAllStages()));
+MaybeError RenderPipeline::InitializeImpl() {
+    VertexAttributeMask bgraSwizzleAttributes = {};
+    for (VertexAttributeLocation i : IterateBitSet(GetAttributeLocationsUsed())) {
+        bgraSwizzleAttributes.set(i, GetAttribute(i).format == wgpu::VertexFormat::Unorm8x4BGRA);
+    }
+
+    DAWN_TRY(InitializeBase(ToBackend(GetDevice())->GetGL(), ToBackend(GetLayout()), GetAllStages(),
+                            UsesVertexIndex(), UsesInstanceIndex(), UsesFragDepth(),
+                            bgraSwizzleAttributes));
     CreateVAOForVertexState();
     return {};
 }
@@ -300,6 +274,7 @@ void RenderPipeline::CreateVAOForVertexState() {
                     gl.VertexAttribDivisor(glAttrib, 1);
                     break;
                 case wgpu::VertexStepMode::VertexBufferNotUsed:
+                case wgpu::VertexStepMode::Undefined:
                     DAWN_UNREACHABLE();
             }
         }
@@ -315,7 +290,7 @@ void RenderPipeline::ApplyNow(PersistentPipelineState& persistentPipelineState) 
 
     ApplyFrontFaceAndCulling(gl, GetFrontFace(), GetCullMode());
 
-    ApplyDepthStencilState(gl, GetDepthStencilState(), &persistentPipelineState);
+    ApplyDepthStencilState(gl, &persistentPipelineState);
 
     gl.SampleMaski(0, GetSampleMask());
     if (IsAlphaToCoverageEnabled()) {
@@ -327,6 +302,16 @@ void RenderPipeline::ApplyNow(PersistentPipelineState& persistentPipelineState) 
     if (IsDepthBiasEnabled()) {
         gl.Enable(GL_POLYGON_OFFSET_FILL);
         float depthBias = GetDepthBias();
+        if (GetDevice()->IsToggleEnabled(Toggle::GLDepthBiasModifier)) {
+            // There is an ambiguity in the GL and Vulkan specs with respect to
+            // depthBias: If a depth value lies between 2^n and 2^(n+1), is the
+            // "exponent of the depth value" n or n+1? Empirically, desktop GL drivers use
+            // n+1, while the WebGPU CTS is expecting n. Scaling the depth
+            // bias value by 0.5 gives results in line with other backends.
+            // See: https://gitlab.khronos.org/Tracker/vk-gl-cts/-/issues/4169
+            // See also the GL ES 3.1 spec, section "13.5.2 Depth Offset".
+            depthBias *= 0.5f;
+        }
         float slopeScale = GetDepthBiasSlopeScale();
         if (gl.PolygonOffsetClamp != nullptr) {
             gl.PolygonOffsetClamp(slopeScale, depthBias, GetDepthBiasClamp());
@@ -362,6 +347,47 @@ void RenderPipeline::ApplyNow(PersistentPipelineState& persistentPipelineState) 
             }
         }
     }
+}
+
+void RenderPipeline::ApplyDepthStencilState(const OpenGLFunctions& gl,
+                                            PersistentPipelineState* persistentPipelineState) {
+    const DepthStencilState* descriptor = GetDepthStencilState();
+
+    // Depth writes only occur if depth is enabled
+    if (descriptor->depthCompare == wgpu::CompareFunction::Always &&
+        descriptor->depthWriteEnabled != wgpu::OptionalBool::True) {
+        gl.Disable(GL_DEPTH_TEST);
+    } else {
+        gl.Enable(GL_DEPTH_TEST);
+    }
+
+    if (descriptor->depthWriteEnabled == wgpu::OptionalBool::True) {
+        gl.DepthMask(GL_TRUE);
+    } else {
+        gl.DepthMask(GL_FALSE);
+    }
+
+    gl.DepthFunc(ToOpenGLCompareFunction(descriptor->depthCompare));
+
+    if (UsesStencil()) {
+        gl.Enable(GL_STENCIL_TEST);
+    } else {
+        gl.Disable(GL_STENCIL_TEST);
+    }
+
+    GLenum backCompareFunction = ToOpenGLCompareFunction(descriptor->stencilBack.compare);
+    GLenum frontCompareFunction = ToOpenGLCompareFunction(descriptor->stencilFront.compare);
+    persistentPipelineState->SetStencilFuncsAndMask(gl, backCompareFunction, frontCompareFunction,
+                                                    descriptor->stencilReadMask);
+
+    gl.StencilOpSeparate(GL_BACK, OpenGLStencilOperation(descriptor->stencilBack.failOp),
+                         OpenGLStencilOperation(descriptor->stencilBack.depthFailOp),
+                         OpenGLStencilOperation(descriptor->stencilBack.passOp));
+    gl.StencilOpSeparate(GL_FRONT, OpenGLStencilOperation(descriptor->stencilFront.failOp),
+                         OpenGLStencilOperation(descriptor->stencilFront.depthFailOp),
+                         OpenGLStencilOperation(descriptor->stencilFront.passOp));
+
+    gl.StencilMask(descriptor->stencilWriteMask);
 }
 
 }  // namespace dawn::native::opengl

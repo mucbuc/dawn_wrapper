@@ -32,12 +32,15 @@
 #include <utility>
 #include <vector>
 
+#include "dawn/common/MatchVariant.h"
+#include "dawn/common/Range.h"
 #include "dawn/native/BindGroup.h"
 #include "dawn/native/BindGroupTracker.h"
 #include "dawn/native/CommandEncoder.h"
 #include "dawn/native/Commands.h"
 #include "dawn/native/ExternalTexture.h"
 #include "dawn/native/RenderBundle.h"
+#include "dawn/native/opengl/BindingPoint.h"
 #include "dawn/native/opengl/BufferGL.h"
 #include "dawn/native/opengl/ComputePipelineGL.h"
 #include "dawn/native/opengl/DeviceGL.h"
@@ -49,6 +52,7 @@
 #include "dawn/native/opengl/SamplerGL.h"
 #include "dawn/native/opengl/TextureGL.h"
 #include "dawn/native/opengl/UtilsGL.h"
+#include "partition_alloc/pointers/raw_ptr.h"
 
 namespace dawn::native::opengl {
 
@@ -66,32 +70,38 @@ GLenum IndexFormatType(wgpu::IndexFormat format) {
     DAWN_UNREACHABLE();
 }
 
-bool Is1DOr2D(wgpu::TextureDimension dimension) {
-    return dimension == wgpu::TextureDimension::e1D || dimension == wgpu::TextureDimension::e2D;
-}
-
 GLenum VertexFormatType(wgpu::VertexFormat format) {
     switch (format) {
+        case wgpu::VertexFormat::Uint8:
         case wgpu::VertexFormat::Uint8x2:
         case wgpu::VertexFormat::Uint8x4:
+        case wgpu::VertexFormat::Unorm8:
         case wgpu::VertexFormat::Unorm8x2:
         case wgpu::VertexFormat::Unorm8x4:
+        case wgpu::VertexFormat::Unorm8x4BGRA:
             return GL_UNSIGNED_BYTE;
+        case wgpu::VertexFormat::Sint8:
         case wgpu::VertexFormat::Sint8x2:
         case wgpu::VertexFormat::Sint8x4:
+        case wgpu::VertexFormat::Snorm8:
         case wgpu::VertexFormat::Snorm8x2:
         case wgpu::VertexFormat::Snorm8x4:
             return GL_BYTE;
+        case wgpu::VertexFormat::Uint16:
         case wgpu::VertexFormat::Uint16x2:
         case wgpu::VertexFormat::Uint16x4:
+        case wgpu::VertexFormat::Unorm16:
         case wgpu::VertexFormat::Unorm16x2:
         case wgpu::VertexFormat::Unorm16x4:
             return GL_UNSIGNED_SHORT;
+        case wgpu::VertexFormat::Sint16:
         case wgpu::VertexFormat::Sint16x2:
         case wgpu::VertexFormat::Sint16x4:
+        case wgpu::VertexFormat::Snorm16:
         case wgpu::VertexFormat::Snorm16x2:
         case wgpu::VertexFormat::Snorm16x4:
             return GL_SHORT;
+        case wgpu::VertexFormat::Float16:
         case wgpu::VertexFormat::Float16x2:
         case wgpu::VertexFormat::Float16x4:
             return GL_HALF_FLOAT;
@@ -119,12 +129,17 @@ GLenum VertexFormatType(wgpu::VertexFormat format) {
 
 GLboolean VertexFormatIsNormalized(wgpu::VertexFormat format) {
     switch (format) {
+        case wgpu::VertexFormat::Unorm8:
         case wgpu::VertexFormat::Unorm8x2:
         case wgpu::VertexFormat::Unorm8x4:
+        case wgpu::VertexFormat::Unorm8x4BGRA:
+        case wgpu::VertexFormat::Snorm8:
         case wgpu::VertexFormat::Snorm8x2:
         case wgpu::VertexFormat::Snorm8x4:
+        case wgpu::VertexFormat::Unorm16:
         case wgpu::VertexFormat::Unorm16x2:
         case wgpu::VertexFormat::Unorm16x4:
+        case wgpu::VertexFormat::Snorm16:
         case wgpu::VertexFormat::Snorm16x2:
         case wgpu::VertexFormat::Snorm16x4:
         case wgpu::VertexFormat::Unorm10_10_10_2:
@@ -136,12 +151,16 @@ GLboolean VertexFormatIsNormalized(wgpu::VertexFormat format) {
 
 bool VertexFormatIsInt(wgpu::VertexFormat format) {
     switch (format) {
+        case wgpu::VertexFormat::Uint8:
         case wgpu::VertexFormat::Uint8x2:
         case wgpu::VertexFormat::Uint8x4:
+        case wgpu::VertexFormat::Sint8:
         case wgpu::VertexFormat::Sint8x2:
         case wgpu::VertexFormat::Sint8x4:
+        case wgpu::VertexFormat::Uint16:
         case wgpu::VertexFormat::Uint16x2:
         case wgpu::VertexFormat::Uint16x4:
+        case wgpu::VertexFormat::Sint16:
         case wgpu::VertexFormat::Sint16x2:
         case wgpu::VertexFormat::Sint16x4:
         case wgpu::VertexFormat::Uint32:
@@ -185,7 +204,17 @@ class VertexStateBufferBindingTracker {
         mLastPipeline = pipeline;
     }
 
-    void Apply(const OpenGLFunctions& gl) {
+    void Apply(const OpenGLFunctions& gl, int32_t baseVertex, uint32_t firstInstance) {
+        if (mBaseVertex != baseVertex) {
+            mBaseVertex = baseVertex;
+            mDirtyVertexBuffers |= mLastPipeline->GetVertexBuffersUsedAsVertexBuffer();
+        }
+
+        if (mFirstInstance != firstInstance) {
+            mFirstInstance = firstInstance;
+            mDirtyVertexBuffers |= mLastPipeline->GetVertexBuffersUsedAsInstanceBuffer();
+        }
+
         if (mIndexBufferDirty && mIndexBuffer != nullptr) {
             gl.BindBuffer(GL_ELEMENT_ARRAY_BUFFER, mIndexBuffer->GetHandle());
             mIndexBufferDirty = false;
@@ -199,9 +228,15 @@ class VertexStateBufferBindingTracker {
 
                 GLuint attribIndex = static_cast<GLuint>(static_cast<uint8_t>(location));
                 GLuint buffer = mVertexBuffers[slot]->GetHandle();
-                uint64_t offset = mVertexBufferOffsets[slot];
+                intptr_t offset = mVertexBufferOffsets[slot];
 
                 const VertexBufferInfo& vertexBuffer = mLastPipeline->GetVertexBuffer(slot);
+
+                if (vertexBuffer.stepMode == wgpu::VertexStepMode::Vertex) {
+                    offset += mBaseVertex * vertexBuffer.arrayStride;
+                } else if (vertexBuffer.stepMode == wgpu::VertexStepMode::Instance) {
+                    offset += mFirstInstance * vertexBuffer.arrayStride;
+                }
                 uint32_t components = GetVertexFormatInfo(attribute.format).componentCount;
                 GLenum formatType = VertexFormatType(attribute.format);
 
@@ -210,11 +245,11 @@ class VertexStateBufferBindingTracker {
                 if (VertexFormatIsInt(attribute.format)) {
                     gl.VertexAttribIPointer(
                         attribIndex, components, formatType, vertexBuffer.arrayStride,
-                        reinterpret_cast<void*>(static_cast<intptr_t>(offset + attribute.offset)));
+                        reinterpret_cast<void*>(offset + static_cast<intptr_t>(attribute.offset)));
                 } else {
                     gl.VertexAttribPointer(
                         attribIndex, components, formatType, normalized, vertexBuffer.arrayStride,
-                        reinterpret_cast<void*>(static_cast<intptr_t>(offset + attribute.offset)));
+                        reinterpret_cast<void*>(offset + static_cast<intptr_t>(attribute.offset)));
                 }
             }
         }
@@ -224,13 +259,15 @@ class VertexStateBufferBindingTracker {
 
   private:
     bool mIndexBufferDirty = false;
-    Buffer* mIndexBuffer = nullptr;
+    raw_ptr<Buffer> mIndexBuffer = nullptr;
 
     VertexBufferMask mDirtyVertexBuffers;
     PerVertexBuffer<Buffer*> mVertexBuffers;
     PerVertexBuffer<uint64_t> mVertexBufferOffsets;
 
-    RenderPipelineBase* mLastPipeline = nullptr;
+    int32_t mBaseVertex = 0;
+    uint32_t mFirstInstance = 0;
+    raw_ptr<RenderPipelineBase> mLastPipeline = nullptr;
 };
 
 class BindGroupTracker : public BindGroupTrackerBase<false, uint64_t> {
@@ -257,40 +294,43 @@ class BindGroupTracker : public BindGroupTrackerBase<false, uint64_t> {
     }
 
   private:
+    void BindSamplerAtIndex(const OpenGLFunctions& gl, SamplerBase* s, GLuint samplerIndex) {
+        Sampler* sampler = ToBackend(s);
+
+        for (PipelineGL::SamplerUnit unit : mPipeline->GetTextureUnitsForSampler(samplerIndex)) {
+            // Only use filtering for certain texture units, because int
+            // and uint texture are only complete without filtering
+            if (unit.shouldUseFiltering) {
+                gl.BindSampler(unit.unit, sampler->GetFilteringHandle());
+            } else {
+                gl.BindSampler(unit.unit, sampler->GetNonFilteringHandle());
+            }
+        }
+    }
+
     void ApplyBindGroup(const OpenGLFunctions& gl,
                         BindGroupIndex groupIndex,
                         BindGroupBase* group,
                         const ityp::vector<BindingIndex, uint64_t>& dynamicOffsets) {
         const auto& indices = ToBackend(mPipelineLayout)->GetBindingIndexInfo()[groupIndex];
 
-        for (BindingIndex bindingIndex{0}; bindingIndex < group->GetLayout()->GetBindingCount();
-             ++bindingIndex) {
+        for (BindingIndex bindingIndex : Range(group->GetLayout()->GetBindingCount())) {
             const BindingInfo& bindingInfo = group->GetLayout()->GetBindingInfo(bindingIndex);
-
-            if (bindingInfo.bindingType == BindingInfoType::Texture) {
-                TextureView* view = ToBackend(group->GetBindingAsTextureView(bindingIndex));
-                view->CopyIfNeeded();
-            }
-        }
-
-        for (BindingIndex bindingIndex{0}; bindingIndex < group->GetLayout()->GetBindingCount();
-             ++bindingIndex) {
-            const BindingInfo& bindingInfo = group->GetLayout()->GetBindingInfo(bindingIndex);
-
-            switch (bindingInfo.bindingType) {
-                case BindingInfoType::Buffer: {
+            MatchVariant(
+                bindingInfo.bindingLayout,
+                [&](const BufferBindingInfo& layout) {
                     BufferBinding binding = group->GetBindingAsBufferBinding(bindingIndex);
                     GLuint buffer = ToBackend(binding.buffer)->GetHandle();
                     GLuint index = indices[bindingIndex];
                     GLuint offset = binding.offset;
 
-                    if (bindingInfo.buffer.hasDynamicOffset) {
+                    if (layout.hasDynamicOffset) {
                         // Dynamic buffers are packed at the front of BindingIndices.
                         offset += dynamicOffsets[bindingIndex];
                     }
 
                     GLenum target;
-                    switch (bindingInfo.buffer.type) {
+                    switch (layout.type) {
                         case wgpu::BufferBindingType::Uniform:
                             target = GL_UNIFORM_BUFFER;
                             break;
@@ -304,27 +344,15 @@ class BindGroupTracker : public BindGroupTrackerBase<false, uint64_t> {
                     }
 
                     gl.BindBufferRange(target, index, buffer, offset, binding.size);
-                    break;
-                }
-
-                case BindingInfoType::Sampler: {
-                    Sampler* sampler = ToBackend(group->GetBindingAsSampler(bindingIndex));
-                    GLuint samplerIndex = indices[bindingIndex];
-
-                    for (PipelineGL::SamplerUnit unit :
-                         mPipeline->GetTextureUnitsForSampler(samplerIndex)) {
-                        // Only use filtering for certain texture units, because int
-                        // and uint texture are only complete without filtering
-                        if (unit.shouldUseFiltering) {
-                            gl.BindSampler(unit.unit, sampler->GetFilteringHandle());
-                        } else {
-                            gl.BindSampler(unit.unit, sampler->GetNonFilteringHandle());
-                        }
-                    }
-                    break;
-                }
-
-                case BindingInfoType::Texture: {
+                },
+                [&](const StaticSamplerBindingInfo& layout) {
+                    BindSamplerAtIndex(gl, layout.sampler.Get(), indices[bindingIndex]);
+                },
+                [&](const SamplerBindingInfo&) {
+                    BindSamplerAtIndex(gl, group->GetBindingAsSampler(bindingIndex),
+                                       indices[bindingIndex]);
+                },
+                [&](const TextureBindingInfo&) {
                     TextureView* view = ToBackend(group->GetBindingAsTextureView(bindingIndex));
                     GLuint handle = view->GetHandle();
                     GLenum target = view->GetGLTarget();
@@ -363,18 +391,15 @@ class BindGroupTracker : public BindGroupTrackerBase<false, uint64_t> {
                     // Some texture builtin function data needs emulation to update into the
                     // internal uniform buffer.
                     UpdateTextureBuiltinsUniformData(gl, view, groupIndex, bindingIndex);
-
-                    break;
-                }
-
-                case BindingInfoType::StorageTexture: {
+                },
+                [&](const StorageTextureBindingInfo& layout) {
                     TextureView* view = ToBackend(group->GetBindingAsTextureView(bindingIndex));
                     Texture* texture = ToBackend(view->GetTexture());
                     GLuint handle = texture->GetHandle();
                     GLuint imageIndex = indices[bindingIndex];
 
                     GLenum access;
-                    switch (bindingInfo.storageTexture.access) {
+                    switch (layout.access) {
                         case wgpu::StorageTextureAccess::WriteOnly:
                             access = GL_WRITE_ONLY;
                             break;
@@ -391,10 +416,10 @@ class BindGroupTracker : public BindGroupTrackerBase<false, uint64_t> {
                     // OpenGL ES only supports either binding a layer or the entire
                     // texture in glBindImageTexture().
                     GLboolean isLayered;
-                    if (view->GetLayerCount() == 1) {
-                        isLayered = GL_FALSE;
-                    } else if (texture->GetArrayLayers() == view->GetLayerCount()) {
+                    if (texture->GetArrayLayers() == view->GetLayerCount()) {
                         isLayered = GL_TRUE;
+                    } else if (view->GetLayerCount() == 1) {
+                        isLayered = GL_FALSE;
                     } else {
                         DAWN_UNREACHABLE();
                     }
@@ -402,14 +427,8 @@ class BindGroupTracker : public BindGroupTrackerBase<false, uint64_t> {
                     gl.BindImageTexture(imageIndex, handle, view->GetBaseMipLevel(), isLayered,
                                         view->GetBaseArrayLayer(), access,
                                         texture->GetGLFormat().internalFormat);
-                    texture->Touch();
-                    break;
-                }
-
-                case BindingInfoType::ExternalTexture:
-                    DAWN_UNREACHABLE();
-                    break;
-            }
+                },
+                [](const InputAttachmentBindingInfo&) { DAWN_UNREACHABLE(); });
         }
     }
 
@@ -429,15 +448,15 @@ class BindGroupTracker : public BindGroupTrackerBase<false, uint64_t> {
         }
 
         // Update data by retrieving information from texture view object.
-        const tint::TextureBuiltinsFromUniformOptions::Field field = iter->second.first;
+        const BindPointFunction field = iter->second.first;
         const size_t byteOffset = static_cast<size_t>(iter->second.second);
 
         uint32_t data;
         switch (field) {
-            case tint::TextureBuiltinsFromUniformOptions::Field::TextureNumLevels:
+            case BindPointFunction::kTextureNumLevels:
                 data = view->GetLevelCount();
                 break;
-            case tint::TextureBuiltinsFromUniformOptions::Field::TextureNumSamples:
+            case BindPointFunction::kTextureNumSamples:
                 data = view->GetTexture()->GetSampleCount();
                 break;
         }
@@ -477,7 +496,7 @@ class BindGroupTracker : public BindGroupTrackerBase<false, uint64_t> {
         ResetInternalUniformDataDirtyRange();
     }
 
-    PipelineGL* mPipeline = nullptr;
+    raw_ptr<PipelineGL> mPipeline = nullptr;
 
     // The data used for mPipeline's internal uniform buffer from current bind group.
     // Expecting no more than 4 texture bindings called as textureNumLevels/textureNumSamples
@@ -491,6 +510,9 @@ class BindGroupTracker : public BindGroupTrackerBase<false, uint64_t> {
 void ResolveMultisampledRenderTargets(const OpenGLFunctions& gl,
                                       const BeginRenderPassCmd* renderPass) {
     DAWN_ASSERT(renderPass != nullptr);
+
+    // Reset state that may affect glBlitFramebuffer().
+    gl.Disable(GL_SCISSOR_TEST);
 
     GLuint readFbo = 0;
     GLuint writeFbo = 0;
@@ -514,10 +536,10 @@ void ResolveMultisampledRenderTargets(const OpenGLFunctions& gl,
             resolveView->BindToFramebuffer(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0);
             gl.BlitFramebuffer(0, 0, renderPass->width, renderPass->height, 0, 0, renderPass->width,
                                renderPass->height, GL_COLOR_BUFFER_BIT, GL_NEAREST);
-            ToBackend(resolveView->GetTexture())->Touch();
         }
     }
 
+    gl.Enable(GL_SCISSOR_TEST);
     gl.DeleteFramebuffers(1, &readFbo);
     gl.DeleteFramebuffers(1, &writeFbo);
 }
@@ -583,6 +605,10 @@ MaybeError CommandBuffer::Execute() {
         switch (type) {
             case Command::BeginComputePass: {
                 mCommands.NextCommand<BeginComputePassCmd>();
+                for (TextureBase* texture :
+                     GetResourceUsages().computePasses[nextComputePassNumber].referencedTextures) {
+                    DAWN_TRY(ToBackend(texture)->SynchronizeTextureBeforeUse());
+                }
                 for (const SyncScopeResourceUsage& scope :
                      GetResourceUsages().computePasses[nextComputePassNumber].dispatchUsages) {
                     DAWN_TRY(LazyClearSyncScope(scope));
@@ -595,6 +621,10 @@ MaybeError CommandBuffer::Execute() {
 
             case Command::BeginRenderPass: {
                 auto* cmd = mCommands.NextCommand<BeginRenderPassCmd>();
+                for (TextureBase* texture :
+                     this->GetResourceUsages().renderPasses[nextRenderPassNumber].textures) {
+                    DAWN_TRY(ToBackend(texture)->SynchronizeTextureBeforeUse());
+                }
                 DAWN_TRY(
                     LazyClearSyncScope(GetResourceUsages().renderPasses[nextRenderPassNumber]));
                 LazyClearRenderPassAttachments(cmd);
@@ -638,14 +668,17 @@ MaybeError CommandBuffer::Execute() {
                 auto& src = copy->source;
                 auto& dst = copy->destination;
                 Buffer* buffer = ToBackend(src.buffer.Get());
+                Texture* texture = ToBackend(dst.texture.Get());
+
+                DAWN_TRY(texture->SynchronizeTextureBeforeUse());
 
                 buffer->EnsureDataInitialized();
                 SubresourceRange range = GetSubresourcesAffectedByCopy(dst, copy->copySize);
-                if (IsCompleteSubresourceCopiedTo(dst.texture.Get(), copy->copySize, dst.mipLevel,
+                if (IsCompleteSubresourceCopiedTo(texture, copy->copySize, dst.mipLevel,
                                                   dst.aspect)) {
-                    dst.texture->SetIsSubresourceContentInitialized(true, range);
+                    texture->SetIsSubresourceContentInitialized(true, range);
                 } else {
-                    DAWN_TRY(ToBackend(dst.texture)->EnsureSubresourceContentInitialized(range));
+                    DAWN_TRY(texture->EnsureSubresourceContentInitialized(range));
                 }
 
                 gl.BindBuffer(GL_PIXEL_UNPACK_BUFFER, buffer->GetHandle());
@@ -658,7 +691,6 @@ MaybeError CommandBuffer::Execute() {
                 DoTexSubImage(gl, dst, reinterpret_cast<void*>(src.offset), dataLayout,
                               copy->copySize);
                 gl.BindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
-                ToBackend(dst.texture)->Touch();
 
                 buffer->TrackUsage();
                 break;
@@ -685,6 +717,7 @@ MaybeError CommandBuffer::Execute() {
                 }
 
                 buffer->EnsureDataInitializedAsDestination(copy);
+                DAWN_TRY(texture->SynchronizeTextureBeforeUse());
 
                 SubresourceRange subresources = GetSubresourcesAffectedByCopy(src, copy->copySize);
                 DAWN_TRY(texture->EnsureSubresourceContentInitialized(subresources));
@@ -699,6 +732,7 @@ MaybeError CommandBuffer::Execute() {
                 const TexelBlockInfo& blockInfo = formatInfo.GetAspectInfo(src.aspect).block;
 
                 gl.BindBuffer(GL_PIXEL_PACK_BUFFER, buffer->GetHandle());
+                gl.PixelStorei(GL_PACK_ALIGNMENT, std::min(8u, blockInfo.byteSize));
                 gl.PixelStorei(GL_PACK_ROW_LENGTH, dst.bytesPerRow / blockInfo.byteSize);
 
                 GLenum glAttachment;
@@ -731,13 +765,30 @@ MaybeError CommandBuffer::Execute() {
 
                 uint8_t* offset = reinterpret_cast<uint8_t*>(static_cast<uintptr_t>(dst.offset));
                 switch (texture->GetDimension()) {
+                    case wgpu::TextureDimension::Undefined:
+                        DAWN_UNREACHABLE();
                     case wgpu::TextureDimension::e1D:
                     case wgpu::TextureDimension::e2D: {
-                        if (texture->GetArrayLayers() == 1) {
+                        if (target == GL_TEXTURE_2D) {
+                            DAWN_ASSERT(texture->GetArrayLayers() == 1);
                             gl.FramebufferTexture2D(GL_READ_FRAMEBUFFER, glAttachment, target,
                                                     texture->GetHandle(), src.mipLevel);
                             gl.ReadPixels(src.origin.x, src.origin.y, copySize.width,
                                           copySize.height, glFormat, glType, offset);
+                            break;
+                        } else if (target == GL_TEXTURE_CUBE_MAP) {
+                            DAWN_ASSERT(texture->GetArrayLayers() == 6);
+                            const uint64_t bytesPerImage = dst.bytesPerRow * dst.rowsPerImage;
+                            for (uint32_t z = 0; z < copySize.depthOrArrayLayers; ++z) {
+                                GLenum cubeMapTarget =
+                                    GL_TEXTURE_CUBE_MAP_POSITIVE_X + z + src.origin.z;
+                                gl.FramebufferTexture2D(GL_READ_FRAMEBUFFER, glAttachment,
+                                                        cubeMapTarget, texture->GetHandle(),
+                                                        src.mipLevel);
+                                gl.ReadPixels(src.origin.x, src.origin.y, copySize.width,
+                                              copySize.height, glFormat, glType, offset);
+                                offset += bytesPerImage;
+                            }
                             break;
                         }
                         // Implementation for 2D array is the same as 3D.
@@ -760,7 +811,7 @@ MaybeError CommandBuffer::Execute() {
                 }
 
                 gl.PixelStorei(GL_PACK_ROW_LENGTH, 0);
-
+                gl.PixelStorei(GL_PACK_ALIGNMENT, 4);  // Reset to default
                 gl.BindBuffer(GL_PIXEL_PACK_BUFFER, 0);
                 gl.DeleteFramebuffers(1, &readFBO);
 
@@ -786,6 +837,9 @@ MaybeError CommandBuffer::Execute() {
                 Texture* srcTexture = ToBackend(src.texture.Get());
                 Texture* dstTexture = ToBackend(dst.texture.Get());
 
+                DAWN_TRY(srcTexture->SynchronizeTextureBeforeUse());
+                DAWN_TRY(dstTexture->SynchronizeTextureBeforeUse());
+
                 SubresourceRange srcRange = GetSubresourcesAffectedByCopy(src, copy->copySize);
                 SubresourceRange dstRange = GetSubresourcesAffectedByCopy(dst, copy->copySize);
 
@@ -798,7 +852,6 @@ MaybeError CommandBuffer::Execute() {
                 CopyImageSubData(gl, src.aspect, srcTexture->GetHandle(), srcTexture->GetGLTarget(),
                                  src.mipLevel, src.origin, dstTexture->GetHandle(),
                                  dstTexture->GetGLTarget(), dst.mipLevel, dst.origin, copySize);
-                ToBackend(dst.texture)->Touch();
                 break;
             }
 
@@ -1033,7 +1086,10 @@ MaybeError CommandBuffer::ExecuteRenderPass(BeginRenderPassCmd* renderPass) {
     persistentPipelineState.SetDefaultState(gl);
     gl.BlendColor(0, 0, 0, 0);
     gl.Viewport(0, 0, renderPass->width, renderPass->height);
-    gl.DepthRangef(0.0, 1.0);
+    float minDepth = 0.0f;
+    float maxDepth = 1.0f;
+    gl.DepthRangef(minDepth, maxDepth);
+
     gl.Scissor(0, 0, renderPass->width, renderPass->height);
 
     // Clear framebuffer attachments as needed
@@ -1116,68 +1172,52 @@ MaybeError CommandBuffer::ExecuteRenderPass(BeginRenderPassCmd* renderPass) {
         switch (type) {
             case Command::Draw: {
                 DrawCmd* draw = iter->NextCommand<DrawCmd>();
-                vertexStateBufferBindingTracker.Apply(gl);
+                vertexStateBufferBindingTracker.Apply(gl, 0, draw->firstInstance);
                 bindGroupTracker.Apply(gl);
 
-                if (gl.DrawArraysInstancedBaseInstanceANGLE) {
-                    gl.DrawArraysInstancedBaseInstanceANGLE(
-                        lastPipeline->GetGLPrimitiveTopology(), draw->firstVertex,
-                        draw->vertexCount, draw->instanceCount, draw->firstInstance);
-                } else if (draw->firstInstance > 0) {
-                    gl.DrawArraysInstancedBaseInstance(lastPipeline->GetGLPrimitiveTopology(),
-                                                       draw->firstVertex, draw->vertexCount,
-                                                       draw->instanceCount, draw->firstInstance);
-                } else {
-                    // This branch is only needed on OpenGL < 4.2
-                    gl.DrawArraysInstanced(lastPipeline->GetGLPrimitiveTopology(),
-                                           draw->firstVertex, draw->vertexCount,
-                                           draw->instanceCount);
+                if (lastPipeline->UsesInstanceIndex()) {
+                    gl.Uniform1ui(PipelineLayout::PushConstantLocation::FirstInstance,
+                                  draw->firstInstance);
                 }
+                gl.DrawArraysInstanced(lastPipeline->GetGLPrimitiveTopology(), draw->firstVertex,
+                                       draw->vertexCount, draw->instanceCount);
                 break;
             }
 
             case Command::DrawIndexed: {
                 DrawIndexedCmd* draw = iter->NextCommand<DrawIndexedCmd>();
-                vertexStateBufferBindingTracker.Apply(gl);
+                vertexStateBufferBindingTracker.Apply(gl, draw->baseVertex, draw->firstInstance);
                 bindGroupTracker.Apply(gl);
 
-                if (gl.DrawElementsInstancedBaseVertexBaseInstanceANGLE) {
-                    gl.DrawElementsInstancedBaseVertexBaseInstanceANGLE(
-                        lastPipeline->GetGLPrimitiveTopology(), draw->indexCount, indexBufferFormat,
-                        reinterpret_cast<void*>(draw->firstIndex * indexFormatSize +
-                                                indexBufferBaseOffset),
-                        draw->instanceCount, draw->baseVertex, draw->firstInstance);
-                } else if (draw->firstInstance > 0) {
-                    gl.DrawElementsInstancedBaseVertexBaseInstance(
-                        lastPipeline->GetGLPrimitiveTopology(), draw->indexCount, indexBufferFormat,
-                        reinterpret_cast<void*>(draw->firstIndex * indexFormatSize +
-                                                indexBufferBaseOffset),
-                        draw->instanceCount, draw->baseVertex, draw->firstInstance);
+                const auto topology = lastPipeline->GetGLPrimitiveTopology();
+                if (topology == GL_LINE_STRIP || topology == GL_TRIANGLE_STRIP) {
+                    gl.Enable(GL_PRIMITIVE_RESTART_FIXED_INDEX);
                 } else {
-                    // This branch is only needed on OpenGL < 4.2; ES < 3.2
-                    if (draw->baseVertex != 0) {
-                        gl.DrawElementsInstancedBaseVertex(
-                            lastPipeline->GetGLPrimitiveTopology(), draw->indexCount,
-                            indexBufferFormat,
-                            reinterpret_cast<void*>(draw->firstIndex * indexFormatSize +
-                                                    indexBufferBaseOffset),
-                            draw->instanceCount, draw->baseVertex);
-                    } else {
-                        // This branch is only needed on OpenGL < 3.2; ES < 3.2
-                        gl.DrawElementsInstanced(
-                            lastPipeline->GetGLPrimitiveTopology(), draw->indexCount,
-                            indexBufferFormat,
-                            reinterpret_cast<void*>(draw->firstIndex * indexFormatSize +
-                                                    indexBufferBaseOffset),
-                            draw->instanceCount);
-                    }
+                    gl.Disable(GL_PRIMITIVE_RESTART_FIXED_INDEX);
                 }
+
+                if (lastPipeline->UsesVertexIndex()) {
+                    gl.Uniform1ui(PipelineLayout::PushConstantLocation::FirstVertex,
+                                  draw->baseVertex);
+                }
+                if (lastPipeline->UsesInstanceIndex()) {
+                    gl.Uniform1ui(PipelineLayout::PushConstantLocation::FirstInstance,
+                                  draw->firstInstance);
+                }
+                gl.DrawElementsInstanced(
+                    topology, draw->indexCount, indexBufferFormat,
+                    reinterpret_cast<void*>(draw->firstIndex * indexFormatSize +
+                                            indexBufferBaseOffset),
+                    draw->instanceCount);
                 break;
             }
 
             case Command::DrawIndirect: {
                 DrawIndirectCmd* draw = iter->NextCommand<DrawIndirectCmd>();
-                vertexStateBufferBindingTracker.Apply(gl);
+                if (lastPipeline->UsesInstanceIndex()) {
+                    gl.Uniform1ui(PipelineLayout::PushConstantLocation::FirstInstance, 0);
+                }
+                vertexStateBufferBindingTracker.Apply(gl, 0, 0);
                 bindGroupTracker.Apply(gl);
 
                 uint64_t indirectBufferOffset = draw->indirectOffset;
@@ -1194,15 +1234,25 @@ MaybeError CommandBuffer::ExecuteRenderPass(BeginRenderPassCmd* renderPass) {
             case Command::DrawIndexedIndirect: {
                 DrawIndexedIndirectCmd* draw = iter->NextCommand<DrawIndexedIndirectCmd>();
 
-                vertexStateBufferBindingTracker.Apply(gl);
+                if (lastPipeline->UsesInstanceIndex()) {
+                    gl.Uniform1ui(PipelineLayout::PushConstantLocation::FirstInstance, 0);
+                }
+                vertexStateBufferBindingTracker.Apply(gl, 0, 0);
                 bindGroupTracker.Apply(gl);
 
                 Buffer* indirectBuffer = ToBackend(draw->indirectBuffer.Get());
                 DAWN_ASSERT(indirectBuffer != nullptr);
 
+                const auto topology = lastPipeline->GetGLPrimitiveTopology();
+                if (topology == GL_LINE_STRIP || topology == GL_TRIANGLE_STRIP) {
+                    gl.Enable(GL_PRIMITIVE_RESTART_FIXED_INDEX);
+                } else {
+                    gl.Disable(GL_PRIMITIVE_RESTART_FIXED_INDEX);
+                }
+
                 gl.BindBuffer(GL_DRAW_INDIRECT_BUFFER, indirectBuffer->GetHandle());
                 gl.DrawElementsIndirect(
-                    lastPipeline->GetGLPrimitiveTopology(), indexBufferFormat,
+                    topology, indexBufferFormat,
                     reinterpret_cast<void*>(static_cast<intptr_t>(draw->indirectOffset)));
                 indirectBuffer->TrackUsage();
                 break;
@@ -1224,6 +1274,10 @@ MaybeError CommandBuffer::ExecuteRenderPass(BeginRenderPassCmd* renderPass) {
 
                 vertexStateBufferBindingTracker.OnSetPipeline(lastPipeline);
                 bindGroupTracker.OnSetPipeline(lastPipeline);
+                if (lastPipeline->UsesFragDepth()) {
+                    gl.Uniform1f(PipelineLayout::PushConstantLocation::MinDepth, minDepth);
+                    gl.Uniform1f(PipelineLayout::PushConstantLocation::MaxDepth, maxDepth);
+                }
                 break;
             }
 
@@ -1269,17 +1323,6 @@ MaybeError CommandBuffer::ExecuteRenderPass(BeginRenderPassCmd* renderPass) {
             case Command::EndRenderPass: {
                 mCommands.NextCommand<EndRenderPassCmd>();
 
-                for (auto i :
-                     IterateBitSet(renderPass->attachmentState->GetColorAttachmentsMask())) {
-                    TextureView* textureView =
-                        ToBackend(renderPass->colorAttachments[i].view.Get());
-                    ToBackend(textureView->GetTexture())->Touch();
-                }
-                if (renderPass->attachmentState->HasDepthStencilAttachment()) {
-                    TextureView* textureView =
-                        ToBackend(renderPass->depthStencilAttachment.view.Get());
-                    ToBackend(textureView->GetTexture())->Touch();
-                }
                 if (renderPass->attachmentState->GetSampleCount() > 1) {
                     ResolveMultisampledRenderTargets(gl, renderPass);
                 }
@@ -1304,7 +1347,13 @@ MaybeError CommandBuffer::ExecuteRenderPass(BeginRenderPassCmd* renderPass) {
                     gl.Viewport(static_cast<int>(cmd->x), static_cast<int>(cmd->y),
                                 static_cast<int>(cmd->width), static_cast<int>(cmd->height));
                 }
-                gl.DepthRangef(cmd->minDepth, cmd->maxDepth);
+                minDepth = cmd->minDepth;
+                maxDepth = cmd->maxDepth;
+                gl.DepthRangef(minDepth, maxDepth);
+                if (lastPipeline && lastPipeline->UsesFragDepth()) {
+                    gl.Uniform1f(PipelineLayout::PushConstantLocation::MinDepth, minDepth);
+                    gl.Uniform1f(PipelineLayout::PushConstantLocation::MaxDepth, maxDepth);
+                }
                 break;
             }
 
@@ -1404,9 +1453,19 @@ void DoTexSubImage(const OpenGLFunctions& gl,
             gl.PixelStorei(GL_UNPACK_COMPRESSED_BLOCK_HEIGHT, blockInfo.height);
             gl.PixelStorei(GL_UNPACK_COMPRESSED_BLOCK_DEPTH, 1);
 
-            if (texture->GetArrayLayers() == 1 && Is1DOr2D(texture->GetDimension())) {
+            if (target == GL_TEXTURE_2D) {
                 gl.CompressedTexSubImage2D(target, destination.mipLevel, x, y, width, height,
                                            format.internalFormat, imageSize, data);
+            } else if (target == GL_TEXTURE_CUBE_MAP) {
+                DAWN_ASSERT(texture->GetArrayLayers() == 6);
+                const uint8_t* pointer = static_cast<const uint8_t*>(data);
+                uint32_t baseLayer = destination.origin.z;
+                for (uint32_t l = 0; l < copySize.depthOrArrayLayers; ++l) {
+                    GLenum cubeMapTarget = GL_TEXTURE_CUBE_MAP_POSITIVE_X + baseLayer + l;
+                    gl.CompressedTexSubImage2D(cubeMapTarget, destination.mipLevel, x, y, width,
+                                               height, format.internalFormat, imageSize, pointer);
+                    pointer += dataLayout.rowsPerImage * dataLayout.bytesPerRow;
+                }
             } else {
                 gl.PixelStorei(GL_UNPACK_IMAGE_HEIGHT, dataLayout.rowsPerImage * blockInfo.height);
                 gl.CompressedTexSubImage3D(target, destination.mipLevel, x, y, z, width, height,
@@ -1421,7 +1480,7 @@ void DoTexSubImage(const OpenGLFunctions& gl,
             gl.PixelStorei(GL_UNPACK_COMPRESSED_BLOCK_HEIGHT, 0);
             gl.PixelStorei(GL_UNPACK_COMPRESSED_BLOCK_DEPTH, 0);
         } else {
-            if (texture->GetArrayLayers() == 1 && Is1DOr2D(texture->GetDimension())) {
+            if (target == GL_TEXTURE_2D) {
                 const uint8_t* d = static_cast<const uint8_t*>(data);
 
                 for (; y < destination.origin.y + copySize.height; y += blockInfo.height) {
@@ -1430,7 +1489,25 @@ void DoTexSubImage(const OpenGLFunctions& gl,
                                                format.internalFormat, rowSize, d);
                     d += dataLayout.bytesPerRow;
                 }
+            } else if (target == GL_TEXTURE_CUBE_MAP) {
+                DAWN_ASSERT(texture->GetArrayLayers() == 6);
+                const uint8_t* pointer = static_cast<const uint8_t*>(data);
+                uint32_t baseLayer = destination.origin.z;
+                for (uint32_t l = 0; l < copySize.depthOrArrayLayers; ++l) {
+                    const uint8_t* d =
+                        pointer + l * dataLayout.rowsPerImage * dataLayout.bytesPerRow;
+                    GLenum cubeMapTarget = GL_TEXTURE_CUBE_MAP_POSITIVE_X + baseLayer + l;
+                    for (y = destination.origin.y; y < destination.origin.y + copySize.height;
+                         y += blockInfo.height) {
+                        uint32_t height = std::min(blockInfo.height, virtSize.height - y);
+                        gl.CompressedTexSubImage2D(cubeMapTarget, destination.mipLevel, x, y, width,
+                                                   height, format.internalFormat, rowSize, d);
+                        d += dataLayout.bytesPerRow;
+                    }
+                }
             } else {
+                DAWN_ASSERT(target == GL_TEXTURE_3D || target == GL_TEXTURE_2D_ARRAY ||
+                            target == GL_TEXTURE_CUBE_MAP_ARRAY);
                 const uint8_t* slice = static_cast<const uint8_t*>(data);
 
                 for (; z < destination.origin.z + copySize.depthOrArrayLayers; ++z) {
@@ -1451,37 +1528,71 @@ void DoTexSubImage(const OpenGLFunctions& gl,
     } else {
         uint32_t width = copySize.width;
         uint32_t height = copySize.height;
+        GLenum adjustedFormat = format.format;
+        if (format.format == GL_STENCIL) {
+            DAWN_ASSERT(gl.GetVersion().IsDesktop() ||
+                        gl.IsGLExtensionSupported("GL_OES_texture_stencil8"));
+            adjustedFormat = GL_STENCIL_INDEX;
+        }
         if (dataLayout.bytesPerRow % blockInfo.byteSize == 0) {
             // Valid values for GL_UNPACK_ALIGNMENT are 1, 2, 4, 8
             gl.PixelStorei(GL_UNPACK_ALIGNMENT, std::min(8u, blockInfo.byteSize));
             gl.PixelStorei(GL_UNPACK_ROW_LENGTH,
                            dataLayout.bytesPerRow / blockInfo.byteSize * blockInfo.width);
-            if (texture->GetArrayLayers() == 1 && Is1DOr2D(texture->GetDimension())) {
-                gl.TexSubImage2D(target, destination.mipLevel, x, y, width, height, format.format,
+            if (target == GL_TEXTURE_2D) {
+                gl.TexSubImage2D(target, destination.mipLevel, x, y, width, height, adjustedFormat,
                                  format.type, data);
+            } else if (target == GL_TEXTURE_CUBE_MAP) {
+                DAWN_ASSERT(texture->GetArrayLayers() == 6);
+                const uint8_t* pointer = static_cast<const uint8_t*>(data);
+                uint32_t baseLayer = destination.origin.z;
+                for (uint32_t l = 0; l < copySize.depthOrArrayLayers; ++l) {
+                    GLenum cubeMapTarget = GL_TEXTURE_CUBE_MAP_POSITIVE_X + baseLayer + l;
+                    gl.TexSubImage2D(cubeMapTarget, destination.mipLevel, x, y, width, height,
+                                     adjustedFormat, format.type, pointer);
+                    pointer += dataLayout.rowsPerImage * dataLayout.bytesPerRow;
+                }
             } else {
+                DAWN_ASSERT(target == GL_TEXTURE_3D || target == GL_TEXTURE_2D_ARRAY ||
+                            target == GL_TEXTURE_CUBE_MAP_ARRAY);
                 gl.PixelStorei(GL_UNPACK_IMAGE_HEIGHT, dataLayout.rowsPerImage * blockInfo.height);
                 gl.TexSubImage3D(target, destination.mipLevel, x, y, z, width, height,
-                                 copySize.depthOrArrayLayers, format.format, format.type, data);
+                                 copySize.depthOrArrayLayers, adjustedFormat, format.type, data);
                 gl.PixelStorei(GL_UNPACK_IMAGE_HEIGHT, 0);
             }
             gl.PixelStorei(GL_UNPACK_ROW_LENGTH, 0);
             gl.PixelStorei(GL_UNPACK_ALIGNMENT, 4);  // Reset to default
         } else {
-            if (texture->GetArrayLayers() == 1 && Is1DOr2D(texture->GetDimension())) {
+            if (target == GL_TEXTURE_2D) {
                 const uint8_t* d = static_cast<const uint8_t*>(data);
                 for (; y < destination.origin.y + height; ++y) {
-                    gl.TexSubImage2D(target, destination.mipLevel, x, y, width, 1, format.format,
+                    gl.TexSubImage2D(target, destination.mipLevel, x, y, width, 1, adjustedFormat,
                                      format.type, d);
                     d += dataLayout.bytesPerRow;
                 }
+            } else if (target == GL_TEXTURE_CUBE_MAP) {
+                DAWN_ASSERT(texture->GetArrayLayers() == 6);
+                const uint8_t* pointer = static_cast<const uint8_t*>(data);
+                uint32_t baseLayer = destination.origin.z;
+                for (uint32_t l = 0; l < copySize.depthOrArrayLayers; ++l) {
+                    const uint8_t* d = pointer;
+                    GLenum cubeMapTarget = GL_TEXTURE_CUBE_MAP_POSITIVE_X + baseLayer + l;
+                    for (y = destination.origin.y; y < destination.origin.y + height; ++y) {
+                        gl.TexSubImage2D(cubeMapTarget, destination.mipLevel, x, y, width, 1,
+                                         adjustedFormat, format.type, d);
+                        d += dataLayout.bytesPerRow;
+                    }
+                    pointer += dataLayout.rowsPerImage * dataLayout.bytesPerRow;
+                }
             } else {
+                DAWN_ASSERT(target == GL_TEXTURE_3D || target == GL_TEXTURE_2D_ARRAY ||
+                            target == GL_TEXTURE_CUBE_MAP_ARRAY);
                 const uint8_t* slice = static_cast<const uint8_t*>(data);
                 for (; z < destination.origin.z + copySize.depthOrArrayLayers; ++z) {
                     const uint8_t* d = slice;
                     for (y = destination.origin.y; y < destination.origin.y + height; ++y) {
                         gl.TexSubImage3D(target, destination.mipLevel, x, y, z, width, 1, 1,
-                                         format.format, format.type, d);
+                                         adjustedFormat, format.type, d);
                         d += dataLayout.bytesPerRow;
                     }
                     slice += dataLayout.rowsPerImage * dataLayout.bytesPerRow;

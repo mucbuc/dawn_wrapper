@@ -1,22 +1,17 @@
 #version 310 es
 precision highp float;
+precision highp int;
 
-uniform highp sampler2DArray arg_0_arg_1;
-
-layout(binding = 0, std430) buffer prevent_dce_block_ssbo {
+layout(binding = 0, std430)
+buffer prevent_dce_block_1_ssbo {
   vec4 inner;
-} prevent_dce;
-
-void textureSampleBias_87915c() {
-  vec4 res = textureOffset(arg_0_arg_1, vec3(vec2(1.0f), float(1u)), ivec2(1), 1.0f);
-  prevent_dce.inner = res;
+} v;
+uniform highp sampler2DArray arg_0_arg_1;
+vec4 textureSampleBias_87915c() {
+  float v_1 = clamp(1.0f, -16.0f, 15.9899997711181640625f);
+  vec4 res = textureOffset(arg_0_arg_1, vec3(vec2(1.0f), float(1u)), ivec2(1), v_1);
+  return res;
 }
-
-void fragment_main() {
-  textureSampleBias_87915c();
-}
-
 void main() {
-  fragment_main();
-  return;
+  v.inner = textureSampleBias_87915c();
 }

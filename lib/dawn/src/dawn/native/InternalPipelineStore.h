@@ -28,9 +28,9 @@
 #ifndef SRC_DAWN_NATIVE_INTERNALPIPELINESTORE_H_
 #define SRC_DAWN_NATIVE_INTERNALPIPELINESTORE_H_
 
-#include <unordered_map>
 #include <utility>
 
+#include "absl/container/flat_hash_map.h"
 #include "dawn/common/HashUtils.h"
 #include "dawn/native/ApplyClearColorValueWithDrawHelper.h"
 #include "dawn/native/BlitColorToColorWithDraw.h"
@@ -50,8 +50,9 @@ struct InternalPipelineStore {
     explicit InternalPipelineStore(DeviceBase* device);
     ~InternalPipelineStore();
 
-    std::unordered_map<wgpu::TextureFormat, Ref<RenderPipelineBase>> copyTextureForBrowserPipelines;
-    std::unordered_map<wgpu::TextureFormat, Ref<RenderPipelineBase>>
+    absl::flat_hash_map<wgpu::TextureFormat, Ref<RenderPipelineBase>>
+        copyTextureForBrowserPipelines;
+    absl::flat_hash_map<wgpu::TextureFormat, Ref<RenderPipelineBase>>
         copyExternalTextureForBrowserPipelines;
 
     Ref<ShaderModuleBase> copyForBrowser;
@@ -63,6 +64,8 @@ struct InternalPipelineStore {
 
     Ref<ShaderModuleBase> placeholderFragmentShader;
 
+    void ResetScratchBuffers();
+
     // A scratch buffer suitable for use as a copy destination and storage binding.
     ScratchBuffer scratchStorage;
 
@@ -70,36 +73,47 @@ struct InternalPipelineStore {
     // buffer for indirect dispatch or draw calls.
     ScratchBuffer scratchIndirectStorage;
 
-    Ref<ComputePipelineBase> renderValidationPipeline;
-    Ref<ShaderModuleBase> renderValidationShader;
+    Ref<ShaderModuleBase> indirectDrawValidationShader;
+    Ref<ComputePipelineBase> indirectDrawValidationPipeline;
+    Ref<ComputePipelineBase> multiDrawValidationPipeline;
     Ref<ComputePipelineBase> dispatchIndirectValidationPipeline;
+
+    // This is only for the metal backend.
+    // The object is a MultiDrawConverterPipeline that contains the pipeline and argument encoder
+    // for the metal backend's multi-draw converter compute pass.
+    Ref<RefCounted> multidrawICBConverterPipeline;
 
     Ref<RenderPipelineBase> blitRG8ToDepth16UnormPipeline;
 
-    using BlitTextureToBufferComputePipelineKeyType =
+    using TextureFormatAndViewDimensionKeyType =
         std::pair<wgpu::TextureFormat, wgpu::TextureViewDimension>;
-    struct BlitTextureToBufferComputePipelineHash {
-        std::size_t operator()(const BlitTextureToBufferComputePipelineKeyType& k) const {
+    struct TextureFormatAndViewDimensionHash {
+        std::size_t operator()(const TextureFormatAndViewDimensionKeyType& k) const {
             size_t hash = 0;
             HashCombine(&hash, k.first);
             HashCombine(&hash, k.second);
             return hash;
         }
     };
-    std::unordered_map<BlitTextureToBufferComputePipelineKeyType,
-                       Ref<ComputePipelineBase>,
-                       BlitTextureToBufferComputePipelineHash>
+    absl::flat_hash_map<TextureFormatAndViewDimensionKeyType,
+                        Ref<ComputePipelineBase>,
+                        TextureFormatAndViewDimensionHash>
         blitTextureToBufferComputePipelines;
 
     struct BlitR8ToStencilPipelines {
         Ref<RenderPipelineBase> clearPipeline;
         std::array<Ref<RenderPipelineBase>, 8> setStencilPipelines;
     };
-    std::unordered_map<wgpu::TextureFormat, BlitR8ToStencilPipelines> blitR8ToStencilPipelines;
+    absl::flat_hash_map<TextureFormatAndViewDimensionKeyType,
+                        BlitR8ToStencilPipelines,
+                        TextureFormatAndViewDimensionHash>
+        blitR8ToStencilPipelines;
 
-    std::unordered_map<wgpu::TextureFormat, Ref<RenderPipelineBase>> depthBlitPipelines;
+    absl::flat_hash_map<wgpu::TextureFormat, Ref<RenderPipelineBase>> depthBlitPipelines;
 
-    BlitColorToColorWithDrawPipelinesCache msaaRenderToSingleSampledColorBlitPipelines;
+    BlitColorToColorWithDrawPipelinesCache expandResolveTexturePipelines;
+
+    ResolveMultisampleWithDrawPipelinesCache resolveMultisamplePipelines;
 };
 
 }  // namespace dawn::native

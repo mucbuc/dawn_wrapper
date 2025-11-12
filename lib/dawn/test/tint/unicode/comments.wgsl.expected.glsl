@@ -1,10 +1,6 @@
 #version 310 es
 precision highp float;
-
-void tint_symbol() {
-}
+precision highp int;
 
 void main() {
-  tint_symbol();
-  return;
 }

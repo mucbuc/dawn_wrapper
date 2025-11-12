@@ -28,6 +28,8 @@
 #ifndef SRC_DAWN_NODE_BINDING_CONVERTER_H_
 #define SRC_DAWN_NODE_BINDING_CONVERTER_H_
 
+#include <webgpu/webgpu_cpp.h>
+
 #include <functional>
 #include <string>
 #include <type_traits>
@@ -36,7 +38,6 @@
 #include <vector>
 
 #include "dawn/native/DawnNative.h"
-#include "dawn/webgpu_cpp.h"
 #include "src/dawn/node/binding/Errors.h"
 #include "src/dawn/node/interop/NodeAPI.h"
 #include "src/dawn/node/interop/WebGPU.h"
@@ -128,13 +129,16 @@ class Converter {
 
     [[nodiscard]] bool Convert(wgpu::TextureAspect& out, const interop::GPUTextureAspect& in);
 
-    [[nodiscard]] bool Convert(wgpu::ImageCopyTexture& out, const interop::GPUImageCopyTexture& in);
+    [[nodiscard]] bool Convert(wgpu::ImageCopyTexture& out,
+                               const interop::GPUTexelCopyTextureInfo& in);
 
-    [[nodiscard]] bool Convert(wgpu::ImageCopyBuffer& out, const interop::GPUImageCopyBuffer& in);
+    [[nodiscard]] bool Convert(wgpu::ImageCopyBuffer& out,
+                               const interop::GPUTexelCopyBufferInfo& in);
 
     [[nodiscard]] bool Convert(BufferSource& out, interop::BufferSource in);
 
-    [[nodiscard]] bool Convert(wgpu::TextureDataLayout& out, const interop::GPUImageDataLayout& in);
+    [[nodiscard]] bool Convert(wgpu::TextureDataLayout& out,
+                               const interop::GPUTexelCopyBufferLayout& in);
 
     [[nodiscard]] bool Convert(wgpu::TextureFormat& out, const interop::GPUTextureFormat& in);
 
@@ -267,6 +271,7 @@ class Converter {
     [[nodiscard]] bool Convert(wgpu::PipelineLayout& out, const interop::GPUAutoLayoutMode& in);
 
     [[nodiscard]] bool Convert(wgpu::Bool& out, const bool& in);
+    [[nodiscard]] bool Convert(wgpu::OptionalBool& out, const std::optional<bool>& in);
 
     // Below are the various overloads of Convert() used to convert the Dawn types -> interop.
     [[nodiscard]] bool Convert(interop::GPUTextureDimension& out, wgpu::TextureDimension in);
@@ -289,9 +294,13 @@ class Converter {
     [[nodiscard]] bool Convert(wgpu::WGSLFeatureName& out, interop::WGSLFeatureName in);
     [[nodiscard]] bool Convert(interop::WGSLFeatureName& out, wgpu::WGSLFeatureName in);
 
-    // std::string to C string
+    // std::string to C string / wgpu::StringView types
     [[nodiscard]] inline bool Convert(const char*& out, const std::string& in) {
         out = in.c_str();
+        return true;
+    }
+    [[nodiscard]] inline bool Convert(wgpu::StringView& out, const std::string& in) {
+        out = {in.data(), in.size()};
         return true;
     }
 
@@ -466,6 +475,8 @@ class Converter {
 
     std::vector<std::function<void()>> free_;
 };
+
+std::string CopyLabel(StringView label);
 
 }  // namespace wgpu::binding
 

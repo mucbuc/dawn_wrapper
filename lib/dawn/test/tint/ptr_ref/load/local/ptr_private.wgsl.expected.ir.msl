@@ -1,9 +1,13 @@
-SKIP: FAILED
-
 #include <metal_stdlib>
 using namespace metal;
 
-thread int i = 123;
-void tint_symbol() {
-  thread int* const p = i;
+struct tint_module_vars_struct {
+  thread int* i;
+};
+
+kernel void tint_symbol() {
+  thread int i = 123;
+  tint_module_vars_struct const tint_module_vars = tint_module_vars_struct{.i=(&i)};
+  thread int* const p = tint_module_vars.i;
+  int const u = as_type<int>((as_type<uint>((*p)) + as_type<uint>(1)));
 }

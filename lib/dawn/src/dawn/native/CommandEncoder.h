@@ -28,21 +28,22 @@
 #ifndef SRC_DAWN_NATIVE_COMMANDENCODER_H_
 #define SRC_DAWN_NATIVE_COMMANDENCODER_H_
 
-#include <set>
 #include <string>
+#include <vector>
 
-#include "dawn/native/dawn_platform.h"
-
+#include "absl/container/flat_hash_set.h"
+#include "dawn/common/NonMovable.h"
+#include "dawn/common/StackAllocated.h"
 #include "dawn/native/EncodingContext.h"
 #include "dawn/native/Error.h"
 #include "dawn/native/ObjectBase.h"
 #include "dawn/native/PassResourceUsage.h"
+#include "dawn/native/dawn_platform.h"
+#include "partition_alloc/pointers/raw_ptr.h"
 
 namespace dawn::native {
 
 enum class UsageValidationMode;
-
-bool HasDeprecatedColor(const RenderPassColorAttachment& attachment);
 
 Color ClampClearColorValueToLegalRange(const Color& originalColor, const Format& format);
 
@@ -54,12 +55,13 @@ class CommandEncoder final : public ApiObjectBase {
   public:
     static Ref<CommandEncoder> Create(DeviceBase* device,
                                       const UnpackedPtr<CommandEncoderDescriptor>& descriptor);
-    static CommandEncoder* MakeError(DeviceBase* device, const char* label);
+    static Ref<CommandEncoder> MakeError(DeviceBase* device, StringView label);
 
     ObjectType GetType() const override;
 
     CommandIterator AcquireCommands();
     CommandBufferResourceUsage AcquireResourceUsages();
+    std::vector<IndirectDrawMetadata> AcquireIndirectDrawMetadata();
 
     void TrackUsedQuerySet(QuerySetBase* querySet);
     void TrackQueryAvailability(QuerySetBase* querySet, uint32_t queryIndex);
@@ -89,10 +91,10 @@ class CommandEncoder final : public ApiObjectBase {
                                  const Extent3D* copySize);
     void APIClearBuffer(BufferBase* destination, uint64_t destinationOffset, uint64_t size);
 
-    void APIInjectValidationError(const char* message);
-    void APIInsertDebugMarker(const char* groupLabel);
+    void APIInjectValidationError(StringView message);
+    void APIInsertDebugMarker(StringView groupLabel);
     void APIPopDebugGroup();
-    void APIPushDebugGroup(const char* groupLabel);
+    void APIPushDebugGroup(StringView groupLabel);
 
     void APIResolveQuerySet(QuerySetBase* querySet,
                             uint32_t firstQuery,
@@ -115,19 +117,16 @@ class CommandEncoder final : public ApiObjectBase {
     // `InternalUsageScope` is a scoped class that temporarily changes validation such that the
     // command encoder includes internal resource usages.
     friend class InternalUsageScope;
-    class [[nodiscard]] InternalUsageScope : public NonMovable {
+    class [[nodiscard]] InternalUsageScope : public NonMovable, public StackAllocated {
       public:
         ~InternalUsageScope();
 
       private:
-        // Disable heap allocation
-        void* operator new(size_t) = delete;
-
         // Only CommandEncoder can make this class.
         friend class CommandEncoder;
         InternalUsageScope(CommandEncoder* encoder);
 
-        CommandEncoder* mEncoder;
+        raw_ptr<CommandEncoder> mEncoder;
         UsageValidationMode mUsageValidationMode;
     };
 
@@ -135,22 +134,16 @@ class CommandEncoder final : public ApiObjectBase {
 
   private:
     CommandEncoder(DeviceBase* device, const UnpackedPtr<CommandEncoderDescriptor>& descriptor);
-    CommandEncoder(DeviceBase* device, ObjectBase::ErrorTag tag, const char* label);
+    CommandEncoder(DeviceBase* device, ObjectBase::ErrorTag tag, StringView label);
 
     void DestroyImpl() override;
-
-    ResultOrError<std::function<void()>> ApplyRenderPassWorkarounds(
-        DeviceBase* device,
-        RenderPassResourceUsageTracker* usageTracker,
-        BeginRenderPassCmd* cmd,
-        std::function<void()> passEndCallback = nullptr);
 
     MaybeError ValidateFinish() const;
 
     EncodingContext mEncodingContext;
-    std::set<BufferBase*> mTopLevelBuffers;
-    std::set<TextureBase*> mTopLevelTextures;
-    std::set<QuerySetBase*> mUsedQuerySets;
+    absl::flat_hash_set<BufferBase*> mTopLevelBuffers;
+    absl::flat_hash_set<TextureBase*> mTopLevelTextures;
+    absl::flat_hash_set<QuerySetBase*> mUsedQuerySets;
 
     uint64_t mDebugGroupStackSize = 0;
 

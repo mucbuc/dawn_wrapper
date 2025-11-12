@@ -34,6 +34,7 @@
 #                       Do not modify this file directly
 ################################################################################
 
+import("../../../../scripts/dawn_overrides_with_defaults.gni")
 import("../../../../scripts/tint_overrides_with_defaults.gni")
 
 import("${tint_src_dir}/tint.gni")
@@ -42,16 +43,17 @@ tint_executable("tint") {
   output_name = "tint"
   sources = [ "main.cc" ]
   deps = [
+    "${dawn_root}/src/utils:utils",
     "${tint_src_dir}/api",
     "${tint_src_dir}/api/common",
-    "${tint_src_dir}/api/options",
     "${tint_src_dir}/cmd/common",
     "${tint_src_dir}/lang/core",
     "${tint_src_dir}/lang/core/constant",
     "${tint_src_dir}/lang/core/ir",
+    "${tint_src_dir}/lang/core/ir/transform",
     "${tint_src_dir}/lang/core/type",
     "${tint_src_dir}/lang/hlsl/writer/common",
-    "${tint_src_dir}/lang/spirv/reader/common",
+    "${tint_src_dir}/lang/hlsl/writer/helpers",
     "${tint_src_dir}/lang/wgsl",
     "${tint_src_dir}/lang/wgsl/ast",
     "${tint_src_dir}/lang/wgsl/ast/transform",
@@ -88,6 +90,7 @@ tint_executable("tint") {
     deps += [
       "${tint_src_dir}/lang/glsl/writer",
       "${tint_src_dir}/lang/glsl/writer/common",
+      "${tint_src_dir}/lang/glsl/writer/helpers",
     ]
   }
 
@@ -105,6 +108,10 @@ tint_executable("tint") {
       "${tint_src_dir}/lang/msl/writer/common",
       "${tint_src_dir}/lang/msl/writer/helpers",
     ]
+  }
+
+  if (tint_build_spv_reader) {
+    deps += [ "${tint_src_dir}/lang/spirv/reader/common" ]
   }
 
   if (tint_build_spv_reader || tint_build_spv_writer) {

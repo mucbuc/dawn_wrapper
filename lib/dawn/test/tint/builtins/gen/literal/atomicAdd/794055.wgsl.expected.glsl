@@ -1,25 +1,22 @@
 #version 310 es
 
-shared int arg_0;
-layout(binding = 0, std430) buffer prevent_dce_block_ssbo {
+layout(binding = 0, std430)
+buffer prevent_dce_block_1_ssbo {
   int inner;
-} prevent_dce;
-
-void atomicAdd_794055() {
+} v;
+shared int arg_0;
+int atomicAdd_794055() {
   int res = atomicAdd(arg_0, 1);
-  prevent_dce.inner = res;
+  return res;
 }
-
-void compute_main(uint local_invocation_index) {
-  {
+void compute_main_inner(uint tint_local_index) {
+  if ((tint_local_index == 0u)) {
     atomicExchange(arg_0, 0);
   }
   barrier();
-  atomicAdd_794055();
+  v.inner = atomicAdd_794055();
 }
-
 layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
 void main() {
-  compute_main(gl_LocalInvocationIndex);
-  return;
+  compute_main_inner(gl_LocalInvocationIndex);
 }

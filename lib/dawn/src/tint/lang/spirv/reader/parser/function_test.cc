@@ -44,8 +44,8 @@ TEST_F(SpirvParserTest, ComputeShader) {
                OpFunctionEnd
 )",
               R"(
-%main = @compute @workgroup_size(1, 1, 1) func():void -> %b1 {
-  %b1 = block {
+%main = @compute @workgroup_size(1u, 1u, 1u) func():void {
+  $B1: {
     ret
   }
 }
@@ -66,8 +66,8 @@ TEST_F(SpirvParserTest, LocalSize) {
                OpFunctionEnd
 )",
               R"(
-%main = @compute @workgroup_size(3, 4, 5) func():void -> %b1 {
-  %b1 = block {
+%main = @compute @workgroup_size(3u, 4u, 5u) func():void {
+  $B1: {
     ret
   }
 }
@@ -88,15 +88,49 @@ TEST_F(SpirvParserTest, FragmentShader) {
                OpFunctionEnd
 )",
               R"(
-%main = @fragment func():void -> %b1 {
-  %b1 = block {
+%main = @fragment func():void {
+  $B1: {
     ret
   }
 }
 )");
 }
 
-TEST_F(SpirvParserTest, VertexShader) {
+TEST_F(SpirvParserTest, FragmentShader_DepthReplacing) {
+    EXPECT_IR(R"(
+               OpCapability Shader
+               OpMemoryModel Logical GLSL450
+               OpEntryPoint Fragment %main "main" %depth
+               OpExecutionMode %main OriginUpperLeft
+               OpExecutionMode %main DepthReplacing
+               OpDecorate %depth BuiltIn FragDepth
+       %void = OpTypeVoid
+        %f32 = OpTypeFloat 32
+     %f32_42 = OpConstant %f32 42.0
+%_ptr_Output_f32 = OpTypePointer Output %f32
+      %depth = OpVariable %_ptr_Output_f32 Output
+    %ep_type = OpTypeFunction %void
+       %main = OpFunction %void None %ep_type
+ %main_start = OpLabel
+               OpStore %depth %f32_42
+               OpReturn
+               OpFunctionEnd
+)",
+              R"(
+$B1: {  # root
+  %1:ptr<__out, f32, read_write> = var @builtin(frag_depth)
+}
+
+%main = @fragment func():void {
+  $B2: {
+    store %1, 42.0f
+    ret
+  }
+}
+)");
+}
+
+TEST_F(SpirvParserTest, DISABLED_VertexShader) {
     EXPECT_IR(R"(
                OpCapability Shader
                OpMemoryModel Logical GLSL450
@@ -109,8 +143,8 @@ TEST_F(SpirvParserTest, VertexShader) {
                OpFunctionEnd
 )",
               R"(
-%main = @vertex func():void -> %b1 {
-  %b1 = block {
+%main = @vertex func():void {
+  $B1: {
     ret
   }
 }
@@ -139,13 +173,13 @@ TEST_F(SpirvParserTest, MultipleEntryPoints) {
                OpFunctionEnd
 )",
               R"(
-%foo = @compute @workgroup_size(3, 4, 5) func():void -> %b1 {
-  %b1 = block {
+%foo = @compute @workgroup_size(3u, 4u, 5u) func():void {
+  $B1: {
     ret
   }
 }
-%bar = @compute @workgroup_size(6, 7, 8) func():void -> %b2 {
-  %b2 = block {
+%bar = @compute @workgroup_size(6u, 7u, 8u) func():void {
+  $B2: {
     ret
   }
 }
@@ -173,13 +207,13 @@ TEST_F(SpirvParserTest, FunctionCall) {
                OpFunctionEnd
 )",
               R"(
-%1 = func():void -> %b1 {
-  %b1 = block {
+%1 = func():void {
+  $B1: {
     ret
   }
 }
-%main = @compute @workgroup_size(1, 1, 1) func():void -> %b2 {
-  %b2 = block {
+%main = @compute @workgroup_size(1u, 1u, 1u) func():void {
+  $B2: {
     %3:void = call %1
     ret
   }
@@ -208,14 +242,14 @@ TEST_F(SpirvParserTest, FunctionCall_ForwardReference) {
                OpFunctionEnd
 )",
               R"(
-%main = @compute @workgroup_size(1, 1, 1) func():void -> %b1 {
-  %b1 = block {
+%main = @compute @workgroup_size(1u, 1u, 1u) func():void {
+  $B1: {
     %2:void = call %3
     ret
   }
 }
-%3 = func():void -> %b2 {
-  %b2 = block {
+%3 = func():void {
+  $B2: {
     ret
   }
 }
@@ -249,13 +283,13 @@ TEST_F(SpirvParserTest, FunctionCall_WithParam) {
                OpFunctionEnd
 )",
               R"(
-%1 = func(%2:bool):void -> %b1 {
-  %b1 = block {
+%1 = func(%2:bool):void {
+  $B1: {
     ret
   }
 }
-%main = @compute @workgroup_size(1, 1, 1) func():void -> %b2 {
-  %b2 = block {
+%main = @compute @workgroup_size(1u, 1u, 1u) func():void {
+  $B2: {
     %4:void = call %1, true
     %5:void = call %1, false
     ret
@@ -298,19 +332,19 @@ TEST_F(SpirvParserTest, FunctionCall_Chained_WithParam) {
                OpFunctionEnd
 )",
               R"(
-%1 = func(%2:bool):void -> %b1 {
-  %b1 = block {
+%1 = func(%2:bool):void {
+  $B1: {
     ret
   }
 }
-%3 = func(%4:bool):void -> %b2 {
-  %b2 = block {
+%3 = func(%4:bool):void {
+  $B2: {
     %5:void = call %1, %4
     ret
   }
 }
-%main = @compute @workgroup_size(1, 1, 1) func():void -> %b3 {
-  %b3 = block {
+%main = @compute @workgroup_size(1u, 1u, 1u) func():void {
+  $B3: {
     %7:void = call %3, true
     %8:void = call %3, false
     ret
@@ -346,13 +380,13 @@ TEST_F(SpirvParserTest, FunctionCall_WithMultipleParams) {
                OpFunctionEnd
 )",
               R"(
-%1 = func(%2:bool, %3:bool):void -> %b1 {
-  %b1 = block {
+%1 = func(%2:bool, %3:bool):void {
+  $B1: {
     ret
   }
 }
-%main = @compute @workgroup_size(1, 1, 1) func():void -> %b2 {
-  %b2 = block {
+%main = @compute @workgroup_size(1u, 1u, 1u) func():void {
+  $B2: {
     %5:void = call %1, true, false
     ret
   }
@@ -384,14 +418,64 @@ TEST_F(SpirvParserTest, FunctionCall_ReturnValue) {
                OpFunctionEnd
 )",
               R"(
-%1 = func():bool -> %b1 {
-  %b1 = block {
+%1 = func():bool {
+  $B1: {
     ret true
   }
 }
-%main = @compute @workgroup_size(1, 1, 1) func():void -> %b2 {
-  %b2 = block {
+%main = @compute @workgroup_size(1u, 1u, 1u) func():void {
+  $B2: {
     %3:bool = call %1
+    ret
+  }
+}
+)");
+}
+
+TEST_F(SpirvParserTest, FunctionCall_ReturnValueChain) {
+    EXPECT_IR(R"(
+               OpCapability Shader
+               OpMemoryModel Logical GLSL450
+               OpEntryPoint GLCompute %main "main"
+               OpExecutionMode %main LocalSize 1 1 1
+       %void = OpTypeVoid
+       %bool = OpTypeBool
+       %true = OpConstantTrue %bool
+    %fn_type = OpTypeFunction %bool
+  %main_type = OpTypeFunction %void
+
+        %bar = OpFunction %bool None %fn_type
+  %bar_start = OpLabel
+               OpReturnValue %true
+               OpFunctionEnd
+
+        %foo = OpFunction %bool None %fn_type
+  %foo_start = OpLabel
+       %call = OpFunctionCall %bool %foo
+               OpReturnValue %call
+               OpFunctionEnd
+
+       %main = OpFunction %void None %main_type
+ %main_start = OpLabel
+          %1 = OpFunctionCall %bool %bar
+               OpReturn
+               OpFunctionEnd
+)",
+              R"(
+%1 = func():bool {
+  $B1: {
+    ret true
+  }
+}
+%2 = func():bool {
+  $B2: {
+    %3:bool = call %2
+    ret %3
+  }
+}
+%main = @compute @workgroup_size(1u, 1u, 1u) func():void {
+  $B3: {
+    %5:bool = call %1
     ret
   }
 }
@@ -423,13 +507,13 @@ TEST_F(SpirvParserTest, FunctionCall_ParamAndReturnValue) {
                OpFunctionEnd
 )",
               R"(
-%1 = func(%2:bool):bool -> %b1 {
-  %b1 = block {
+%1 = func(%2:bool):bool {
+  $B1: {
     ret %2
   }
 }
-%main = @compute @workgroup_size(1, 1, 1) func():void -> %b2 {
-  %b2 = block {
+%main = @compute @workgroup_size(1u, 1u, 1u) func():void {
+  $B2: {
     %4:bool = call %1, true
     ret
   }

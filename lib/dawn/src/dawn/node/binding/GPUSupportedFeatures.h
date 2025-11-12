@@ -28,11 +28,11 @@
 #ifndef SRC_DAWN_NODE_BINDING_GPUSUPPORTEDFEATURES_H_
 #define SRC_DAWN_NODE_BINDING_GPUSUPPORTEDFEATURES_H_
 
+#include <webgpu/webgpu_cpp.h>
+
 #include <string>
 #include <unordered_set>
 #include <vector>
-
-#include "dawn/webgpu_cpp.h"
 
 #include "src/dawn/node/interop/NodeAPI.h"
 #include "src/dawn/node/interop/WebGPU.h"
@@ -42,11 +42,12 @@ namespace wgpu::binding {
 // GPUSupportedLFeatures is an implementation of interop::GPUSupportedFeatures.
 class GPUSupportedFeatures final : public interop::GPUSupportedFeatures {
   public:
-    GPUSupportedFeatures(Napi::Env env, const std::vector<wgpu::FeatureName>& features);
+    GPUSupportedFeatures(Napi::Env env, const wgpu::SupportedFeatures& features);
 
     // interop::GPUSupportedFeatures interface compliance
     bool has(Napi::Env, std::string name) override;
     std::vector<std::string> keys(Napi::Env) override;
+    size_t getSize(Napi::Env) override;
 
   private:
     std::unordered_set<interop::GPUFeatureName> enabled_;

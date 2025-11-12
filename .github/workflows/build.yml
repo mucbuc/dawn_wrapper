@@ -26,7 +26,7 @@ jobs:
       - name: Build and run
         run: |
           cd test 
-          cmake -B build -DCMAKE_CXX_FLAGS="-Wall" -DCMAKE_C_FLAGS="-Wall"
+          cmake -B build --compile-no-warning-as-error
           cmake --build build -j 8 &&
           ./build/Example
 

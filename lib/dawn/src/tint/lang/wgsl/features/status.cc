@@ -38,6 +38,7 @@ FeatureStatus GetLanguageFeatureStatus(LanguageFeature f) {
             return FeatureStatus::kExperimental;
         case LanguageFeature::kUndefined:
             return FeatureStatus::kUnknown;
+
         case LanguageFeature::kChromiumTestingUnimplemented:
             return FeatureStatus::kUnimplemented;
         case LanguageFeature::kChromiumTestingUnsafeExperimental:
@@ -47,7 +48,6 @@ FeatureStatus GetLanguageFeatureStatus(LanguageFeature f) {
         case LanguageFeature::kChromiumTestingShippedWithKillswitch:
             return FeatureStatus::kShippedWithKillswitch;
         case LanguageFeature::kChromiumTestingShipped:
-        default:
             return FeatureStatus::kShipped;
     }
 

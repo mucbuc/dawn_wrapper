@@ -83,7 +83,6 @@ std::string_view ToString(LanguageFeature value) {
         case LanguageFeature::kPacked4X8IntegerDotProduct:
             return "packed_4x8_integer_dot_product";
         case LanguageFeature::kReadonlyAndReadwriteStorageTextures:
-        default:
             return "readonly_and_readwrite_storage_textures";
     }
     return "<unknown>";

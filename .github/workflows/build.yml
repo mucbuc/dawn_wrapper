@@ -26,8 +26,8 @@ jobs:
       - name: Build and run
         run: |
           cd test 
-          cmake -B build --compile-no-warning-as-error
-          cmake --build build -j 8 &&
+          cmake -B build 
+          cmake --compile-no-warning-as-error --build build -j 8 &&
           ./build/Example
 
 

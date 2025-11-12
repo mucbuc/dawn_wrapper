@@ -36,10 +36,8 @@ FeatureStatus GetLanguageFeatureStatus(LanguageFeature f) {
         case LanguageFeature::kReadonlyAndReadwriteStorageTextures:
         case LanguageFeature::kPacked4X8IntegerDotProduct:
             return FeatureStatus::kExperimental;
-        default:
         case LanguageFeature::kUndefined:
             return FeatureStatus::kUnknown;
-
         case LanguageFeature::kChromiumTestingUnimplemented:
             return FeatureStatus::kUnimplemented;
         case LanguageFeature::kChromiumTestingUnsafeExperimental:
@@ -50,6 +48,8 @@ FeatureStatus GetLanguageFeatureStatus(LanguageFeature f) {
             return FeatureStatus::kShippedWithKillswitch;
         case LanguageFeature::kChromiumTestingShipped:
             return FeatureStatus::kShipped;
+        default:
+            return FeatureStatus::kUnknown;
     }
 
     return FeatureStatus::kUnknown;

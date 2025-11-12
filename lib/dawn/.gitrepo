@@ -1,0 +1,12 @@
+; DO NOT EDIT (unless you know what you are doing)
+;
+; This subdirectory is a git "subrepo", and this file is maintained by the
+; git-subrepo command. See https://github.com/ingydotnet/git-subrepo#readme
+;
+[subrepo]
+	remote = https://dawn.googlesource.com/dawn.git
+	branch = chromium/6231
+	commit = e71edbaee31d22726441ddf6f4cef48069c70aca
+	parent = 1f0511f4da7eca014fcdebb79887c1aa73102d63
+	method = merge
+	cmdver = 0.4.9

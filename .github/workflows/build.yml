@@ -17,5 +17,8 @@ jobs:
       - name: Build and run
         run: |
           cd test 
-          ./build_and_run
+          cmake -B build --compile-no-warning-as-error
+          cmake --build build &&
+          ./build/Example
+
 

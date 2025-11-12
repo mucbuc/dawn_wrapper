@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.27)
 
-project(dawn_wrapper_lib)
+project(dawn_wrapper)
 
 add_library(dawn_wrapper STATIC src/dawn_wrapper.hpp)
 
@@ -34,11 +34,13 @@ target_sources(dawn_wrapper PRIVATE
 )
 
 if (NOT EMSCRIPTEN)
+
     set(DAWN_FETCH_DEPENDENCIES ON)
     set(DAWN_USE_X11 OFF CACHE BOOL "" FORCE)
     set(DAWN_USE_WAYLAND OFF CACHE BOOL "" FORCE)
 
-    add_subdirectory("lib/dawn" EXCLUDE_FROM_ALL)
+    add_subdirectory(lib/dawn EXCLUDE_FROM_ALL)
+
     target_link_libraries(dawn_wrapper PUBLIC
         webgpu_dawn
         webgpu_glfw

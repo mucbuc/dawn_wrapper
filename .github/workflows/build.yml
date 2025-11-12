@@ -11,23 +11,14 @@ jobs:
     runs-on: macos-latest
 
     steps:
-      - name: Install Pyton
-        uses: actions/setup-python@v5
-
       - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Fetch Dawn Dependencies
-        run: |
-          pushd lib/dawn
-          python tools/fetch_dawn_dependencies.py
-          popd
 
       - name: Build and run
         run: |
           cd test 
           cmake -B build --compile-no-warning-as-error
-          cmake --build build -j $nproc &&
+          cmake --build build &&
           ./build/Example
 
 

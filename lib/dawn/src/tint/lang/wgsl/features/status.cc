@@ -47,9 +47,8 @@ FeatureStatus GetLanguageFeatureStatus(LanguageFeature f) {
         case LanguageFeature::kChromiumTestingShippedWithKillswitch:
             return FeatureStatus::kShippedWithKillswitch;
         case LanguageFeature::kChromiumTestingShipped:
-            return FeatureStatus::kShipped;
         default:
-            return FeatureStatus::kUnknown;
+            return FeatureStatus::kShipped;
     }
 
     return FeatureStatus::kUnknown;

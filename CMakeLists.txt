@@ -35,12 +35,9 @@ target_sources(dawn_wrapper PRIVATE
 
 if (NOT EMSCRIPTEN)
     set(DAWN_FETCH_DEPENDENCIES ON)
-    set(DAWN_USE_X11 OFF CACHE BOOL "" FORCE)
-    set(DAWN_USE_WAYLAND OFF CACHE BOOL "" FORCE)
 
     add_subdirectory("lib/dawn" EXCLUDE_FROM_ALL)
     target_link_libraries(dawn_wrapper PUBLIC
         webgpu_dawn
-        webgpu_glfw
     )
 endif()

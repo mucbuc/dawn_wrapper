@@ -15,7 +15,7 @@ using vector_type = vector<uint32_t>;
 
 void run_compute(dawn_plugin plugin)
 {
-    ASSERT(plugin);
+    ASSERT(plugin.is_valid());
 
     const vector_type data = { 0, 1, 3, 5, 7, 11, 13, 17, 19 };
     const unsigned size_bytes = unsigned(data.size()) * sizeof(vector_type::value_type);

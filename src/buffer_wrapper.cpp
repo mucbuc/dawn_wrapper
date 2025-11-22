@@ -36,12 +36,12 @@ buffer_wrapper& buffer_wrapper::get_output(std::function<void(size_t, const void
     return *this;
 }
 
-bool buffer_wrapper::done()
+bool buffer_wrapper::done() const
 {
     return m_pimpl && m_pimpl->done();
 }
 
-buffer_wrapper::operator bool() const
+bool buffer_wrapper::is_valid() const
 {
     return m_pimpl ? true : false;
 }

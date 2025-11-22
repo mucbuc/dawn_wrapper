@@ -28,4 +28,4 @@ target_link_libraries(Example PRIVATE
     dawn_wrapper
 )
 
-target_include_directories(Example SYSTEM PUBLIC ${CMAKE_SOURCE_DIR})
+target_include_directories(Example SYSTEM PUBLIC ${CMAKE_CURRENT_LIST_DIR}/lib)

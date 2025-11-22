@@ -2,8 +2,8 @@
 #include <sstream>
 #include <vector>
 
-#include <lib/asserter/src/asserter.hpp>
-#include <lib/dawn_wrapper/src/dawn_wrapper.hpp>
+#include <asserter/src/asserter.hpp>
+#include <dawn_wrapper/src/dawn_wrapper.hpp>
 
 #ifdef __EMSCRIPTEN__
 #include <emscripten/html5.h>

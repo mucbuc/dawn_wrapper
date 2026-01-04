@@ -74,6 +74,9 @@ struct surface_wrapper::pimpl {
     {
         SurfaceTexture st;
         m_surface.GetCurrentTexture(&st);
+
+        ASSERT(!st.suboptimal); 
+
         return st.texture.CreateView();
     }
 

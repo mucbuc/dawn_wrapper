@@ -107,17 +107,6 @@ struct surface_wrapper {
     DAWN_WRAPPER_PIMPL_DEC(surface_wrapper);
 };
 
-struct surface_wrapper {
-
-    surface_wrapper() = default;
-    void setup(GLFWwindow*, unsigned width, unsigned height, bool opaque);
-    void setup(std::string html_canvas_selector, unsigned width, unsigned height);
-    void present();
-
-    operator bool() const;
-    WRAPPER_PIMPL_DEC(surface_wrapper);
-};
-
 struct render_wrapper {
     render_wrapper() = default;
     void compile_shader(std::string script, std::string entryPoint);

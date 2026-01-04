@@ -1,3 +1,9 @@
+# dawn_wrapper
+
+![Native Tests](https://github.com/mucbuc/dawn_wrapper/workflows/Native%20WebGPU%20Tests/badge.svg)
+![Emscripten Tests](https://github.com/mucbuc/dawn_wrapper/workflows/Emscripten%20WebGPU%20Tests/badge.svg)
+
+
 # install [dawn](https://dawn.googlesource.com/dawn)
 ```
 cd lib

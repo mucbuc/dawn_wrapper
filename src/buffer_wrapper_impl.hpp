@@ -50,6 +50,7 @@ struct buffer_wrapper::pimpl
 
     void get_output(std::function<void(size_t, const void*)> cb)
     {
+        ASSERT(m_done);
         m_dataCallback = cb;
 
         auto buffer_size = m_buffer.GetSize();
@@ -59,7 +60,7 @@ struct buffer_wrapper::pimpl
         m_buffer.MapAsync(MapMode::Read, 0, buffer_size, &callback2, this);
     }
 
-    bool done()
+    bool done() const
     {
         return m_done;
     }

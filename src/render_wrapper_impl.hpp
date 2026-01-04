@@ -53,7 +53,7 @@ struct render_wrapper::pimpl : private shader_base {
     void render(bindgroup_wrapper bindGroup, encoder_wrapper encoder)
     {
         ASSERT(m_bindGroupLayout);
-        ASSERT(bindGroup);
+        ASSERT(bindGroup.is_valid());
 
         auto textureView = getCurrentTextureView();
         ASSERT(textureView);

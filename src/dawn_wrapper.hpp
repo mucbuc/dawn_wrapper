@@ -1,13 +1,13 @@
 #pragma once
 
-#include <array>
 #include <functional>
 #include <iostream>
 
 struct GLFWwindow;
+
 namespace dawn_wrapper {
 
-#define WRAPPER_PIMPL_DEC(class_name)        \
+#define DAWN_WRAPPER_PIMPL_DEC(class_name)   \
 private:                                     \
     friend class render_wrapper;             \
     friend class compute_wrapper;            \
@@ -28,19 +28,19 @@ struct buffer_wrapper {
     buffer_wrapper() = default;
     buffer_wrapper& write(const std::vector<uint8_t>& colors);
     buffer_wrapper& write(const void*);
-    bool done();
+    bool done() const;
     buffer_wrapper& get_output(std::function<void(size_t, const void*)>);
     size_t get_size() const;
 
-    operator bool() const;
-    WRAPPER_PIMPL_DEC(buffer_wrapper);
+    bool is_valid() const;
+    DAWN_WRAPPER_PIMPL_DEC(buffer_wrapper);
 };
 
 struct encoder_wrapper {
     encoder_wrapper() = default;
     encoder_wrapper& submit_command_buffer();
     encoder_wrapper& copy_buffer_to_buffer(buffer_wrapper, buffer_wrapper, size_t offset = 0);
-    WRAPPER_PIMPL_DEC(encoder_wrapper);
+    DAWN_WRAPPER_PIMPL_DEC(encoder_wrapper);
 };
 
 struct texture_wrapper {
@@ -48,16 +48,16 @@ struct texture_wrapper {
     void write(const std::vector<uint8_t>& colors);
     void make_sampler(bool clamp_to_edge);
 
-    operator bool() const;
-    WRAPPER_PIMPL_DEC(texture_wrapper);
+    bool is_valid() const;
+    DAWN_WRAPPER_PIMPL_DEC(texture_wrapper);
 };
 
 struct texture_output_wrapper {
     texture_output_wrapper() = default;
     void make_sampler(bool clamp_to_edge);
 
-    operator bool() const;
-    WRAPPER_PIMPL_DEC(texture_output_wrapper);
+    bool is_valid() const;
+    DAWN_WRAPPER_PIMPL_DEC(texture_output_wrapper);
 };
 
 struct bindgroup_layout_wrapper {
@@ -69,19 +69,19 @@ struct bindgroup_layout_wrapper {
     bindgroup_layout_wrapper& add_texture_2d(unsigned binding, bool enable = true);
     bindgroup_layout_wrapper& add_storage_texture_2d(unsigned binding, bool enable = true);
     bindgroup_layout_wrapper& add_sampler(unsigned binding, bool enable = true);
-    WRAPPER_PIMPL_DEC(bindgroup_layout_wrapper);
+    DAWN_WRAPPER_PIMPL_DEC(bindgroup_layout_wrapper);
 };
 
 struct bindgroup_wrapper {
     bindgroup_wrapper() = default;
     bindgroup_wrapper& add_buffer(unsigned binding, buffer_wrapper);
-    bindgroup_wrapper& addTexture(unsigned binding, texture_wrapper);
-    bindgroup_wrapper& addTexture(unsigned binding, texture_output_wrapper);
+    bindgroup_wrapper& add_texture(unsigned binding, texture_wrapper);
+    bindgroup_wrapper& add_texture(unsigned binding, texture_output_wrapper);
     bindgroup_wrapper& add_sampler(unsigned binding, texture_wrapper);
     bindgroup_wrapper& add_sampler(unsigned binding, texture_output_wrapper);
 
-    operator bool() const;
-    WRAPPER_PIMPL_DEC(bindgroup_wrapper);
+    bool is_valid() const;
+    DAWN_WRAPPER_PIMPL_DEC(bindgroup_wrapper);
 };
 
 struct compute_wrapper {
@@ -92,8 +92,19 @@ struct compute_wrapper {
     void setup_compute(unsigned width, unsigned height);
     bindgroup_layout_wrapper make_bindgroup_layout();
     bindgroup_wrapper make_bindgroup();
-    operator bool() const;
-    WRAPPER_PIMPL_DEC(compute_wrapper);
+    bool is_valid() const;
+    DAWN_WRAPPER_PIMPL_DEC(compute_wrapper);
+};
+
+struct surface_wrapper {
+
+    surface_wrapper() = default;
+    void setup(GLFWwindow*, unsigned width, unsigned height, bool opaque);
+    void setup(std::string html_canvas_selector, unsigned width, unsigned height);
+    void present();
+
+    bool is_valid() const;
+    DAWN_WRAPPER_PIMPL_DEC(surface_wrapper);
 };
 
 struct surface_wrapper {
@@ -118,10 +129,10 @@ struct render_wrapper {
     bindgroup_wrapper make_bindgroup();
     void init_pipeline(bindgroup_layout_wrapper);
     void init_pipeline();
-    operator bool() const;
-    WRAPPER_PIMPL_DEC(render_wrapper);
+    bool is_valid() const;
+    DAWN_WRAPPER_PIMPL_DEC(render_wrapper);
 };
-#undef WRAPPER_PIMPL_DEC
+#undef DAWN_WRAPPER_PIMPL_DEC
 
 enum class buffer_type {
     storage,
@@ -141,13 +152,13 @@ struct dawn_plugin {
     compute_wrapper make_compute();
     buffer_wrapper make_src_buffer(size_t size, buffer_type type);
     buffer_wrapper make_dst_buffer(size_t size, buffer_type type);
-    texture_wrapper make_texture(size_t);
-    texture_wrapper make_texture(size_t, size_t);
-    texture_wrapper make_texture(std::vector<uint8_t> data);
+    texture_wrapper make_texture_1d(size_t);
+    texture_wrapper make_texture_2d(size_t, size_t);
+    texture_wrapper make_texture_from_data(std::vector<uint8_t> data);
     texture_output_wrapper make_texture_output(size_t, size_t);
     encoder_wrapper make_encoder();
     bool run();
-    operator bool() const;
+    bool is_valid() const;
 
 private:
     struct dawn_pimpl;

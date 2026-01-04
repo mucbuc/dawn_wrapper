@@ -170,17 +170,17 @@ struct dawn_plugin::dawn_pimpl {
         return make_shared<buffer_wrapper::pimpl>(m_device, size, flags, isDest);
     }
 
-    texture_wrapper make_texture(size_t size)
+    texture_wrapper make_texture_1d(size_t size)
     {
         return make_shared<texture_wrapper::pimpl>(m_device, size);
     }
 
-    texture_wrapper make_texture(size_t width, size_t height)
+    texture_wrapper make_texture_2d(size_t width, size_t height)
     {
         return make_shared<texture_wrapper::pimpl>(m_device, width, height);
     }
 
-    texture_wrapper make_texture(vector<uint8_t> data)
+    texture_wrapper make_texture_from_data(vector<uint8_t> data)
     {
         return make_shared<texture_wrapper::pimpl>(m_device, data);
     }
@@ -239,19 +239,19 @@ buffer_wrapper dawn_plugin::make_src_buffer(size_t size, buffer_type flags)
     return m_pimpl->make_buffer(size, flags, false);
 }
 
-texture_wrapper dawn_plugin::make_texture(size_t size)
+texture_wrapper dawn_plugin::make_texture_1d(size_t size)
 {
-    return m_pimpl->make_texture(size);
+    return m_pimpl->make_texture_1d(size);
 }
 
-texture_wrapper dawn_plugin::make_texture(size_t width, size_t height)
+texture_wrapper dawn_plugin::make_texture_2d(size_t width, size_t height)
 {
-    return m_pimpl->make_texture(width, height);
+    return m_pimpl->make_texture_2d(width, height);
 }
 
-texture_wrapper dawn_plugin::make_texture(vector<uint8_t> data)
+texture_wrapper dawn_plugin::make_texture_from_data(vector<uint8_t> data)
 {
-    return m_pimpl->make_texture(data);
+    return m_pimpl->make_texture_from_data(data);
 }
 
 texture_output_wrapper dawn_plugin::make_texture_output(size_t width, size_t height)
@@ -264,7 +264,7 @@ encoder_wrapper dawn_plugin::make_encoder()
     return m_pimpl->make_encoder();
 }
 
-dawn_plugin::operator bool() const
+bool dawn_plugin::is_valid() const
 {
     return m_pimpl && m_pimpl->m_device;
 }

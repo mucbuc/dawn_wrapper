@@ -16,15 +16,15 @@ bindgroup_wrapper& bindgroup_wrapper::add_buffer(unsigned binding, buffer_wrappe
     return *this;
 }
 
-bindgroup_wrapper& bindgroup_wrapper::addTexture(unsigned binding, texture_wrapper texture)
+bindgroup_wrapper& bindgroup_wrapper::add_texture(unsigned binding, texture_wrapper texture)
 {
-    m_pimpl->addTexture(binding, texture);
+    m_pimpl->add_texture(binding, texture);
     return *this;
 }
 
-bindgroup_wrapper& bindgroup_wrapper::addTexture(unsigned binding, texture_output_wrapper texture)
+bindgroup_wrapper& bindgroup_wrapper::add_texture(unsigned binding, texture_output_wrapper texture)
 {
-    m_pimpl->addTexture(binding, texture);
+    m_pimpl->add_texture(binding, texture);
     return *this;
 }
 
@@ -40,7 +40,7 @@ bindgroup_wrapper& bindgroup_wrapper::add_sampler(unsigned binding, texture_outp
     return *this;
 }
 
-bindgroup_wrapper::operator bool() const
+bool bindgroup_wrapper::is_valid() const
 {
     return m_pimpl ? true : false;
 }

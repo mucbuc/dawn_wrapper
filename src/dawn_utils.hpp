@@ -8,6 +8,7 @@
 #include <iomanip>
 #include <iostream>
 #include <sstream>
+#include <vector>
 
 #include <webgpu/webgpu_cpp.h>
 #if defined(__EMSCRIPTEN__)

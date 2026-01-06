@@ -72,7 +72,10 @@ struct surface_wrapper::pimpl {
     {
         SurfaceTexture st;
         m_surface.GetCurrentTexture(&st);
+
         ASSERT(!st.suboptimal); 
+        ASSERT(st.status == SurfaceGetCurrentTextureStatus::Success);
+
         return st.texture.CreateView();
     }
 

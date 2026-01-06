@@ -38,9 +38,9 @@ struct surface_wrapper::pimpl {
         using namespace dawn_utils;
         ASSERT(m_wgpuInstance && window);
 
-#ifndef TARGET_HEADLESS
 #ifndef __EMSCRIPTEN__
         m_surface = glfw::CreateSurfaceForWindow(m_wgpuInstance, window); //, opaque);
+#endif
 
         SurfaceConfiguration config;
         config.device = m_device;
@@ -49,8 +49,6 @@ struct surface_wrapper::pimpl {
         config.height = height;
 
         m_surface.Configure(&config);
-#endif
-#endif
     }
 
     void setup(std::string selector, unsigned width, unsigned height)

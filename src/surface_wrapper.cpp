@@ -14,17 +14,22 @@ surface_wrapper::surface_wrapper(ptr_type ptr)
 {
 }
 
+#if !defined(TARGET_HEADLESS) && !defined(__EMSCRIPTEN__)
 void surface_wrapper::setup(GLFWwindow* window, unsigned width, unsigned height, bool opaque)
 {
     m_pimpl->setup(window, width, height, opaque);
 }
+#endif
 
+#if !defined(TARGET_HEADLESS) && defined(__EMSCRIPTEN__)
 void surface_wrapper::setup(std::string selector, unsigned width, unsigned height)
 {
     m_pimpl->setup(selector, width, height);
 }
+#endif
 
-surface_wrapper::operator bool() const
+bool surface_wrapper::is_valid() const
+
 {
     return m_pimpl ? true : false;
 }

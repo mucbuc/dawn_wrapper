@@ -53,7 +53,7 @@ void render_wrapper::render(encoder_wrapper encoder)
     m_pimpl->render(encoder);
 }
 
-render_wrapper::operator bool() const
+bool render_wrapper::is_valid() const
 {
     return m_pimpl ? true : false;
 }

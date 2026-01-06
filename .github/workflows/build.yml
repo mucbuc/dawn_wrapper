@@ -1,0 +1,23 @@
+name: Native WebGPU Tests
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches: 
+      - master
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build and run
+        run: |
+          cd test 
+          ./build_and_run
+

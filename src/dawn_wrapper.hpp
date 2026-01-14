@@ -102,6 +102,7 @@ struct surface_wrapper {
     void setup(GLFWwindow*, unsigned width, unsigned height, bool opaque);
     void setup(std::string html_canvas_selector, unsigned width, unsigned height);
     void present();
+    std::pair<unsigned, unsigned> get_width_and_height() const;
 
     bool is_valid() const;
     DAWN_WRAPPER_PIMPL_DEC(surface_wrapper);

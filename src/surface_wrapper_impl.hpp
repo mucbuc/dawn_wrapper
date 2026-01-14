@@ -83,6 +83,13 @@ struct surface_wrapper::pimpl {
 #endif
     }
 
+    std::pair<unsigned, unsigned> get_width_and_height() const
+    {
+        SurfaceTexture surface_texture;
+        m_surface.GetCurrentTexture(& surface_texture);
+        return {surface_texture.texture.GetWidth(), surface_texture.texture.GetHeight()};
+    }
+
 private:
     Device m_device;
     Instance m_wgpuInstance;

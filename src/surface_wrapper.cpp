@@ -39,4 +39,9 @@ void surface_wrapper::present()
     m_pimpl->present();
 }
 
+std::pair<unsigned, unsigned> surface_wrapper::get_width_and_height() const
+{
+    return m_pimpl->get_width_and_height();
+}
+
 } // dawn_wrapper

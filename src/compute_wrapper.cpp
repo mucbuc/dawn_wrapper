@@ -2,7 +2,7 @@
 #include <map>
 #include <memory>
 
-#include "compute_wrapper_impl.h"
+#include "compute_wrapper_impl.hpp"
 
 struct GLFWwindow;
 
@@ -37,7 +37,7 @@ bindgroup_wrapper compute_wrapper::make_bindgroup()
     return m_pimpl->make_bindgroup();
 }
 
-compute_wrapper::operator bool() const
+bool compute_wrapper::is_valid() const
 {
     return m_pimpl ? true : false;
 }

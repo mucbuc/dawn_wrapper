@@ -2,7 +2,7 @@
 #include <map>
 #include <memory>
 
-#include "buffer_wrapper_impl.h"
+#include "buffer_wrapper_impl.hpp"
 
 struct GLFWwindow;
 
@@ -28,7 +28,7 @@ buffer_wrapper& buffer_wrapper::write(const void* p)
     return *this;
 }
 
-buffer_wrapper& buffer_wrapper::get_output(std::function<void(unsigned, const void*)> cb)
+buffer_wrapper& buffer_wrapper::get_output(std::function<void(size_t, const void*)> cb)
 {
     if (m_pimpl) {
         m_pimpl->get_output(cb);
@@ -36,17 +36,17 @@ buffer_wrapper& buffer_wrapper::get_output(std::function<void(unsigned, const vo
     return *this;
 }
 
-bool buffer_wrapper::done()
+bool buffer_wrapper::done() const
 {
     return m_pimpl && m_pimpl->done();
 }
 
-buffer_wrapper::operator bool() const
+bool buffer_wrapper::is_valid() const
 {
     return m_pimpl ? true : false;
 }
 
-unsigned buffer_wrapper::get_size()
+size_t buffer_wrapper::get_size() const
 {
     return m_pimpl ? m_pimpl->get_size() : 0;
 }

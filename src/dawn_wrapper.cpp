@@ -1,17 +1,18 @@
-#include "dawn_wrapper.h"
+#include "dawn_wrapper.hpp"
 
 #include "dawn_utils.hpp"
 
 using namespace wgpu;
 
-#include "bindgroup_layout_wrapper_impl.h"
-#include "bindgroup_wrapper_impl.h"
-#include "buffer_wrapper_impl.h"
-#include "compute_wrapper_impl.h"
-#include "encoder_wrapper_impl.h"
-#include "render_wrapper_impl.h"
-#include "texture_output_wrapper_impl.h"
-#include "texture_wrapper_impl.h"
+#include "bindgroup_layout_wrapper_impl.hpp"
+#include "bindgroup_wrapper_impl.hpp"
+#include "buffer_wrapper_impl.hpp"
+#include "compute_wrapper_impl.hpp"
+#include "encoder_wrapper_impl.hpp"
+#include "render_wrapper_impl.hpp"
+#include "surface_wrapper_impl.hpp"
+#include "texture_output_wrapper_impl.hpp"
+#include "texture_wrapper_impl.hpp"
 
 using namespace std;
 
@@ -25,7 +26,16 @@ struct dawn_plugin::dawn_pimpl {
         , m_adapter()
         , m_instance(CreateInstance())
         , m_label(label)
+        , m_loaded_callback()
     {
+    }
+
+    void on_load(std::function<void()> load_callback)
+    {
+        ASSERT(!m_loaded_callback);
+
+        m_loaded_callback = load_callback;
+
         request_adapter(m_instance);
     }
 
@@ -37,6 +47,7 @@ struct dawn_plugin::dawn_pimpl {
                 auto pimpl = reinterpret_cast<dawn_pimpl*>(userdata);
                 if (status != WGPURequestAdapterStatus_Success) {
                     pimpl->log_error("error requesting webgpu device adapter");
+                    pimpl->m_loaded_callback();
                     return;
                 }
 
@@ -104,6 +115,8 @@ struct dawn_plugin::dawn_pimpl {
                 },
                     pimpl);
 #endif
+
+                pimpl->m_loaded_callback();
             },
             this);
     }
@@ -130,6 +143,12 @@ struct dawn_plugin::dawn_pimpl {
         cout << error << message.data << endl;
     }
 
+    surface_wrapper make_surface()
+    {
+        ASSERT(m_device.Get() && m_instance.Get());
+        return make_shared<surface_wrapper::pimpl>(m_device, m_instance);
+    }
+
     render_wrapper make_render()
     {
         ASSERT(m_device.Get() && m_instance.Get());
@@ -146,27 +165,27 @@ struct dawn_plugin::dawn_pimpl {
         return make_shared<encoder_wrapper::pimpl>(m_device);
     }
 
-    buffer_wrapper make_buffer(unsigned size, buffer_type flags, bool isDest)
+    buffer_wrapper make_buffer(size_t size, buffer_type flags, bool isDest)
     {
         return make_shared<buffer_wrapper::pimpl>(m_device, size, flags, isDest);
     }
 
-    texture_wrapper make_texture(unsigned size)
+    texture_wrapper make_texture_1d(size_t size)
     {
         return make_shared<texture_wrapper::pimpl>(m_device, size);
     }
 
-    texture_wrapper make_texture(unsigned width, unsigned height)
+    texture_wrapper make_texture_2d(size_t width, size_t height)
     {
         return make_shared<texture_wrapper::pimpl>(m_device, width, height);
     }
 
-    texture_wrapper make_texture(vector<uint8_t> data)
+    texture_wrapper make_texture_from_data(vector<uint8_t> data)
     {
         return make_shared<texture_wrapper::pimpl>(m_device, data);
     }
 
-    texture_output_wrapper make_texture_output(unsigned width, unsigned height)
+    texture_output_wrapper make_texture_output(size_t width, size_t height)
     {
         return make_shared<texture_output_wrapper::pimpl>(m_device, width, height);
     }
@@ -175,6 +194,7 @@ struct dawn_plugin::dawn_pimpl {
     Adapter m_adapter;
     Instance m_instance;
     const string m_label;
+    std::function<void()> m_loaded_callback;
 };
 
 dawn_plugin::dawn_plugin(/*ostream& o*/)
@@ -184,9 +204,19 @@ dawn_plugin::dawn_plugin(/*ostream& o*/)
 
 dawn_plugin::~dawn_plugin() = default;
 
+void dawn_plugin::on_load(std::function<void()> load_callback)
+{
+    m_pimpl->on_load(load_callback);
+}
+
 bool dawn_plugin::run()
 {
     return m_pimpl->run();
+}
+
+surface_wrapper dawn_plugin::make_surface()
+{
+    return m_pimpl->make_surface();
 }
 
 render_wrapper dawn_plugin::make_render()
@@ -199,32 +229,32 @@ compute_wrapper dawn_plugin::make_compute()
     return m_pimpl->make_compute();
 }
 
-buffer_wrapper dawn_plugin::make_dst_buffer(unsigned size, buffer_type flags)
+buffer_wrapper dawn_plugin::make_dst_buffer(size_t size, buffer_type flags)
 {
     return m_pimpl->make_buffer(size, flags, true);
 }
 
-buffer_wrapper dawn_plugin::make_src_buffer(unsigned size, buffer_type flags)
+buffer_wrapper dawn_plugin::make_src_buffer(size_t size, buffer_type flags)
 {
     return m_pimpl->make_buffer(size, flags, false);
 }
 
-texture_wrapper dawn_plugin::make_texture(unsigned size)
+texture_wrapper dawn_plugin::make_texture_1d(size_t size)
 {
-    return m_pimpl->make_texture(size);
+    return m_pimpl->make_texture_1d(size);
 }
 
-texture_wrapper dawn_plugin::make_texture(unsigned width, unsigned height)
+texture_wrapper dawn_plugin::make_texture_2d(size_t width, size_t height)
 {
-    return m_pimpl->make_texture(width, height);
+    return m_pimpl->make_texture_2d(width, height);
 }
 
-texture_wrapper dawn_plugin::make_texture(vector<uint8_t> data)
+texture_wrapper dawn_plugin::make_texture_from_data(vector<uint8_t> data)
 {
-    return m_pimpl->make_texture(data);
+    return m_pimpl->make_texture_from_data(data);
 }
 
-texture_output_wrapper dawn_plugin::make_texture_output(unsigned width, unsigned height)
+texture_output_wrapper dawn_plugin::make_texture_output(size_t width, size_t height)
 {
     return m_pimpl->make_texture_output(width, height);
 }
@@ -234,7 +264,7 @@ encoder_wrapper dawn_plugin::make_encoder()
     return m_pimpl->make_encoder();
 }
 
-dawn_plugin::operator bool() const
+bool dawn_plugin::is_valid() const
 {
     return m_pimpl && m_pimpl->m_device;
 }

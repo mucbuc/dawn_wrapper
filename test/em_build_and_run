@@ -1,3 +1,3 @@
-emcmake cmake -B web-build -DDAWN_EMSCRIPTEN_TOOLCHAIN="/Users/mucbuc/work/emscripten"
-cmake --build web-build
-emrun --browser chrome web-build/Example.html
+emcmake cmake -B web-build
+cmake --build web-build &&
+emrun --browser_args="--headless=new" --browser chrome --kill_exit web-build/Example.html

@@ -2,7 +2,7 @@
 #include <map>
 #include <memory>
 
-#include "render_wrapper_impl.h"
+#include "render_wrapper_impl.hpp"
 
 struct GLFWwindow;
 
@@ -13,9 +13,9 @@ render_wrapper::render_wrapper(ptr_type ptr)
 {
 }
 
-void render_wrapper::setup_surface(GLFWwindow* window, unsigned width, unsigned height, bool opaque)
+void render_wrapper::set_surface(surface_wrapper s)
 {
-    m_pimpl->setup_surface(window, width, height, opaque);
+    m_pimpl->set_surface(s);
 }
 
 void render_wrapper::compile_shader(std::string script, std::string entryPoint)
@@ -53,7 +53,7 @@ void render_wrapper::render(encoder_wrapper encoder)
     m_pimpl->render(encoder);
 }
 
-render_wrapper::operator bool() const
+bool render_wrapper::is_valid() const
 {
     return m_pimpl ? true : false;
 }

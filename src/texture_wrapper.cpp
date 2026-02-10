@@ -2,7 +2,7 @@
 #include <map>
 #include <memory>
 
-#include "texture_wrapper_impl.h"
+#include "texture_wrapper_impl.hpp"
 
 struct GLFWwindow;
 
@@ -22,7 +22,7 @@ void texture_wrapper::make_sampler(bool clamp_to_edge)
     m_pimpl->make_sampler(clamp_to_edge);
 }
 
-texture_wrapper::operator bool() const
+bool texture_wrapper::is_valid() const
 {
     return m_pimpl ? true : false;
 }

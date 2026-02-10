@@ -8,6 +8,7 @@
 #include <iomanip>
 #include <iostream>
 #include <sstream>
+#include <vector>
 
 #include <webgpu/webgpu_cpp.h>
 #if defined(__EMSCRIPTEN__)
@@ -16,7 +17,7 @@
 #include <webgpu/webgpu_glfw.h>
 #endif
 
-#include "dawn_wrapper.h"
+#include "dawn_wrapper.hpp"
 
 #ifndef ASSERT
 #define ASSERT(p) assert((p))
@@ -349,7 +350,7 @@ static ShaderModule make_compute_shader(Device& device, std::string shaderCode, 
     return device.CreateShaderModule(&shaderModuleDesc);
 }
 
-static BindGroupEntry make_bindGroupBufferEntry(uint32_t binding, Buffer buffer, uint32_t size, const char* label = "")
+static BindGroupEntry make_bindGroupBufferEntry(uint32_t binding, Buffer buffer, uint64_t size, const char* label = "")
 {
     BindGroupEntry entry {};
     entry.binding = binding;

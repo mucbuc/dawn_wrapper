@@ -1,7 +1,19 @@
+# dawn_wrapper
+
+![Native Tests](https://github.com/mucbuc/dawn_wrapper/workflows/Native%20WebGPU%20Tests/badge.svg)
+![Emscripten Tests](https://github.com/mucbuc/dawn_wrapper/workflows/Emscripten%20WebGPU%20Tests/badge.svg)
+
+
 # install [dawn](https://dawn.googlesource.com/dawn)
 ```
 cd lib
 git clone --depth 1 https://dawn.googlesource.com/dawn
+```
+
+# get [emscripten source](https://dawn.googlesource.com/dawn/+/refs/heads/main/src/emdawnwebgpu/#setting-up-emscripten)
+```
+cd ~/outside_of_dawn_wrapper
+git clone --depth 1 https://github.com/emscripten-core/emscripten.git
 ```
 
 # chrome
@@ -115,7 +127,7 @@ cmake --build build -j 8
 ```
 **build emscripten:**
 ```
-emcmake cmake -B web-build -DDAWN_EMSCRIPTEN_TOOLCHAIN="/Users/mucbuc/work/emscripten"
+emcmake cmake -B web-build -DDAWN_EMSCRIPTEN_TOOLCHAIN="~/outside_of_dawn_wrapper/emscripten"
 cmake --build web-build
 ```
 **output:**

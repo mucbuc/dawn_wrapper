@@ -26,7 +26,11 @@ protected:
 #endif
         }
 
-        std::cout << messages.str() << std::endl;
+        ASSERT(!errorCount);
+
+        if (!messages.str().empty()) {
+            std::cout << messages.str() << std::endl;
+        }
         // instance->m_shaderCompileCallback(messages.str());
 
         //        if (!errorCount) {

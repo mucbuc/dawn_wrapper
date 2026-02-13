@@ -1,8 +1,3 @@
-
-# TODO
-  - use std::span instead of void * for buffer write
-  - [Share Device](./SHARE_DEVICE.md)
-  
 # dawn_wrapper
 
 ![Native Tests](https://github.com/mucbuc/dawn_wrapper/workflows/Native%20WebGPU%20Tests/badge.svg)

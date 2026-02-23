@@ -73,7 +73,7 @@ struct surface_wrapper::pimpl {
         SurfaceTexture st;
         m_surface.GetCurrentTexture(&st);
 
-        ASSERT(!st.suboptimal); 
+        ASSERT(!st.suboptimal);
         ASSERT(st.status == SurfaceGetCurrentTextureStatus::Success);
 
         return st.texture.CreateView();
@@ -89,8 +89,8 @@ struct surface_wrapper::pimpl {
     std::pair<unsigned, unsigned> get_width_and_height() const
     {
         SurfaceTexture surface_texture;
-        m_surface.GetCurrentTexture(& surface_texture);
-        return {surface_texture.texture.GetWidth(), surface_texture.texture.GetHeight()};
+        m_surface.GetCurrentTexture(&surface_texture);
+        return { surface_texture.texture.GetWidth(), surface_texture.texture.GetHeight() };
     }
 
 private:

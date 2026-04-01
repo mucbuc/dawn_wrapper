@@ -46,8 +46,4 @@ if (NOT EMSCRIPTEN)
     )
 else()
     target_compile_options(dawn_wrapper PRIVATE --use-port=emdawnwebgpu)
-    target_link_options(dawn_wrapper PRIVATE 
-        --use-port=emdawnwebgpu
-        --closure=1
-        )
 endif()

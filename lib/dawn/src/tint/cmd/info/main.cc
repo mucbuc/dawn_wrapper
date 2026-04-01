@@ -28,12 +28,12 @@
 
 #include <iostream>
 
-#include "src/tint/utils/text/styled_text_printer.h"
-
 #include "src/tint/cmd/common/helper.h"
 #include "src/tint/lang/core/type/struct.h"
 #include "src/tint/lang/wgsl/inspector/entry_point.h"
+#include "src/tint/utils/command/args.h"
 #include "src/tint/utils/text/string.h"
+#include "src/tint/utils/text/styled_text_printer.h"
 
 namespace {
 
@@ -56,9 +56,8 @@ const char kUsage[] = R"(Usage: tint [options] <input-file>
 
 )";
 
-bool ParseArgs(const std::vector<std::string>& args, Options* opts) {
-    for (size_t i = 1; i < args.size(); ++i) {
-        const std::string& arg = args[i];
+bool ParseArgs(tint::VectorRef<std::string_view> args, Options* opts) {
+    for (auto arg : args) {
         if (arg == "-h" || arg == "--help") {
             opts->show_help = true;
         } else if (arg == "--json") {
@@ -192,7 +191,7 @@ void EmitJson(const tint::Program& program) {
                       << "\"size\": " << binding.size << ",\n"
                       << "\"resource_type\": \""
                       << tint::cmd::ResourceTypeToString(binding.resource_type) << "\",\n"
-                      << "\"dimemsions\": \"" << tint::cmd::TextureDimensionToString(binding.dim)
+                      << "\"dimensions\": \"" << tint::cmd::TextureDimensionToString(binding.dim)
                       << "\",\n"
                       << "\"sampled_kind\": \""
                       << tint::cmd::SampledKindToString(binding.sampled_kind) << "\",\n"
@@ -293,10 +292,8 @@ void EmitText(const tint::Program& program) {
 }  // namespace
 
 int main(int argc, const char** argv) {
-    std::vector<std::string> args(argv, argv + argc);
+    tint::Vector<std::string_view, 8> args = tint::args::Vectorize(argc, argv);
     Options options;
-
-    tint::SetInternalCompilerErrorReporter(&tint::cmd::TintInternalCompilerErrorReporter);
 
     if (!ParseArgs(args, &options)) {
         std::cerr << "Failed to parse arguments.\n";
@@ -315,6 +312,9 @@ int main(int argc, const char** argv) {
 #endif
 
     auto info = tint::cmd::LoadProgramInfo(opts);
+    if (!info.program.IsValid()) {
+        return 1;
+    }
 
     if (options.emit_json) {
         EmitJson(info.program);

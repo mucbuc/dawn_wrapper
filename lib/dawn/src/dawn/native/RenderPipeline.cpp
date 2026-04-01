@@ -29,21 +29,20 @@
 
 #include <algorithm>
 #include <cmath>
-#include <string>
 
-#include "absl/strings/str_format.h"
-#include "dawn/common/BitSetIterator.h"
 #include "dawn/common/Enumerator.h"
 #include "dawn/common/ityp_array.h"
+#include "dawn/common/ityp_bitset.h"
 #include "dawn/common/ityp_span.h"
+#include "dawn/native/Adapter.h"
 #include "dawn/native/ChainUtils.h"
 #include "dawn/native/CommandValidation.h"
 #include "dawn/native/Commands.h"
 #include "dawn/native/Device.h"
-#include "dawn/native/Instance.h"
 #include "dawn/native/InternalPipelineStore.h"
 #include "dawn/native/ObjectContentHasher.h"
 #include "dawn/native/ObjectType_autogen.h"
+#include "dawn/native/ValidationUtils.h"
 #include "dawn/native/ValidationUtils_autogen.h"
 
 namespace dawn::native {
@@ -132,8 +131,8 @@ MaybeError ValidateVertexAttribute(DeviceBase* device,
     DAWN_INVALID_IF(attribute->offset > kMaxVertexBufferArrayStride - formatInfo.byteSize,
                     "Attribute offset (%u) + format size (%u for %s) must be <= the maximum vertex "
                     "buffer stride (%u). Offsets larger than the maximum vertex buffer stride are "
-                    "accomodated by setting buffer offsets when calling setVertexBuffer, which the "
-                    "attribute offset is added to.",
+                    "accommodated by setting buffer offsets when calling setVertexBuffer, which "
+                    "the attribute offset is added to.",
                     attribute->offset, formatInfo.byteSize, attribute->format,
                     kMaxVertexBufferArrayStride);
 
@@ -143,7 +142,7 @@ MaybeError ValidateVertexAttribute(DeviceBase* device,
     DAWN_INVALID_IF(
         vertexBufferStride > 0 && attribute->offset + formatInfo.byteSize > vertexBufferStride,
         "Attribute offset (%u) + format size (%u for %s) must be <= the vertex buffer stride (%u). "
-        "Offsets larger than the vertex buffer stride are accomodated by setting buffer offsets "
+        "Offsets larger than the vertex buffer stride are accommodated by setting buffer offsets "
         "when calling setVertexBuffer, which the attribute offset is added to.",
         attribute->offset, formatInfo.byteSize, attribute->format, vertexBufferStride);
 
@@ -178,11 +177,6 @@ MaybeError ValidateVertexBufferLayout(DeviceBase* device,
     DAWN_INVALID_IF(buffer->arrayStride % 4 != 0,
                     "Vertex buffer arrayStride (%u) is not a multiple of 4.", buffer->arrayStride);
 
-    DAWN_INVALID_IF(
-        buffer->stepMode == wgpu::VertexStepMode::VertexBufferNotUsed && buffer->attributeCount > 0,
-        "attributeCount (%u) is not zero although vertex buffer stepMode is %s.",
-        buffer->attributeCount, wgpu::VertexStepMode::VertexBufferNotUsed);
-
     for (uint32_t i = 0; i < buffer->attributeCount; ++i) {
         DAWN_TRY_CONTEXT(ValidateVertexAttribute(device, &buffer->attributes[i], metadata,
                                                  buffer->arrayStride, attributesSetMask),
@@ -201,9 +195,12 @@ ResultOrError<ShaderModuleEntryPoint> ValidateVertexState(
 
     const CombinedLimits& limits = device->GetLimits();
 
-    DAWN_INVALID_IF(descriptor->bufferCount > limits.v1.maxVertexBuffers,
-                    "Vertex buffer count (%u) exceeds the maximum number of vertex buffers (%u).",
-                    descriptor->bufferCount, limits.v1.maxVertexBuffers);
+    const uint32_t maxVertexBuffers = limits.v1.maxVertexBuffers;
+    DAWN_INVALID_IF(descriptor->bufferCount > maxVertexBuffers,
+                    "Vertex buffer count (%u) exceeds the maximum number of vertex buffers (%u).%s",
+                    descriptor->bufferCount, maxVertexBuffers,
+                    DAWN_INCREASE_LIMIT_MESSAGE(device->GetAdapter()->GetLimits().v1,
+                                                maxVertexBuffers, descriptor->bufferCount));
 
     ShaderModuleEntryPoint entryPoint;
     DAWN_TRY_ASSIGN_CONTEXT(
@@ -230,7 +227,7 @@ ResultOrError<ShaderModuleEntryPoint> ValidateVertexState(
         DAWN_TRY_CONTEXT(ValidateVertexBufferLayout(device, &descriptor->buffers[i], vertexMetadata,
                                                     &attributesSetMask),
                          "validating buffers[%u].", i);
-        totalAttributesNum += descriptor->buffers[i].attributeCount;
+        totalAttributesNum += uint32_t(descriptor->buffers[i].attributeCount);
     }
 
     if (device->IsCompatibilityMode() &&
@@ -263,7 +260,7 @@ ResultOrError<ShaderModuleEntryPoint> ValidateVertexState(
         return DAWN_VALIDATION_ERROR(
             "Vertex attribute slot %u used in (%s, %s) is not present in the "
             "VertexState.",
-            uint8_t(firstMissing), descriptor->module, &entryPoint);
+            uint8_t(firstMissing), descriptor->module, entryPoint);
     }
 
     return entryPoint;
@@ -335,14 +332,12 @@ MaybeError ValidateDepthStencilState(const DeviceBase* device,
 
     const Format* format;
     DAWN_TRY_ASSIGN(format, device->GetInternalFormat(descriptor->format));
-    DAWN_INVALID_IF(!format->HasDepthOrStencil() || !format->isRenderable,
+    DAWN_INVALID_IF(!format->HasDepthOrStencil() || !format->IsRenderable(),
                     "Depth stencil format (%s) is not depth-stencil renderable.",
                     descriptor->format);
 
-    DAWN_INVALID_IF(
-        std::isnan(descriptor->depthBiasSlopeScale) || std::isnan(descriptor->depthBiasClamp),
-        "Either depthBiasSlopeScale (%f) or depthBiasClamp (%f) is NaN.",
-        descriptor->depthBiasSlopeScale, descriptor->depthBiasClamp);
+    DAWN_TRY(ValidateFloat("depthBiasSlopeScale", descriptor->depthBiasSlopeScale));
+    DAWN_TRY(ValidateFloat("depthBiasClamp", descriptor->depthBiasClamp));
 
     DAWN_INVALID_IF(device->IsCompatibilityMode() && descriptor->depthBiasClamp != 0.0f,
                     "depthBiasClamp (%f) is not zero as required in compatibility mode.",
@@ -501,7 +496,7 @@ MaybeError ValidateColorTargetState(
     const MultisampleState& multisample) {
     UnpackedPtr<ColorTargetState> unpacked;
     DAWN_TRY_ASSIGN(unpacked, ValidateAndUnpack(&descriptor));
-    if (unpacked.Get<ColorTargetStateExpandResolveTextureDawn>()) {
+    if (unpacked.Has<ColorTargetStateExpandResolveTextureDawn>()) {
         DAWN_INVALID_IF(!device->HasFeature(Feature::DawnLoadResolveTexture),
                         "The ColorTargetStateExpandResolveTextureDawn struct is used while the "
                         "%s feature is not enabled.",
@@ -519,20 +514,11 @@ MaybeError ValidateColorTargetState(
     }
 
     DAWN_TRY(ValidateColorWriteMask(descriptor.writeMask));
-    DAWN_INVALID_IF(!format->IsColor() || !format->isRenderable,
+    DAWN_INVALID_IF(!format->IsColor() || !format->IsRenderable(),
                     "Color format (%s) is not color renderable.", format->format);
 
-    if (descriptor.blend && !format->isBlendable) {
-        DAWN_INVALID_IF(
-            !(format->GetAspectInfo(Aspect::Color).supportedSampleTypes & SampleTypeBit::Float),
-            "Blending is enabled but color format (%s) is not blendable.", format->format);
-
-        std::string warning = absl::StrFormat(
-            "Blending for color format (%s) requires the %s feature. Enabling "
-            "blendability with %s was an implementation bug and is deprecated.",
-            format->format, ToAPI(Feature::Float32Blendable), ToAPI(Feature::Float32Filterable));
-        device->EmitWarningOnce(warning.c_str());
-    }
+    DAWN_INVALID_IF(descriptor.blend && !format->IsBlendable(),
+                    "Blending is enabled but color format (%s) is not blendable.", format->format);
 
     if (!fragmentWritten) {
         DAWN_INVALID_IF(
@@ -659,20 +645,23 @@ ResultOrError<ShaderModuleEntryPoint> ValidateFragmentState(DeviceBase* device,
         DAWN_INVALID_IF(depthStencil == nullptr,
                         "Depth stencil state is not present when fragment stage (%s, %s) is "
                         "writing to frag_depth.",
-                        descriptor->module, &entryPoint);
+                        descriptor->module, entryPoint);
         const Format* depthStencilFormat;
         DAWN_TRY_ASSIGN(depthStencilFormat, device->GetInternalFormat(depthStencil->format));
         DAWN_INVALID_IF(!depthStencilFormat->HasDepth(),
                         "Depth stencil state format (%s) has no depth aspect when fragment stage "
                         "(%s, %s) is "
                         "writing to frag_depth.",
-                        depthStencil->format, descriptor->module, &entryPoint);
+                        depthStencil->format, descriptor->module, entryPoint);
     }
 
     uint32_t maxColorAttachments = device->GetLimits().v1.maxColorAttachments;
     DAWN_INVALID_IF(descriptor->targetCount > maxColorAttachments,
-                    "Number of targets (%u) exceeds the maximum (%u).", descriptor->targetCount,
-                    maxColorAttachments);
+                    "Number of targets (%u) exceeds the maximum (%u).%s", descriptor->targetCount,
+                    maxColorAttachments,
+                    DAWN_INCREASE_LIMIT_MESSAGE(device->GetAdapter()->GetLimits().v1,
+                                                maxColorAttachments, descriptor->targetCount));
+
     auto targets =
         ityp::SpanFromUntyped<ColorAttachmentIndex>(descriptor->targets, descriptor->targetCount);
 
@@ -689,7 +678,7 @@ ResultOrError<ShaderModuleEntryPoint> ValidateFragmentState(DeviceBase* device,
     bool usesSrc1 = false;
     bool usesBlendSrc1 = false;
     ColorAttachmentFormats colorAttachmentFormats;
-    for (auto i : IterateBitSet(targetMask)) {
+    for (auto i : targetMask) {
         const Format* format;
         DAWN_TRY_ASSIGN(format, device->GetInternalFormat(targets[i].format));
 
@@ -754,17 +743,17 @@ ResultOrError<ShaderModuleEntryPoint> ValidateFragmentState(DeviceBase* device,
         DAWN_INVALID_IF(
             fragmentMetadata.usesSampleMaskOutput,
             "sample_mask is not supported in compatibility mode in the fragment stage (%s, %s)",
-            descriptor->module, &entryPoint);
+            descriptor->module, entryPoint);
 
         DAWN_INVALID_IF(
             fragmentMetadata.usesSampleIndex,
             "sample_index is not supported in compatibility mode in the fragment stage (%s, %s)",
-            descriptor->module, &entryPoint);
+            descriptor->module, entryPoint);
 
         // Check that all the color target states match.
         ColorAttachmentIndex firstColorTargetIndex{};
         const ColorTargetState* firstColorTargetState = nullptr;
-        for (auto i : IterateBitSet(targetMask)) {
+        for (auto i : targetMask) {
             if (!firstColorTargetState) {
                 firstColorTargetState = &targets[i];
                 firstColorTargetIndex = i;
@@ -964,33 +953,30 @@ RenderPipelineBase::RenderPipelineBase(DeviceBase* device,
                    descriptor->label,
                    GetRenderStagesAndSetPlaceholderShader(device, *descriptor)),
       mAttachmentState(device->GetOrCreateAttachmentState(descriptor, GetLayout())) {
-    mVertexBufferCount = descriptor->vertex.bufferCount;
+    mVertexBufferCount = uint32_t(descriptor->vertex.bufferCount);
 
     auto buffers =
         ityp::SpanFromUntyped<VertexBufferSlot>(descriptor->vertex.buffers, mVertexBufferCount);
-    for (auto [slot, bufferOrig] : Enumerate(buffers)) {
+    for (auto [slot, buffer] : Enumerate(buffers)) {
         // Skip unused slots
-        if (bufferOrig.stepMode == wgpu::VertexStepMode::VertexBufferNotUsed) {
+        if (buffer.stepMode == wgpu::VertexStepMode::Undefined && buffer.attributeCount == 0) {
             continue;
         }
 
-        // Make a local copy with defaulting applied, before copying the
-        // now-defaulted values into mVertexBufferInfos.
-        VertexBufferLayout buffer = bufferOrig.WithTrivialFrontendDefaults();
-
         mVertexBuffersUsed.set(slot);
         mVertexBufferInfos[slot].arrayStride = buffer.arrayStride;
-        mVertexBufferInfos[slot].stepMode = buffer.stepMode;
+        mVertexBufferInfos[slot].stepMode = (buffer.stepMode == wgpu::VertexStepMode::Undefined)
+                                                ? wgpu::VertexStepMode::Vertex
+                                                : buffer.stepMode;
         mVertexBufferInfos[slot].usedBytesInStride = 0;
         mVertexBufferInfos[slot].lastStride = 0;
-        switch (buffer.stepMode) {
+        switch (mVertexBufferInfos[slot].stepMode) {
             case wgpu::VertexStepMode::Vertex:
                 mVertexBuffersUsedAsVertexBuffer.set(slot);
                 break;
             case wgpu::VertexStepMode::Instance:
                 mVertexBuffersUsedAsInstanceBuffer.set(slot);
                 break;
-            case wgpu::VertexStepMode::VertexBufferNotUsed:
             case wgpu::VertexStepMode::Undefined:
                 DAWN_UNREACHABLE();
         }
@@ -1063,7 +1049,7 @@ RenderPipelineBase::RenderPipelineBase(DeviceBase* device,
         mDepthStencil.depthCompare = wgpu::CompareFunction::Always;
     }
 
-    for (auto i : IterateBitSet(mAttachmentState->GetColorAttachmentsMask())) {
+    for (auto i : mAttachmentState->GetColorAttachmentsMask()) {
         // Vertex-only render pipeline have no color attachment. For a render pipeline with
         // color attachments, there must be a valid FragmentState.
         DAWN_ASSERT(descriptor->fragment != nullptr);
@@ -1078,6 +1064,14 @@ RenderPipelineBase::RenderPipelineBase(DeviceBase* device,
 
     if (HasStage(SingleShaderStage::Fragment)) {
         mUsesFragDepth = GetStage(SingleShaderStage::Fragment).metadata->usesFragDepth;
+        mUsesFragPosition = GetStage(SingleShaderStage::Fragment).metadata->usesFragPosition;
+        mUsesSampleIndex = GetStage(SingleShaderStage::Fragment).metadata->usesSampleIndex;
+        mUsesFramebufferFetch =
+            GetStage(SingleShaderStage::Fragment).metadata->fragmentInputMask.any();
+        mUseSampleRateShading =
+            GetSampleCount() > 1 &&
+            (GetStage(SingleShaderStage::Fragment).metadata->usesSampleInterpolants ||
+             mUsesSampleIndex || mUsesFramebufferFetch);
     }
 
     if (HasStage(SingleShaderStage::Vertex)) {
@@ -1092,6 +1086,10 @@ RenderPipelineBase::RenderPipelineBase(DeviceBase* device,
     StreamIn(&mCacheKey, CacheKey::Type::RenderPipeline, device->GetCacheKey());
 }
 
+MaybeError RenderPipelineBase::InitializeWithShaders() {
+    return InitializeImpl();
+}
+
 RenderPipelineBase::RenderPipelineBase(DeviceBase* device,
                                        ObjectBase::ErrorTag tag,
                                        StringView label)
@@ -1099,7 +1097,7 @@ RenderPipelineBase::RenderPipelineBase(DeviceBase* device,
 
 RenderPipelineBase::~RenderPipelineBase() = default;
 
-void RenderPipelineBase::DestroyImpl() {
+void RenderPipelineBase::DestroyImpl(DestroyReason reason) {
     Uncache();
 
     // Remove reference to the attachment state so that we don't have lingering references to
@@ -1290,6 +1288,21 @@ bool RenderPipelineBase::UsesFragDepth() const {
     return mUsesFragDepth;
 }
 
+bool RenderPipelineBase::UsesSampleIndex() const {
+    DAWN_ASSERT(!IsError());
+    return mUsesSampleIndex;
+}
+
+bool RenderPipelineBase::UsesFragPosition() const {
+    DAWN_ASSERT(!IsError());
+    return mUsesFragPosition;
+}
+
+bool RenderPipelineBase::UseSampleRateShading() const {
+    DAWN_ASSERT(!IsError());
+    return mUseSampleRateShading;
+}
+
 bool RenderPipelineBase::UsesVertexIndex() const {
     DAWN_ASSERT(!IsError());
     return mUsesVertexIndex;
@@ -1298,6 +1311,11 @@ bool RenderPipelineBase::UsesVertexIndex() const {
 bool RenderPipelineBase::UsesInstanceIndex() const {
     DAWN_ASSERT(!IsError());
     return mUsesInstanceIndex;
+}
+
+bool RenderPipelineBase::UsesFramebufferFetch() const {
+    DAWN_ASSERT(!IsError());
+    return mUsesFramebufferFetch;
 }
 
 size_t RenderPipelineBase::ComputeContentHash() {
@@ -1311,7 +1329,7 @@ size_t RenderPipelineBase::ComputeContentHash() {
     recorder.Record(mAttachmentState->GetContentHash());
 
     // Record attachments
-    for (auto i : IterateBitSet(mAttachmentState->GetColorAttachmentsMask())) {
+    for (auto i : mAttachmentState->GetColorAttachmentsMask()) {
         const ColorTargetState& desc = *GetColorTargetState(i);
         recorder.Record(desc.writeMask);
         if (desc.blend != nullptr) {
@@ -1335,13 +1353,13 @@ size_t RenderPipelineBase::ComputeContentHash() {
 
     // Record vertex state
     recorder.Record(mAttributeLocationsUsed);
-    for (VertexAttributeLocation location : IterateBitSet(mAttributeLocationsUsed)) {
+    for (VertexAttributeLocation location : mAttributeLocationsUsed) {
         const VertexAttributeInfo& desc = GetAttribute(location);
         recorder.Record(desc.shaderLocation, desc.vertexBufferSlot, desc.offset, desc.format);
     }
 
     recorder.Record(mVertexBuffersUsed);
-    for (VertexBufferSlot slot : IterateBitSet(mVertexBuffersUsed)) {
+    for (VertexBufferSlot slot : mVertexBuffersUsed) {
         const VertexBufferInfo& desc = GetVertexBuffer(slot);
         recorder.Record(desc.arrayStride, desc.stepMode);
     }
@@ -1371,7 +1389,7 @@ bool RenderPipelineBase::EqualityFunc::operator()(const RenderPipelineBase* a,
     }
 
     if (a->mAttachmentState.Get() != nullptr) {
-        for (auto i : IterateBitSet(a->mAttachmentState->GetColorAttachmentsMask())) {
+        for (auto i : a->mAttachmentState->GetColorAttachmentsMask()) {
             const ColorTargetState& descA = *a->GetColorTargetState(i);
             const ColorTargetState& descB = *b->GetColorTargetState(i);
             if (descA.writeMask != descB.writeMask) {
@@ -1435,7 +1453,7 @@ bool RenderPipelineBase::EqualityFunc::operator()(const RenderPipelineBase* a,
         return false;
     }
 
-    for (VertexAttributeLocation loc : IterateBitSet(a->mAttributeLocationsUsed)) {
+    for (VertexAttributeLocation loc : a->mAttributeLocationsUsed) {
         const VertexAttributeInfo& descA = a->GetAttribute(loc);
         const VertexAttributeInfo& descB = b->GetAttribute(loc);
         if (descA.shaderLocation != descB.shaderLocation ||
@@ -1449,7 +1467,7 @@ bool RenderPipelineBase::EqualityFunc::operator()(const RenderPipelineBase* a,
         return false;
     }
 
-    for (VertexBufferSlot slot : IterateBitSet(a->mVertexBuffersUsed)) {
+    for (VertexBufferSlot slot : a->mVertexBuffersUsed) {
         const VertexBufferInfo& descA = a->GetVertexBuffer(slot);
         const VertexBufferInfo& descB = b->GetVertexBuffer(slot);
         if (descA.arrayStride != descB.arrayStride || descA.stepMode != descB.stepMode) {

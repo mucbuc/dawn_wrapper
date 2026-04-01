@@ -28,20 +28,20 @@
 #include "src/tint/cmd/fuzz/wgsl/fuzz.h"
 
 #include <iostream>
+#include <span>
 #include <string>
 #include <string_view>
 #include <thread>
 
-#include "src/tint/lang/core/address_space.h"
-#include "src/tint/lang/core/builtin_type.h"
+#include "src/tint/lang/core/enums.h"
+#include "src/tint/lang/wgsl/allowed_features.h"
 #include "src/tint/lang/wgsl/ast/alias.h"
 #include "src/tint/lang/wgsl/ast/function.h"
 #include "src/tint/lang/wgsl/ast/identifier.h"
 #include "src/tint/lang/wgsl/ast/module.h"
 #include "src/tint/lang/wgsl/ast/struct.h"
 #include "src/tint/lang/wgsl/ast/variable.h"
-#include "src/tint/lang/wgsl/builtin_fn.h"
-#include "src/tint/lang/wgsl/common/allowed_features.h"
+#include "src/tint/lang/wgsl/enums.h"
 #include "src/tint/lang/wgsl/reader/options.h"
 #include "src/tint/lang/wgsl/reader/reader.h"
 #include "src/tint/utils/containers/vector.h"
@@ -66,12 +66,6 @@ Vector<ProgramFuzzer, 32>& Fuzzers() {
 }
 
 thread_local std::string_view currently_running;
-
-[[noreturn]] void TintInternalCompilerErrorReporter(const tint::InternalCompilerError& err) {
-    std::cerr << "ICE while running fuzzer: '" << currently_running << "'\n";
-    std::cerr << err.Error() << "\n";
-    __builtin_trap();
-}
 
 bool IsAddressSpace(std::string_view name) {
     return tint::core::ParseAddressSpace(name) != tint::core::AddressSpace::kUndefined;
@@ -135,22 +129,20 @@ void Register(const ProgramFuzzer& fuzzer) {
     Fuzzers().Push(fuzzer);
 }
 
-void Run(std::string_view wgsl, const Options& options, Slice<const std::byte> data) {
-    tint::SetInternalCompilerErrorReporter(&TintInternalCompilerErrorReporter);
-
+void Run(std::string_view wgsl, const Options& options, std::span<const std::byte> data) {
 #if TINT_BUILD_WGSL_WRITER
     // Register the Program printer. This is used for debugging purposes.
     tint::Program::printer = [](const tint::Program& program) {
-        auto result = tint::wgsl::writer::Generate(program, {});
+        auto result = tint::wgsl::writer::Generate(program);
         if (result != Success) {
-            return result.Failure().reason.Str();
+            return result.Failure().reason;
         }
         return result->wgsl;
     };
 #endif
 
     if (options.dump) {
-        std::cout << "Dumping input WGSL:\n" << wgsl << std::endl;
+        std::cout << "Dumping input WGSL:\n" << wgsl << "\n";
     }
 
     // Ensure that fuzzers are sorted. Without this, the fuzzers may be registered in any order,
@@ -163,6 +155,8 @@ void Run(std::string_view wgsl, const Options& options, Slice<const std::byte> d
     // Parse the WGSL program.
     tint::wgsl::reader::Options parse_options;
     parse_options.allowed_features = tint::wgsl::AllowedFeatures::Everything();
+    // buffer_view is not ready for fuzzing yet.
+    parse_options.allowed_features.features.erase(tint::wgsl::LanguageFeature::kBufferView);
     auto program = tint::wgsl::reader::Parse(&file, parse_options);
     if (!program.IsValid()) {
         if (options.verbose) {

@@ -1,31 +1,23 @@
-void set_vector_element(inout float2 vec, int idx, float val) {
-  vec = (idx.xx == int2(0, 1)) ? val.xx : vec;
-}
 
-void set_vector_element_1(inout int3 vec, int idx, int val) {
-  vec = (idx.xxx == int3(0, 1, 2)) ? val.xxx : vec;
-}
-
-void set_vector_element_2(inout uint4 vec, int idx, uint val) {
-  vec = (idx.xxxx == int4(0, 1, 2, 3)) ? val.xxxx : vec;
-}
-
-void set_vector_element_3(inout bool2 vec, int idx, bool val) {
-  vec = (idx.xx == int2(0, 1)) ? val.xx : vec;
-}
-
-static float2 v2f = float2(0.0f, 0.0f);
-static int3 v3i = int3(0, 0, 0);
-static uint4 v4u = uint4(0u, 0u, 0u, 0u);
-static bool2 v2b = bool2(false, false);
-
+static float2 v2f = (0.0f).xx;
+static int3 v3i = (int(0)).xxx;
+static uint4 v4u = (0u).xxxx;
+static bool2 v2b = (false).xx;
 void foo() {
   {
-    for(int i = 0; (i < 2); i = (i + 1)) {
-      set_vector_element(v2f, i, 1.0f);
-      set_vector_element_1(v3i, i, 1);
-      set_vector_element_2(v4u, i, 1u);
-      set_vector_element_3(v2b, i, true);
+    int i = int(0);
+    while(true) {
+      if ((i < int(2))) {
+      } else {
+        break;
+      }
+      v2f[i] = 1.0f;
+      v3i[i] = int(1);
+      v4u[i] = 1u;
+      v2b[i] = true;
+      {
+        i = asint((asuint(i) + asuint(int(1))));
+      }
     }
   }
 }
@@ -33,9 +25,17 @@ void foo() {
 [numthreads(1, 1, 1)]
 void main() {
   {
-    for(int i = 0; (i < 2); i = (i + 1)) {
+    int i = int(0);
+    while(true) {
+      if ((i < int(2))) {
+      } else {
+        break;
+      }
       foo();
+      {
+        i = asint((asuint(i) + asuint(int(1))));
+      }
     }
   }
-  return;
 }
+

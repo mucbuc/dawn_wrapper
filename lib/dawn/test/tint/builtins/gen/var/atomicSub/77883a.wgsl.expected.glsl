@@ -7,11 +7,11 @@ buffer prevent_dce_block_1_ssbo {
 shared int arg_0;
 int atomicSub_77883a() {
   int arg_1 = 1;
-  int res = atomicAdd(arg_0, -(arg_1));
+  int res = atomicAdd(arg_0, int((~(uint(arg_1)) + 1u)));
   return res;
 }
 void compute_main_inner(uint tint_local_index) {
-  if ((tint_local_index == 0u)) {
+  if ((tint_local_index < 1u)) {
     atomicExchange(arg_0, 0);
   }
   barrier();

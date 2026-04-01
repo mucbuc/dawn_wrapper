@@ -1,7 +1,8 @@
 #include <metal_stdlib>
-
 using namespace metal;
-kernel void tint_symbol() {
+
+[[max_total_threads_per_threadgroup(1)]]
+kernel void v() {
   if (false) {
   } else {
     if (false) {
@@ -376,6 +377,4 @@ kernel void tint_symbol() {
       }
     }
   }
-  return;
 }
-

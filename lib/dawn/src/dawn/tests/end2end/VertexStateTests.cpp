@@ -553,6 +553,9 @@ TEST_P(VertexStateTest, MultiplePipelinesMixedVertexState) {
 
 // Checks that using the last vertex buffer doesn't overflow the vertex buffer table in Metal.
 TEST_P(VertexStateTest, LastAllowedVertexBuffer) {
+    // TODO(crbug.com/474158751): [Capture] vertex slot 0 not set.
+    DAWN_SUPPRESS_TEST_IF(IsCaptureReplayCheckingEnabled());
+
     constexpr uint32_t kBufferIndex = kMaxVertexBuffers - 1;
 
     utils::ComboVertexState vertexState;
@@ -568,7 +571,7 @@ TEST_P(VertexStateTest, LastAllowedVertexBuffer) {
     vertexState.cAttributes[0].format = VertexFormat::Float32x4;
 
     for (uint32_t i = 0; i < kBufferIndex; i++) {
-        vertexState.cVertexBuffers[i].stepMode = VertexStepMode::VertexBufferNotUsed;
+        vertexState.cVertexBuffers[i].stepMode = VertexStepMode::Undefined;
     }
 
     wgpu::RenderPipeline pipeline =
@@ -668,7 +671,8 @@ DAWN_INSTANTIATE_TEST(VertexStateTest,
                       MetalBackend(),
                       OpenGLBackend(),
                       OpenGLESBackend(),
-                      VulkanBackend());
+                      VulkanBackend(),
+                      WebGPUBackend());
 
 class OptionalVertexStateTest : public DawnTest {};
 
@@ -715,7 +719,8 @@ DAWN_INSTANTIATE_TEST(OptionalVertexStateTest,
                       MetalBackend(),
                       OpenGLBackend(),
                       OpenGLESBackend(),
-                      VulkanBackend());
+                      VulkanBackend(),
+                      WebGPUBackend());
 
 }  // anonymous namespace
 }  // namespace dawn

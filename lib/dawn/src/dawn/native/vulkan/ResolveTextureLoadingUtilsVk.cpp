@@ -34,6 +34,7 @@
 #include "absl/container/inlined_vector.h"
 #include "dawn/common/Assert.h"
 #include "dawn/common/Enumerator.h"
+#include "dawn/common/Strings.h"
 #include "dawn/native/BindGroup.h"
 #include "dawn/native/Commands.h"
 #include "dawn/native/Device.h"
@@ -53,18 +54,17 @@ namespace dawn::native::vulkan {
 
 namespace {
 
-constexpr char kBlitToColorVS[] = R"(
-
-@vertex fn vert_fullscreen_quad(
-  @builtin(vertex_index) vertex_index : u32,
-) -> @builtin(position) vec4f {
-  const pos = array(
-      vec2f(-1.0, -1.0),
-      vec2f( 3.0, -1.0),
-      vec2f(-1.0,  3.0));
-  return vec4f(pos[vertex_index], 0.0, 1.0);
-}
-)";
+constexpr char kBlitToColorVS[] = DAWN_MULTILINE(
+    @vertex fn vert_fullscreen_quad(
+        @builtin(vertex_index) vertex_index : u32,
+    ) -> @builtin(position) vec4f {
+        const pos = array(
+            vec2f(-1.0, -1.0),
+            vec2f( 3.0, -1.0),
+            vec2f(-1.0,  3.0));
+        return vec4f(pos[vertex_index], 0.0, 1.0);
+    }
+);
 
 std::string GenerateFS(const BlitColorToColorWithDrawPipelineKey& pipelineKey) {
     std::ostringstream outputStructStream;
@@ -73,26 +73,28 @@ std::string GenerateFS(const BlitColorToColorWithDrawPipelineKey& pipelineKey) {
 
     finalStream << "enable chromium_internal_input_attachments;";
 
-    for (auto i : IterateBitSet(pipelineKey.attachmentsToExpandResolve)) {
+    for (auto i : pipelineKey.attachmentsToExpandResolve) {
         finalStream << absl::StrFormat(
             "@group(0) @binding(%u) @input_attachment_index(%u) var srcTex%u : "
-            "input_attachment<f32>;\n",
+            "input_attachment<f32>;",
             i, i, i);
 
-        outputStructStream << absl::StrFormat("@location(%u) output%u : vec4f,\n", i, i);
+        outputStructStream << absl::StrFormat("@location(%u) output%u : vec4f,", i, i);
 
         assignOutputsStream << absl::StrFormat(
-            "\toutputColor.output%u = inputAttachmentLoad(srcTex%u);\n", i, i);
+            "outputColor.output%u = inputAttachmentLoad(srcTex%u);", i, i);
     }
 
-    finalStream << "struct OutputColor {\n" << outputStructStream.str() << "}\n\n";
-    finalStream << R"(
-@fragment fn blit_to_color() -> OutputColor {
-    var outputColor : OutputColor;
-)" << assignOutputsStream.str()
-                << R"(
-    return outputColor;
-})";
+    finalStream << "struct OutputColor {" << outputStructStream.str() << "}";
+    finalStream << DAWN_MULTILINE(
+        @fragment fn blit_to_color() -> OutputColor {
+            var outputColor : OutputColor;
+    );
+    finalStream << assignOutputsStream.str();
+    finalStream << DAWN_MULTILINE(
+            return outputColor;
+        }
+    );
 
     return finalStream.str();
 }
@@ -186,8 +188,7 @@ MaybeError BeginRenderPassAndExpandResolveTextureWithDraw(Device* device,
     BlitColorToColorWithDrawPipelineKey pipelineKey;
     ColorAttachmentIndex colorAttachmentCount =
         GetHighestBitIndexPlusOne(renderPass->attachmentState->GetColorAttachmentsMask());
-    for (ColorAttachmentIndex colorIdx :
-         IterateBitSet(renderPass->attachmentState->GetColorAttachmentsMask())) {
+    for (ColorAttachmentIndex colorIdx : renderPass->attachmentState->GetColorAttachmentsMask()) {
         const auto& colorAttachment = renderPass->colorAttachments[colorIdx];
         const auto& view = colorAttachment.view;
         DAWN_ASSERT(view != nullptr);
@@ -237,7 +238,7 @@ MaybeError BeginRenderPassAndExpandResolveTextureWithDraw(Device* device,
     Ref<BindGroupBase> bindGroup;
     absl::InlinedVector<BindGroupEntry, kMaxColorAttachments> bgEntries = {};
 
-    for (auto colorIdx : IterateBitSet(pipelineKey.attachmentsToExpandResolve)) {
+    for (auto colorIdx : pipelineKey.attachmentsToExpandResolve) {
         const auto& colorAttachment = renderPass->colorAttachments[colorIdx];
         bgEntries.push_back({});
         auto& bgEntry = bgEntries.back();
@@ -291,7 +292,7 @@ MaybeError BeginRenderPassAndExpandResolveTextureWithDraw(Device* device,
     // Subpass dependency automatically transitions the layouts of the resolve textures
     // to RenderAttachment. So we need to notify TextureVk and don't need to use any explicit
     // barriers.
-    for (auto colorIdx : IterateBitSet(pipelineKey.attachmentsToExpandResolve)) {
+    for (auto colorIdx : pipelineKey.attachmentsToExpandResolve) {
         const auto& colorAttachment = renderPass->colorAttachments[colorIdx];
         auto* textureVk = static_cast<Texture*>(colorAttachment.resolveTarget->GetTexture());
         textureVk->UpdateUsage(wgpu::TextureUsage::RenderAttachment, wgpu::ShaderStage::Fragment,

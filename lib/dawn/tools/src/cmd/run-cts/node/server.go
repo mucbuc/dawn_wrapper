@@ -43,13 +43,17 @@ import (
 	"time"
 
 	"dawn.googlesource.com/dawn/tools/src/cmd/run-cts/common"
+	"dawn.googlesource.com/dawn/tools/src/oswrapper"
 	"dawn.googlesource.com/dawn/tools/src/utils"
 )
 
+// TODO(crbug.com/416755658): Add unittest coverage when there is a way to fake
+// the node process.
 // runTestCasesWithServers spawns c.flags.NumRunners server instances to run all
 // the test cases in testCases. The results of the tests are streamed to results.
 // Blocks until all the tests have been run.
-func (c *cmd) runTestCasesWithServers(ctx context.Context, testCases []common.TestCase, results chan<- common.Result) {
+func (c *cmd) runTestCasesWithServers(
+	ctx context.Context, testCases []common.TestCase, results chan<- common.Result, fsReaderWriter oswrapper.FilesystemReaderWriter) {
 	// Create a chan of test indices.
 	// This will be read by the test runner goroutines.
 	testCaseIndices := make(chan int, 256)
@@ -67,7 +71,7 @@ func (c *cmd) runTestCasesWithServers(ctx context.Context, testCases []common.Te
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if err := c.runServer(ctx, id, testCases, testCaseIndices, results); err != nil {
+			if err := c.runServer(ctx, id, testCases, testCaseIndices, results, fsReaderWriter); err != nil {
 				results <- common.Result{
 					Status: common.Fail,
 					Error:  fmt.Errorf("Test server error: %w", err),
@@ -79,6 +83,8 @@ func (c *cmd) runTestCasesWithServers(ctx context.Context, testCases []common.Te
 	wg.Wait()
 }
 
+// TODO(crbug.com/416755658): Add unittest coverage when exec is handled via
+// dependency injection.
 // runServer starts a test runner server instance, takes case indices from
 // testCaseIndices, and requests the server run the test with the given index.
 // The result of the test run is written to the results chan.
@@ -89,12 +95,12 @@ func (c *cmd) runServer(
 	id int,
 	testCases []common.TestCase,
 	testCaseIndices <-chan int,
-	results chan<- common.Result) error {
+	results chan<- common.Result,
+	fsReaderWriter oswrapper.FilesystemReaderWriter) error {
 
 	var port int
 	testCaseLog := &bytes.Buffer{}
 
-	stopServer := func() {}
 	startServer := func() error {
 		args := []string{
 			"-e", "require('./out-node/common/runtime/server.js');",
@@ -104,7 +110,7 @@ func (c *cmd) runServer(
 			// start at 1, so just inject a placeholder argument.
 			"placeholder-arg",
 			// Actual arguments begin here
-			"--gpu-provider", filepath.Join(c.flags.bin, "cts.js"),
+			"--gpu-provider", filepath.Join(c.flags.bin, "cts.cjs"),
 		}
 		if c.flags.Colors {
 			args = append(args, "--colors")
@@ -122,6 +128,15 @@ func (c *cmd) runServer(
 		}
 		if c.flags.compatibilityMode {
 			args = append(args, "--compat")
+		}
+		if c.flags.enforceDefaultLimits {
+			args = append(args, "--enforce-default-limits")
+		}
+		if c.flags.blockAllFeatures {
+			args = append(args, "--block-all-features")
+		}
+		if c.flags.debugCTS {
+			args = append(args, "--debug")
 		}
 		for _, f := range c.flags.dawn {
 			args = append(args, "--gpu-provider-flag", f)
@@ -176,7 +191,7 @@ func (c *cmd) runServer(
 
 		return nil
 	}
-	stopServer = func() {
+	stopServer := func() {
 		if port > 0 {
 			go http.Post(fmt.Sprintf("http://localhost:%v/terminate", port), "", &bytes.Buffer{})
 			time.Sleep(time.Millisecond * 100)
@@ -240,8 +255,8 @@ func (c *cmd) runServer(
 			}
 
 			if resp.CoverageData != "" {
-				coverage, covErr := c.coverage.Env.Import(resp.CoverageData)
-				os.Remove(resp.CoverageData)
+				coverage, covErr := c.coverage.Env.Import(resp.CoverageData, fsReaderWriter)
+				fsReaderWriter.Remove(resp.CoverageData)
 				if covErr != nil {
 					if res.Message != "" {
 						res.Message += "\n"

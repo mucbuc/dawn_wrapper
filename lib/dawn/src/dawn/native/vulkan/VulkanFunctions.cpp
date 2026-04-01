@@ -104,19 +104,24 @@ MaybeError VulkanFunctions::LoadGlobalProcs(const DynamicLib& vulkanLib) {
     return {};
 }
 
+#define GET_INSTANCE_PROC_NO_ERROR_BASE(name, procName) \
+    name = AsVkFn<PFN_vk##name>(GetInstanceProcAddr(instance, "vk" #procName))
 #define GET_INSTANCE_PROC_BASE(name, procName)                                           \
     do {                                                                                 \
-        name = AsVkFn<PFN_vk##name>(GetInstanceProcAddr(instance, "vk" #procName));      \
+        GET_INSTANCE_PROC_NO_ERROR_BASE(name, procName);                                 \
         if (name == nullptr) {                                                           \
             return DAWN_INTERNAL_ERROR(std::string("Couldn't get proc vk") + #procName); \
         }                                                                                \
     } while (0)
 
 #define GET_INSTANCE_PROC(name) GET_INSTANCE_PROC_BASE(name, name)
-#define GET_INSTANCE_PROC_VENDOR(name, vendor) GET_INSTANCE_PROC_BASE(name, name##vendor)
+#define GET_INSTANCE_PROC_NO_ERROR(name) GET_INSTANCE_PROC_NO_ERROR_BASE(name, name)
 
 MaybeError VulkanFunctions::LoadInstanceProcs(VkInstance instance,
                                               const VulkanGlobalInfo& globalInfo) {
+    // Dawn requires at least Vulkan 1.1
+    DAWN_ASSERT(globalInfo.apiVersion >= VK_API_VERSION_1_1);
+
     // Load this proc first so that we can destroy the instance even if some other
     // GET_INSTANCE_PROC fails
     GET_INSTANCE_PROC(DestroyInstance);
@@ -135,6 +140,19 @@ MaybeError VulkanFunctions::LoadInstanceProcs(VkInstance instance,
     GET_INSTANCE_PROC(GetPhysicalDeviceQueueFamilyProperties);
     GET_INSTANCE_PROC(GetPhysicalDeviceSparseImageFormatProperties);
 
+    // Promoted in 1.1
+    GET_INSTANCE_PROC(EnumeratePhysicalDeviceGroups);
+    GET_INSTANCE_PROC(GetPhysicalDeviceExternalBufferProperties);
+    GET_INSTANCE_PROC(GetPhysicalDeviceExternalFenceProperties);
+    GET_INSTANCE_PROC(GetPhysicalDeviceExternalSemaphoreProperties);
+    GET_INSTANCE_PROC(GetPhysicalDeviceFeatures2);
+    GET_INSTANCE_PROC(GetPhysicalDeviceFormatProperties2);
+    GET_INSTANCE_PROC(GetPhysicalDeviceImageFormatProperties2);
+    GET_INSTANCE_PROC(GetPhysicalDeviceMemoryProperties2);
+    GET_INSTANCE_PROC(GetPhysicalDeviceProperties2);
+    GET_INSTANCE_PROC(GetPhysicalDeviceQueueFamilyProperties2);
+    GET_INSTANCE_PROC(GetPhysicalDeviceSparseImageFormatProperties2);
+
     if (globalInfo.HasExt(InstanceExt::DebugUtils)) {
         GET_INSTANCE_PROC(CmdBeginDebugUtilsLabelEXT);
         GET_INSTANCE_PROC(CmdEndDebugUtilsLabelEXT);
@@ -147,38 +165,6 @@ MaybeError VulkanFunctions::LoadInstanceProcs(VkInstance instance,
         GET_INSTANCE_PROC(SetDebugUtilsObjectNameEXT);
         GET_INSTANCE_PROC(SetDebugUtilsObjectTagEXT);
         GET_INSTANCE_PROC(SubmitDebugUtilsMessageEXT);
-    }
-
-    // Vulkan 1.1 is not required to report promoted extensions from 1.0 and is not required to
-    // support the vendor entrypoint in GetProcAddress.
-    if (globalInfo.apiVersion >= VK_API_VERSION_1_1) {
-        GET_INSTANCE_PROC(GetPhysicalDeviceExternalBufferProperties);
-    } else if (globalInfo.HasExt(InstanceExt::ExternalMemoryCapabilities)) {
-        GET_INSTANCE_PROC_VENDOR(GetPhysicalDeviceExternalBufferProperties, KHR);
-    }
-
-    if (globalInfo.apiVersion >= VK_API_VERSION_1_1) {
-        GET_INSTANCE_PROC(GetPhysicalDeviceExternalSemaphoreProperties);
-    } else if (globalInfo.HasExt(InstanceExt::ExternalSemaphoreCapabilities)) {
-        GET_INSTANCE_PROC_VENDOR(GetPhysicalDeviceExternalSemaphoreProperties, KHR);
-    }
-
-    if (globalInfo.apiVersion >= VK_API_VERSION_1_1) {
-        GET_INSTANCE_PROC(GetPhysicalDeviceFeatures2);
-        GET_INSTANCE_PROC(GetPhysicalDeviceProperties2);
-        GET_INSTANCE_PROC(GetPhysicalDeviceFormatProperties2);
-        GET_INSTANCE_PROC(GetPhysicalDeviceImageFormatProperties2);
-        GET_INSTANCE_PROC(GetPhysicalDeviceQueueFamilyProperties2);
-        GET_INSTANCE_PROC(GetPhysicalDeviceMemoryProperties2);
-        GET_INSTANCE_PROC(GetPhysicalDeviceSparseImageFormatProperties2);
-    } else if (globalInfo.HasExt(InstanceExt::GetPhysicalDeviceProperties2)) {
-        GET_INSTANCE_PROC_VENDOR(GetPhysicalDeviceFeatures2, KHR);
-        GET_INSTANCE_PROC_VENDOR(GetPhysicalDeviceProperties2, KHR);
-        GET_INSTANCE_PROC_VENDOR(GetPhysicalDeviceFormatProperties2, KHR);
-        GET_INSTANCE_PROC_VENDOR(GetPhysicalDeviceImageFormatProperties2, KHR);
-        GET_INSTANCE_PROC_VENDOR(GetPhysicalDeviceQueueFamilyProperties2, KHR);
-        GET_INSTANCE_PROC_VENDOR(GetPhysicalDeviceMemoryProperties2, KHR);
-        GET_INSTANCE_PROC_VENDOR(GetPhysicalDeviceSparseImageFormatProperties2, KHR);
     }
 
     if (globalInfo.HasExt(InstanceExt::Surface)) {
@@ -231,6 +217,16 @@ MaybeError VulkanFunctions::LoadInstanceProcs(VkInstance instance,
         GET_INSTANCE_PROC(GetPhysicalDeviceXcbPresentationSupportKHR);
     }
 #endif  // defined(DAWN_USE_X11)
+
+    // Some device extensions expose instance procs to query information from the vkPhysicalDevice.
+    // Always try loading them as we don't know yet what extensions are available on the device.
+    // The more proper solution to load them only if the extension is available would require
+    // unnecessary roundtrips between info gathering and proc loading, and this approach is well
+    // specified as well.
+
+    // VK_KHR_cooperative_matrix
+    GET_INSTANCE_PROC_NO_ERROR(GetPhysicalDeviceCooperativeMatrixPropertiesKHR);
+
     return {};
 }
 
@@ -242,7 +238,10 @@ MaybeError VulkanFunctions::LoadInstanceProcs(VkInstance instance,
         }                                                                            \
     } while (0)
 
-MaybeError VulkanFunctions::LoadDeviceProcs(VkDevice device, const VulkanDeviceInfo& deviceInfo) {
+MaybeError VulkanFunctions::LoadDeviceProcs(VkInstance instance,
+                                            VkDevice device,
+                                            const VulkanDeviceInfo& deviceInfo) {
+    // Vulkan 1.0
     GET_DEVICE_PROC(AllocateCommandBuffers);
     GET_DEVICE_PROC(AllocateDescriptorSets);
     GET_DEVICE_PROC(AllocateMemory);
@@ -363,6 +362,52 @@ MaybeError VulkanFunctions::LoadDeviceProcs(VkDevice device, const VulkanDeviceI
     GET_DEVICE_PROC(UpdateDescriptorSets);
     GET_DEVICE_PROC(WaitForFences);
 
+    // Promoted in 1.1
+    GET_DEVICE_PROC(BindBufferMemory2);
+    GET_DEVICE_PROC(BindImageMemory2);
+    GET_DEVICE_PROC(CmdDispatchBase);
+    GET_DEVICE_PROC(CmdSetDeviceMask);
+    GET_DEVICE_PROC(CreateDescriptorUpdateTemplate);
+    GET_DEVICE_PROC(CreateSamplerYcbcrConversion);
+    GET_DEVICE_PROC(DestroyDescriptorUpdateTemplate);
+    GET_DEVICE_PROC(DestroySamplerYcbcrConversion);
+    GET_DEVICE_PROC(GetBufferMemoryRequirements2);
+    GET_DEVICE_PROC(GetDescriptorSetLayoutSupport);
+    GET_DEVICE_PROC(GetDeviceGroupPeerMemoryFeatures);
+    GET_DEVICE_PROC(GetDeviceQueue2);
+    GET_DEVICE_PROC(GetImageMemoryRequirements2);
+    GET_DEVICE_PROC(GetImageSparseMemoryRequirements2);
+    GET_DEVICE_PROC(TrimCommandPool);
+    GET_DEVICE_PROC(UpdateDescriptorSetWithTemplate);
+
+    // Promoted in 1.2
+    if (deviceInfo.HasExt(DeviceExt::DrawIndirectCount)) {
+        GET_DEVICE_PROC(CmdDrawIndirectCountKHR);
+        GET_DEVICE_PROC(CmdDrawIndexedIndirectCountKHR);
+    }
+
+    if (deviceInfo.HasExt(DeviceExt::CreateRenderPass2)) {
+        GET_DEVICE_PROC(CreateRenderPass2KHR);
+    }
+
+    // Promoted in 1.3
+    if (deviceInfo.HasExt(DeviceExt::DynamicRendering)) {
+        GET_DEVICE_PROC(CmdBeginRenderingKHR);
+        GET_DEVICE_PROC(CmdEndRenderingKHR);
+    }
+
+    if (deviceInfo.HasExt(DeviceExt::ExtendedDynamicState)) {
+        GET_DEVICE_PROC(CmdSetCullModeEXT);
+        GET_DEVICE_PROC(CmdSetDepthCompareOpEXT);
+        GET_DEVICE_PROC(CmdSetDepthTestEnableEXT);
+        GET_DEVICE_PROC(CmdSetDepthWriteEnableEXT);
+        GET_DEVICE_PROC(CmdSetFrontFaceEXT);
+        GET_DEVICE_PROC(CmdSetPrimitiveTopologyEXT);
+        GET_DEVICE_PROC(CmdSetStencilOpEXT);
+        GET_DEVICE_PROC(CmdSetStencilTestEnableEXT);
+    }
+
+    // Not promoted to core in any version
     if (deviceInfo.HasExt(DeviceExt::ExternalMemoryFD)) {
         GET_DEVICE_PROC(GetMemoryFdKHR);
         GET_DEVICE_PROC(GetMemoryFdPropertiesKHR);
@@ -383,22 +428,6 @@ MaybeError VulkanFunctions::LoadDeviceProcs(VkDevice device, const VulkanDeviceI
         GET_DEVICE_PROC(GetSwapchainImagesKHR);
         GET_DEVICE_PROC(AcquireNextImageKHR);
         GET_DEVICE_PROC(QueuePresentKHR);
-    }
-
-    if (deviceInfo.HasExt(DeviceExt::GetMemoryRequirements2)) {
-        GET_DEVICE_PROC(GetBufferMemoryRequirements2);
-        GET_DEVICE_PROC(GetImageMemoryRequirements2);
-        GET_DEVICE_PROC(GetImageSparseMemoryRequirements2);
-    }
-
-    if (deviceInfo.HasExt(DeviceExt::SamplerYCbCrConversion)) {
-        GET_DEVICE_PROC(CreateSamplerYcbcrConversion);
-        GET_DEVICE_PROC(DestroySamplerYcbcrConversion);
-    }
-
-    if (deviceInfo.HasExt(DeviceExt::DrawIndirectCount)) {
-        GET_DEVICE_PROC(CmdDrawIndirectCountKHR);
-        GET_DEVICE_PROC(CmdDrawIndexedIndirectCountKHR);
     }
 
 #if VK_USE_PLATFORM_FUCHSIA

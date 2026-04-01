@@ -1,20 +1,15 @@
 #version 310 es
 
-
-struct DeclaredAfterUsage {
-  float f;
-};
-
 layout(binding = 0, std140)
-uniform declared_after_usage_block_1_ubo {
-  DeclaredAfterUsage inner;
+uniform v_declared_after_usage_block_ubo {
+  uvec4 inner[1];
 } v;
-vec4 tint_symbol_inner() {
-  return vec4(v.inner.f);
+vec4 main_inner() {
+  uvec4 v_1 = v.inner[0u];
+  return vec4(uintBitsToFloat(v_1.x));
 }
 void main() {
-  gl_Position = tint_symbol_inner();
-  gl_Position[1u] = -(gl_Position.y);
-  gl_Position[2u] = ((2.0f * gl_Position.z) - gl_Position.w);
+  vec4 v_2 = main_inner();
+  gl_Position = vec4(v_2.x, -(v_2.y), ((2.0f * v_2.z) - v_2.w), v_2.w);
   gl_PointSize = 1.0f;
 }

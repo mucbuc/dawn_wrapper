@@ -46,7 +46,9 @@ class PlatformFunctions {
     PlatformFunctions();
     virtual ~PlatformFunctions();
 
-    MaybeError LoadFunctions();
+    MaybeError Initialize();
+    MaybeError EnsureFXC(std::span<const std::string> searchPaths);
+
     uint64_t GetWindowsBuildNumber() const;
 
     // Functions from dxgi.dll
@@ -60,13 +62,12 @@ class PlatformFunctions {
                                                       _COM_Outptr_ void** ppFactory);
     PFN_CREATE_DXGI_FACTORY2 createDxgiFactory2 = nullptr;
 
-    // Functions from d3d3compiler.dll
+    // Functions from D3DCompiler_47.dll
     pD3DCompile d3dCompile = nullptr;
     pD3DDisassemble d3dDisassemble = nullptr;
 
   private:
     MaybeError LoadDXGI();
-    MaybeError LoadFXCompiler();
     void InitWindowsVersion();
 
     DynamicLib mDXGILib;

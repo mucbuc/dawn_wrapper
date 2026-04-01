@@ -54,8 +54,8 @@ class RenderPipeline final : public RenderPipelineBase {
     void ApplyDepthStencilState(const ScopedSwapStateCommandRecordingContext* commandContext,
                                 uint32_t stencilReference);
 
-    bool UsesVertexIndex() const { return mUsesVertexIndex; }
-    bool UsesInstanceIndex() const { return mUsesInstanceIndex; }
+    ID3D11VertexShader* GetD3D11VertexShaderForTesting();
+    ID3D11PixelShader* GetD3D11PixelShaderForTesting();
 
   private:
     RenderPipeline(Device* device, const UnpackedPtr<RenderPipelineDescriptor>& descriptor);
@@ -77,8 +77,6 @@ class RenderPipeline final : public RenderPipelineBase {
     ComPtr<ID3D11PixelShader> mPixelShader;
     ComPtr<ID3D11BlendState> mBlendState;
     ComPtr<ID3D11DepthStencilState> mDepthStencilState;
-    bool mUsesVertexIndex = false;
-    bool mUsesInstanceIndex = false;
 };
 
 }  // namespace dawn::native::d3d11

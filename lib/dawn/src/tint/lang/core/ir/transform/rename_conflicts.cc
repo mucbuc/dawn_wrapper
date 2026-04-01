@@ -26,10 +26,11 @@
 // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#include <variant>
+#include "src/tint/lang/core/ir/transform/rename_conflicts.h"
 
 #include "src/tint/lang/core/ir/construct.h"
 #include "src/tint/lang/core/ir/control_instruction.h"
+#include "src/tint/lang/core/ir/convert.h"
 #include "src/tint/lang/core/ir/core_builtin_call.h"
 #include "src/tint/lang/core/ir/function.h"
 #include "src/tint/lang/core/ir/instruction.h"
@@ -37,17 +38,16 @@
 #include "src/tint/lang/core/ir/loop.h"
 #include "src/tint/lang/core/ir/module.h"
 #include "src/tint/lang/core/ir/multi_in_block.h"
-#include "src/tint/lang/core/ir/transform/rename_conflicts.h"
 #include "src/tint/lang/core/ir/validator.h"
 #include "src/tint/lang/core/ir/var.h"
+#include "src/tint/lang/core/type/array.h"
 #include "src/tint/lang/core/type/matrix.h"
 #include "src/tint/lang/core/type/pointer.h"
 #include "src/tint/lang/core/type/scalar.h"
 #include "src/tint/lang/core/type/struct.h"
 #include "src/tint/lang/core/type/vector.h"
-#include "src/tint/utils/containers/hashset.h"
+#include "src/tint/utils/containers/hashmap.h"
 #include "src/tint/utils/containers/reverse.h"
-#include "src/tint/utils/containers/scope_stack.h"
 #include "src/tint/utils/macros/defer.h"
 #include "src/tint/utils/rtti/switch.h"
 #include "src/tint/utils/text/string.h"
@@ -183,15 +183,19 @@ struct State {
             },
             [&](core::ir::Var*) {
                 // Ensure the var's type is resolvable
-                EnsureResolvable(inst->Result(0)->Type());
+                EnsureResolvable(inst->Result()->Type());
             },
             [&](core::ir::Let*) {
                 // Ensure the let's type is resolvable
-                EnsureResolvable(inst->Result(0)->Type());
+                EnsureResolvable(inst->Result()->Type());
             },
             [&](core::ir::Construct*) {
                 // Ensure the type of a type constructor is resolvable
-                EnsureResolvable(inst->Result(0)->Type());
+                EnsureResolvable(inst->Result()->Type());
+            },
+            [&](core::ir::Convert*) {
+                // Ensure the type of a type constructor is resolvable
+                EnsureResolvable(inst->Result()->Type());
             },
             [&](core::ir::CoreBuiltinCall* call) {
                 // Ensure builtin of a builtin call is resolvable
@@ -224,6 +228,10 @@ struct State {
                     EnsureResolvesToBuiltin("mat" + tint::ToString(m->Columns()) + "x" +
                                             tint::ToString(m->Rows()));
                     return m->Type();
+                },
+                [&](const core::type::Array* a) -> const core::type::Type* {
+                    EnsureResolvesToBuiltin("array");
+                    return a->ElemType();
                 },
                 [&](const core::type::Pointer* p) {
                     EnsureResolvesToBuiltin(tint::ToString(p->Access()));
@@ -269,7 +277,7 @@ struct State {
         // Add the declaration to the current scope, and make sure that it was either successfully
         // added or has already been added.
         auto add = scopes.Back().Add(name.NameView(), thing);
-        TINT_ASSERT(add || add.value == thing);
+        TINT_IR_ASSERT(ir, add || add.value == thing);
     }
 
     /// Rename changes the name of @p thing with the old name of @p old_name
@@ -286,17 +294,15 @@ struct State {
 
     /// @return true if @p s is a builtin (non-user declared) structure.
     bool IsBuiltinStruct(const core::type::Struct* s) {
-        return tint::HasPrefix(s->Name().NameView(), "__");
+        return s->Name().NameView().starts_with("__");
     }
 };
 
 }  // namespace
 
 Result<SuccessType> RenameConflicts(core::ir::Module& ir) {
-    auto result = ValidateAndDumpIfNeeded(ir, "core.RenameConflicts", kRenameConflictsCapabilities);
-    if (result != Success) {
-        return result;
-    }
+    TINT_CHECK_RESULT(
+        ValidateBeforeIfNeeded(ir, kRenameConflictsCapabilities, "core.RenameConflicts"));
 
     State{ir}.Process();
 

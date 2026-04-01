@@ -40,6 +40,9 @@
         ],
         "Condition": "tint_build_tintd"
     },
+    "mesa": {
+        "Condition": "tint_build_mesa"
+    },
     "metal": {
         "IncludePatterns": [
             "Metal/Metal.h"
@@ -81,6 +84,18 @@
         ],
         "Condition": "tint_build_glsl_validator"
     },
+    "vulkan-headers": {
+        "IncludePatterns": [
+            "vulkan/**"
+        ],
+        "Condition": "tint_build_fuzzer_vulkan_support"
+    },
+    "libvulkan": {
+        "IncludePatterns": [
+            "vulkan/**"
+        ],
+        "Condition": "tint_build_fuzzer_vulkan_support"
+    },
     "gtest": {
         "IncludePatterns": [
             "gtest/**",
@@ -101,6 +116,11 @@
     "src_utils": {
         "IncludePatterns": [
             "src/utils/*",
+        ]
+    },
+    "src_utils_chromium_test_compat": {
+        "IncludePatterns": [
+            "src/utils/chromium_test_compat/*"
         ]
     }
 }

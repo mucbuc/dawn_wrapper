@@ -44,6 +44,7 @@ namespace dawn::native {
 class BufferBase;
 class QuerySetBase;
 class TextureBase;
+class ResourceTableBase;
 
 // Info about how a buffer is used and in which shader stages
 struct BufferSyncInfo {
@@ -56,9 +57,8 @@ struct BufferSyncInfo {
 struct TextureSyncInfo {
     wgpu::TextureUsage usage = wgpu::TextureUsage::None;
     wgpu::ShaderStage shaderStages = wgpu::ShaderStage::None;
+    bool operator==(const TextureSyncInfo& b) const = default;
 };
-
-bool operator==(const TextureSyncInfo& a, const TextureSyncInfo& b);
 
 // The texture usage inside passes must be tracked per-subresource.
 using TextureSubresourceSyncInfo = SubresourceStorage<TextureSyncInfo>;
@@ -74,6 +74,7 @@ struct SyncScopeResourceUsage {
     std::vector<TextureSubresourceSyncInfo> textureSyncInfos;
 
     std::vector<ExternalTextureBase*> externalTextures;
+    std::vector<ResourceTableBase*> usedResourceTables;
 };
 
 // Contains all the resource usage data for a compute pass.
@@ -89,6 +90,7 @@ struct ComputePassResourceUsage {
     absl::flat_hash_set<BufferBase*> referencedBuffers;
     absl::flat_hash_set<TextureBase*> referencedTextures;
     absl::flat_hash_set<ExternalTextureBase*> referencedExternalTextures;
+    absl::flat_hash_set<ResourceTableBase*> referencedResourceTables;
 };
 
 // Contains all the resource usage data for a render pass.

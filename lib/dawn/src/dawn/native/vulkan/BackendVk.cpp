@@ -31,7 +31,8 @@
 #include <string>
 #include <utility>
 
-#include "dawn/common/BitSetIterator.h"
+#include "dawn/common/Assert.h"
+#include "dawn/common/GPUInfo.h"
 #include "dawn/common/Log.h"
 #include "dawn/common/SystemUtils.h"
 #include "dawn/native/ChainUtils.h"
@@ -129,16 +130,7 @@ constexpr SkippedMessage kSkippedMessages[] = {
     {"SYNC-HAZARD-WRITE-AFTER-READ",
      "Submitted access info (submitted_usage: SYNC_CLEAR_TRANSFER_WRITE, command: vkCmdFillBuffer"},
 
-    // http://crbug.com/dawn/1916
-    {"SYNC-HAZARD-WRITE-AFTER-WRITE",
-     "Access info (usage: SYNC_COPY_TRANSFER_WRITE, prior_usage: SYNC_COPY_TRANSFER_WRITE, "
-     "write_barriers: 0, command: vkCmdCopyBufferToImage"},
-    {"SYNC-HAZARD-READ-AFTER-WRITE",
-     "Access info (usage: SYNC_COPY_TRANSFER_READ, prior_usage: SYNC_COPY_TRANSFER_WRITE, "
-     "write_barriers: 0, command: vkCmdCopyBufferToImage"},
-    {"SYNC-HAZARD-WRITE-AFTER-WRITE",
-     "Access info (usage: SYNC_IMAGE_LAYOUT_TRANSITION, prior_usage: SYNC_COPY_TRANSFER_WRITE, "
-     "write_barriers: 0, command: vkCmdCopyBufferToImage"},
+    // https://issues.chromium.org/issues/41479545
     {"SYNC-HAZARD-WRITE-AFTER-WRITE",
      "Access info (usage: SYNC_ACCESS_INDEX_NONE, prior_usage: SYNC_CLEAR_TRANSFER_WRITE, "
      "write_barriers: "
@@ -173,22 +165,41 @@ constexpr SkippedMessage kSkippedMessages[] = {
      "vkAllocateMemory(): pAllocateInfo->pNext<VkMemoryDedicatedAllocateInfo>"},
     // crbug.com/324282958
     {"NVIDIA", "vkBindImageMemory: memoryTypeIndex"},
-};
+
+    // crbug.com/441788589
+    {"VUID-vkCmdDraw-None-08114",
+     // vkCmdDraw(): the descriptor
+     "is being used in draw but has never been updated via vkUpdateDescriptorSets() or a similar "
+     "call."},
+
+    // This error gets raised when using MSAARenderToSingleSampled with CreateRenderPass2 because
+    // we have a mismatch in the number of samples in the actual render pass vs. the render pass the
+    // graphics pipeline was created with since we lack MSAARenderToSingleSampled info at pipeline
+    // creation time. This mismatch does not have an effect on any known drivers because they don't
+    // rely on the attachment sample count when rendering with MSAARenderToSingleSampled.
+    // Unfortunately this suppression is overly broad because the check in question is bundled with
+    // all the rest of the render pass compatibility rules. Given that this isn't an issue when
+    // using Dynamic Rendering, however, we should be able to remove the suppression if we ever drop
+    // the CreateRenderPass(2) rendering paths. (ie: if we upgrade to requiring Vulkan 1.3)
+    // http://crbug.com/463893793, https://gitlab.khronos.org/vulkan/vulkan/-/issues/4662
+    {"VUID-vkCmdDraw-renderPass-02684", "The current render pass must be compatible"}};
 
 namespace dawn::native::vulkan {
 
 namespace {
 
+// This should always be sorted such that fallback ICDs are searched first to ensure that we return
+// the correct adapters when users are asking for forced fallback adapters.
 static constexpr ICD kICDs[] = {
+#if defined(DAWN_ENABLE_SWIFTSHADER)
+    ICD::SwiftShader,
+#endif  // defined(DAWN_ENABLE_SWIFTSHADER)
 // Other drivers should not be loaded with MSAN because they don't have MSAN instrumentation.
 // MSAN will produce false positives since it cannot detect changes to memory that the driver
 // has made.
 #if !defined(MEMORY_SANITIZER)
     ICD::None,
 #endif
-#if defined(DAWN_ENABLE_SWIFTSHADER)
-    ICD::SwiftShader,
-#endif  // defined(DAWN_ENABLE_SWIFTSHADER)
 };
 
 // Suppress validation errors that are known. Returns false in that case.
@@ -240,7 +251,7 @@ void LogCallbackData(LogSeverity severity,
 
 VKAPI_ATTR VkBool32 VKAPI_CALL
 OnDebugUtilsCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
-                     VkDebugUtilsMessageTypeFlagsEXT /* messageTypes */,
+                     VkDebugUtilsMessageTypeFlagsEXT messageTypes,
                      const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
                      void* pUserData) {
     if (!ShouldReportDebugMessage(pCallbackData->pMessageIdName, pCallbackData->pMessage)) {
@@ -272,10 +283,12 @@ OnDebugUtilsCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
         }
     }
 
-    // We get to this line if no device was associated with the message. Crash so that the failure
-    // is loud and makes tests fail in Debug.
+    // We get to this line if no device was associated with the message. If the message is a backend
+    // validation error then crash as there should have been a debug label on the object. The
+    // driver can also produce errors even with backend validation disabled so those errors are
+    // just logged.
     LogCallbackData(LogSeverity::Error, pCallbackData);
-    DAWN_ASSERT(false);
+    DAWN_ASSERT(!(messageTypes & VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT));
 
     return VK_FALSE;
 }
@@ -342,28 +355,12 @@ MaybeError VulkanInstance::Initialize(const InstanceBase* instance, ICD icd) {
 
     const std::vector<std::string>& searchPaths = instance->GetRuntimeSearchPaths();
 
-    auto CommaSeparatedResolvedSearchPaths = [&](const char* name) {
-        std::string list;
-        bool first = true;
-        for (const std::string& path : searchPaths) {
-            if (!first) {
-                list += ", ";
-            }
-            first = false;
-            list += (path + name);
-        }
-        return list;
-    };
-
     auto LoadVulkan = [&](const char* libName) -> MaybeError {
-        for (const std::string& path : searchPaths) {
-            std::string resolvedPath = path + libName;
-            if (mVulkanLib.Open(resolvedPath)) {
-                return {};
-            }
+        std::string error;
+        if (mVulkanLib.Open(libName, searchPaths, &error)) {
+            return {};
         }
-        return DAWN_FORMAT_INTERNAL_ERROR("Couldn't load Vulkan. Searched %s.",
-                                          CommaSeparatedResolvedSearchPaths(libName));
+        return DAWN_FORMAT_INTERNAL_ERROR("Couldn't load Vulkan: %s", error.c_str());
     };
 
     switch (icd) {
@@ -398,10 +395,13 @@ MaybeError VulkanInstance::Initialize(const InstanceBase* instance, ICD icd) {
     DAWN_TRY(mFunctions.LoadGlobalProcs(mVulkanLib));
 
     DAWN_TRY_ASSIGN(mGlobalInfo, GatherGlobalInfo(mFunctions));
-    if (icd != ICD::SwiftShader && mGlobalInfo.apiVersion < VK_MAKE_API_VERSION(0, 1, 1, 0)) {
-        // See crbug.com/850881, crbug.com/863086, crbug.com/1465064, crbug.com/346990068
-        return DAWN_INTERNAL_ERROR(
-            "Vulkan 1.0 driver is unsupported. At least Vulkan 1.1 is required.");
+
+    if (mGlobalInfo.apiVersion < kRequiredVulkanVersion) {
+        std::ostringstream versionError;
+        versionError << "Vulkan " << FormatAPIVersion(mGlobalInfo.apiVersion)
+                     << " driver is unsupported. At least Vulkan "
+                     << FormatAPIVersion(kRequiredVulkanVersion) << " is required.";
+        return DAWN_INTERNAL_ERROR(versionError.str());
     }
 
     VulkanGlobalKnobs usedGlobalKnobs = {};
@@ -458,12 +458,9 @@ ResultOrError<VulkanGlobalKnobs> VulkanInstance::CreateVkInstance(const Instance
     usedKnobs.extensions = extensionsToRequest;
 
     std::vector<const char*> extensionNames;
-    for (InstanceExt ext : IterateBitSet(extensionsToRequest)) {
+    for (InstanceExt ext : extensionsToRequest) {
         const InstanceExtInfo& info = GetInstanceExtInfo(ext);
-
-        if (info.versionPromoted > mGlobalInfo.apiVersion) {
-            extensionNames.push_back(info.name);
-        }
+        extensionNames.push_back(info.name);
     }
 
     VkApplicationInfo appInfo;
@@ -473,7 +470,7 @@ ResultOrError<VulkanGlobalKnobs> VulkanInstance::CreateVkInstance(const Instance
     appInfo.applicationVersion = 0;
     appInfo.pEngineName = "Dawn";
     appInfo.engineVersion = 0;
-    appInfo.apiVersion = std::min(mGlobalInfo.apiVersion, VK_API_VERSION_1_3);
+    appInfo.apiVersion = kRequiredVulkanVersion;
 
     VkInstanceCreateInfo createInfo;
     createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
@@ -567,6 +564,16 @@ std::vector<Ref<PhysicalDeviceBase>> Backend::DiscoverPhysicalDevices(
     const UnpackedPtr<RequestAdapterOptions>& options) {
     std::vector<Ref<PhysicalDeviceBase>> physicalDevices;
     InstanceBase* instance = GetInstance();
+
+    auto IsFallbackAdapter = [](const PhysicalDevice* physicalDevice) {
+        // Swiftshader is the only fallback adapter that we currently have.
+        if (gpu_info::IsGoogleSwiftshader(physicalDevice->GetVendorId(),
+                                          physicalDevice->GetDeviceId())) {
+            return true;
+        }
+        return false;
+    };
+
     for (ICD icd : kICDs) {
 #if DAWN_PLATFORM_IS(MACOS)
         // On Mac, we don't expect non-Swiftshader Vulkan to be available.
@@ -574,7 +581,9 @@ std::vector<Ref<PhysicalDeviceBase>> Backend::DiscoverPhysicalDevices(
             continue;
         }
 #endif  // DAWN_PLATFORM_IS(MACOS)
-        if (options->forceFallbackAdapter && icd != ICD::SwiftShader) {
+        // We always search for fallback adapters first, so if we already found one, don't bother
+        // looking for more.
+        if (options->forceFallbackAdapter && !physicalDevices.empty()) {
             continue;
         }
         if (mPhysicalDevices[icd].empty()) {
@@ -602,11 +611,19 @@ std::vector<Ref<PhysicalDeviceBase>> Backend::DiscoverPhysicalDevices(
                 if (instance->ConsumedErrorAndWarnOnce(physicalDevice->Initialize())) {
                     continue;
                 }
+                if (options->forceFallbackAdapter && !IsFallbackAdapter(physicalDevice.Get())) {
+                    continue;
+                }
+                // This loop can't filter adapters based on SupportsFeatureLevel() since the results
+                // are cached for subsequent calls that might have a different feature level.
                 mPhysicalDevices[icd].push_back(std::move(physicalDevice));
             }
         }
-        physicalDevices.insert(physicalDevices.end(), mPhysicalDevices[icd].begin(),
-                               mPhysicalDevices[icd].end());
+        for (auto& physicalDevice : mPhysicalDevices[icd]) {
+            if (physicalDevice->SupportsFeatureLevel(options->featureLevel, instance)) {
+                physicalDevices.push_back(physicalDevice);
+            }
+        }
     }
     return physicalDevices;
 }

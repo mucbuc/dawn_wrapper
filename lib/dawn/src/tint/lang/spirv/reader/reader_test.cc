@@ -35,38 +35,10 @@
 #include "src/tint/lang/core/ir/module.h"
 #include "src/tint/lang/core/ir/validator.h"
 #include "src/tint/lang/spirv/reader/common/helper_test.h"
+#include "src/tint/lang/spirv/reader/helper_test.h"
 
 namespace tint::spirv::reader {
 namespace {
-
-class SpirvReaderTest : public testing::Test {
-  protected:
-    /// Run the reader on a SPIR-V module and return the Tint IR or an error string.
-    /// @param spirv_asm the SPIR-V assembly to read
-    /// @returns the disassembled Tint IR or an error
-    Result<std::string> Run(std::string spirv_asm) {
-        // Assemble the SPIR-V input.
-        auto binary = Assemble(spirv_asm);
-        if (binary != Success) {
-            return binary.Failure();
-        }
-
-        // Read the SPIR-V to produce a core IR module.
-        auto ir = ReadIR(binary.Get());
-        if (ir != Success) {
-            return ir.Failure();
-        }
-
-        // Validate the IR module against the core dialect.
-        auto validated = core::ir::Validate(ir.Get());
-        if (validated != Success) {
-            return validated.Failure();
-        }
-
-        // Return the disassembled IR module.
-        return "\n" + core::ir::Disassembler(ir.Get()).Plain();
-    }
-};
 
 TEST_F(SpirvReaderTest, UnsupportedExtension) {
     auto got = Run(R"(
@@ -83,8 +55,8 @@ TEST_F(SpirvReaderTest, UnsupportedExtension) {
                OpFunctionEnd
 )");
     ASSERT_NE(got, Success);
-    EXPECT_EQ(got.Failure().reason.Str(),
-              "error: SPIR-V extension 'SPV_KHR_variable_pointers' is not supported");
+    EXPECT_EQ(got.Failure().reason,
+              "SPIR-V extension 'SPV_KHR_variable_pointers' is not supported");
 }
 
 TEST_F(SpirvReaderTest, Load_VectorComponent) {
@@ -112,7 +84,7 @@ TEST_F(SpirvReaderTest, Load_VectorComponent) {
     EXPECT_EQ(got, R"(
 %main = @compute @workgroup_size(1u, 1u, 1u) func():void {
   $B1: {
-    %2:ptr<function, vec4<u32>, read_write> = var
+    %2:ptr<function, vec4<u32>, read_write> = var undef
     %3:u32 = load_vector_element %2, 2u
     ret
   }
@@ -146,7 +118,7 @@ TEST_F(SpirvReaderTest, Store_VectorComponent) {
     EXPECT_EQ(got, R"(
 %main = @compute @workgroup_size(1u, 1u, 1u) func():void {
   $B1: {
-    %2:ptr<function, vec4<u32>, read_write> = var
+    %2:ptr<function, vec4<u32>, read_write> = var undef
     store_vector_element %2, 2u, 42u
     ret
   }
@@ -193,16 +165,17 @@ TEST_F(SpirvReaderTest, ShaderInputs) {
     ASSERT_EQ(got, Success);
     EXPECT_EQ(got, R"(
 tint_symbol_2 = struct @align(16) {
-  tint_symbol:vec4<f32> @offset(0), @location(1)
-  tint_symbol_1:vec4<f32> @offset(16), @location(2), @interpolate(linear, center)
+  tint_symbol:vec4<f32> @offset(0)
+  tint_symbol_1:vec4<f32> @offset(16)
 }
 
-%main = @fragment func(%2:vec4<f32> [@position], %3:tint_symbol_2):void {
+%main = @fragment func(%2:vec4<f32> [@position], %3:vec4<f32> [@location(1)], %4:vec4<f32> [@location(2), @interpolate(linear)]):void {
   $B1: {
-    %4:vec4<f32> = access %3, 0u
-    %5:vec4<f32> = access %3, 1u
-    %6:vec4<f32> = mul %4, %5
-    %7:vec4<f32> = add %6, %2
+    %5:tint_symbol_2 = construct %3, %4
+    %6:vec4<f32> = access %5, 0u
+    %7:vec4<f32> = access %5, 1u
+    %8:vec4<f32> = mul %6, %7
+    %9:vec4<f32> = add %8, %2
     ret
   }
 }
@@ -258,12 +231,12 @@ tint_symbol_2 = struct @align(16) {
 tint_symbol_4 = struct @align(16) {
   tint_symbol_3:f32 @offset(0), @builtin(frag_depth)
   tint_symbol:vec4<f32> @offset(16), @location(1)
-  tint_symbol_1:vec4<f32> @offset(32), @location(2), @interpolate(linear, center)
+  tint_symbol_1:vec4<f32> @offset(32), @location(2), @interpolate(linear)
 }
 
 $B1: {  # root
-  %1:ptr<private, f32, read_write> = var
-  %2:ptr<private, tint_symbol_2, read_write> = var
+  %1:ptr<private, f32, read_write> = var undef
+  %2:ptr<private, tint_symbol_2, read_write> = var undef
 }
 
 %main_inner = func():void {
@@ -345,47 +318,45 @@ TEST_F(SpirvReaderTest, ClipDistances) {
 )");
     ASSERT_EQ(got, Success);
     EXPECT_EQ(got, R"(
-tint_symbol_2 = struct @align(16) {
-  tint_symbol:vec4<f32> @offset(0)
-  tint_symbol_1:array<f32, 1> @offset(16)
+VertexOutputs = struct @align(16) {
+  position:vec4<f32> @offset(0)
+  clipDistance:array<f32, 1> @offset(16)
 }
 
-tint_symbol_6 = struct @align(16) {
-  tint_symbol_3:vec4<f32> @offset(0), @builtin(position)
-  tint_symbol_4:array<f32, 1> @offset(16), @builtin(clip_distances)
-  tint_symbol_5:f32 @offset(20), @builtin(__point_size)
+tint_symbol = struct @align(16) {
+  main_position_Output:vec4<f32> @offset(0), @builtin(position)
+  main_clip_distances_Output:array<f32, 1> @offset(16), @builtin(clip_distances)
 }
 
 $B1: {  # root
-  %1:ptr<private, vec4<f32>, read_write> = var
-  %2:ptr<private, array<f32, 1>, read_write> = var
-  %3:ptr<private, f32, read_write> = var
+  %main_position_Output:ptr<private, vec4<f32>, read_write> = var undef
+  %main_clip_distances_Output:ptr<private, array<f32, 1>, read_write> = var undef
+  %main___point_size_Output:ptr<private, f32, read_write> = var 1.0f
 }
 
-%4 = func():tint_symbol_2 {
+%main_inner = func():VertexOutputs {
   $B2: {
-    ret tint_symbol_2(vec4<f32>(0.0f), array<f32, 1>(0.0f))
+    ret VertexOutputs(vec4<f32>(0.0f), array<f32, 1>(0.0f))
   }
 }
-%main_inner = func():void {
+%main_inner_1 = func():void {  # %main_inner_1: 'main_inner'
   $B3: {
-    %6:tint_symbol_2 = call %4
+    %6:VertexOutputs = call %main_inner
     %7:vec4<f32> = access %6, 0u
-    store %1, %7
+    store %main_position_Output, %7
     %8:array<f32, 1> = access %6, 1u
-    store %2, %8
-    store %3, 1.0f
+    store %main_clip_distances_Output, %8
+    store %main___point_size_Output, 1.0f
     ret
   }
 }
-%main = @vertex func():tint_symbol_6 {
+%main = @vertex func():tint_symbol {
   $B4: {
-    %10:void = call %main_inner
-    %11:vec4<f32> = load %1
-    %12:array<f32, 1> = load %2
-    %13:f32 = load %3
-    %14:tint_symbol_6 = construct %11, %12, %13
-    ret %14
+    %10:void = call %main_inner_1
+    %11:vec4<f32> = load %main_position_Output
+    %12:array<f32, 1> = load %main_clip_distances_Output
+    %13:tint_symbol = construct %11, %12
+    ret %13
   }
 }
 )");
@@ -437,18 +408,18 @@ TEST_F(SpirvReaderTest, ClipDistances_gl_PerVertex) {
 )");
     ASSERT_EQ(got, Success);
     EXPECT_EQ(got, R"(
-tint_symbol_2 = struct @align(16) {
-  tint_symbol:vec4<f32> @offset(0)
-  tint_symbol_1:array<f32, 2> @offset(16)
+gl_PerVertex = struct @align(16) {
+  gl_Position:vec4<f32> @offset(0)
+  gl_ClipDistance:array<f32, 2> @offset(16)
 }
 
-tint_symbol_3 = struct @align(16) {
-  tint_symbol:vec4<f32> @offset(0), @builtin(position)
-  tint_symbol_1:array<f32, 2> @offset(16), @builtin(clip_distances)
+tint_symbol = struct @align(16) {
+  gl_Position:vec4<f32> @offset(0), @builtin(position)
+  gl_ClipDistance:array<f32, 2> @offset(16), @builtin(clip_distances)
 }
 
 $B1: {  # root
-  %1:ptr<private, tint_symbol_2, read_write> = var
+  %1:ptr<private, gl_PerVertex, read_write> = var undef
 }
 
 %main_inner = func():void {
@@ -462,14 +433,14 @@ $B1: {  # root
     ret
   }
 }
-%main = @vertex func():tint_symbol_3 {
+%main = @vertex func():tint_symbol {
   $B3: {
     %7:void = call %main_inner
     %8:ptr<private, vec4<f32>, read_write> = access %1, 0u
     %9:vec4<f32> = load %8
     %10:ptr<private, array<f32, 2>, read_write> = access %1, 1u
     %11:array<f32, 2> = load %10
-    %12:tint_symbol_3 = construct %9, %11
+    %12:tint_symbol = construct %9, %11
     ret %12
   }
 }
@@ -511,7 +482,7 @@ TEST_F(SpirvReaderTest, SampleMask) {
     ASSERT_EQ(got, Success);
     EXPECT_EQ(got, R"(
 $B1: {  # root
-  %1:ptr<private, array<u32, 1>, read_write> = var
+  %1:ptr<private, array<u32, 1>, read_write> = var undef
 }
 
 %main_inner = func(%3:array<u32, 1>):void {
@@ -596,49 +567,258 @@ TEST_F(SpirvReaderTest, BlendSrc) {
 
     ASSERT_EQ(got, Success);
     EXPECT_EQ(got, R"(
+FragOutput = struct @align(16) {
+  color:vec4<f32> @offset(0)
+  blend:vec4<f32> @offset(16)
+}
+
+tint_symbol = struct @align(16) {
+  frag_main_loc0_idx0_Output:vec4<f32> @offset(0), @location(0), @blend_src(0)
+  frag_main_loc0_idx1_Output:vec4<f32> @offset(16), @location(0), @blend_src(1)
+}
+
+$B1: {  # root
+  %frag_main_loc0_idx0_Output:ptr<private, vec4<f32>, read_write> = var undef
+  %frag_main_loc0_idx1_Output:ptr<private, vec4<f32>, read_write> = var undef
+}
+
+%frag_main_inner = func():FragOutput {
+  $B2: {
+    %output:ptr<function, FragOutput, read_write> = var FragOutput(vec4<f32>(0.0f))
+    %5:ptr<function, vec4<f32>, read_write> = access %output, 0u
+    store %5, vec4<f32>(0.5f, 0.5f, 0.5f, 1.0f)
+    %6:ptr<function, vec4<f32>, read_write> = access %output, 1u
+    store %6, vec4<f32>(0.5f, 0.5f, 0.5f, 1.0f)
+    %7:FragOutput = load %output
+    ret %7
+  }
+}
+%frag_main_inner_1 = func():void {  # %frag_main_inner_1: 'frag_main_inner'
+  $B3: {
+    %9:FragOutput = call %frag_main_inner
+    %10:vec4<f32> = access %9, 0u
+    store %frag_main_loc0_idx0_Output, %10
+    %11:vec4<f32> = access %9, 1u
+    store %frag_main_loc0_idx1_Output, %11
+    ret
+  }
+}
+%frag_main = @fragment func():tint_symbol {
+  $B4: {
+    %13:void = call %frag_main_inner_1
+    %14:vec4<f32> = load %frag_main_loc0_idx0_Output
+    %15:vec4<f32> = load %frag_main_loc0_idx1_Output
+    %16:tint_symbol = construct %14, %15
+    ret %16
+  }
+}
+)");
+}
+
+TEST_F(SpirvReaderTest, MultipleEntryPoints) {
+    auto got = Run(R"(
+               OpCapability Shader
+               OpCapability SampleRateShading
+               OpMemoryModel Logical GLSL450
+               OpEntryPoint Fragment %fs_main "fs_main" %coord %colors
+               OpEntryPoint GLCompute %cs_main "cs_main"
+               OpExecutionMode %fs_main OriginUpperLeft
+               OpExecutionMode %cs_main LocalSize 1 1 1
+               OpDecorate %coord BuiltIn FragCoord
+               OpDecorate %colors Location 1
+               OpMemberDecorate %str 1 NoPerspective
+       %void = OpTypeVoid
+        %f32 = OpTypeFloat 32
+      %vec4f = OpTypeVector %f32 4
+    %fn_type = OpTypeFunction %void
+        %str = OpTypeStruct %vec4f %vec4f
+        %u32 = OpTypeInt 32 0
+      %u32_0 = OpConstant %u32 0
+      %u32_1 = OpConstant %u32 1
+
+%_ptr_Input_vec4f = OpTypePointer Input %vec4f
+  %_ptr_Input_str = OpTypePointer Input %str
+      %coord = OpVariable %_ptr_Input_vec4f Input
+     %colors = OpVariable %_ptr_Input_str Input
+
+       %fs_main = OpFunction %void None %fn_type
+ %fs_main_start = OpLabel
+   %access_a = OpAccessChain %_ptr_Input_vec4f %colors %u32_0
+   %access_b = OpAccessChain %_ptr_Input_vec4f %colors %u32_1
+          %a = OpLoad %vec4f %access_a
+          %b = OpLoad %vec4f %access_b
+          %c = OpLoad %vec4f %coord
+        %mul = OpFMul %vec4f %a %b
+        %add = OpFAdd %vec4f %mul %c
+               OpReturn
+               OpFunctionEnd
+
+    %cs_main = OpFunction %void None %fn_type
+ %cs_main_start = OpLabel
+               OpReturn
+               OpFunctionEnd
+)");
+    ASSERT_EQ(got, Success);
+    EXPECT_EQ(got, R"(
 tint_symbol_2 = struct @align(16) {
   tint_symbol:vec4<f32> @offset(0)
   tint_symbol_1:vec4<f32> @offset(16)
 }
 
-tint_symbol_5 = struct @align(16) {
-  tint_symbol_3:vec4<f32> @offset(0), @location(0), @blend_src(0)
-  tint_symbol_4:vec4<f32> @offset(16), @location(0), @blend_src(1)
-}
-
-$B1: {  # root
-  %1:ptr<private, vec4<f32>, read_write> = var
-  %2:ptr<private, vec4<f32>, read_write> = var
-}
-
-%3 = func():tint_symbol_2 {
-  $B2: {
-    %4:ptr<function, tint_symbol_2, read_write> = var, tint_symbol_2(vec4<f32>(0.0f))
-    %5:ptr<function, vec4<f32>, read_write> = access %4, 0u
-    store %5, vec4<f32>(0.5f, 0.5f, 0.5f, 1.0f)
-    %6:ptr<function, vec4<f32>, read_write> = access %4, 1u
-    store %6, vec4<f32>(0.5f, 0.5f, 0.5f, 1.0f)
-    %7:tint_symbol_2 = load %4
-    ret %7
-  }
-}
-%frag_main_inner = func():void {
-  $B3: {
-    %9:tint_symbol_2 = call %3
-    %10:vec4<f32> = access %9, 0u
-    store %1, %10
-    %11:vec4<f32> = access %9, 1u
-    store %2, %11
+%fs_main = @fragment func(%2:vec4<f32> [@position], %3:vec4<f32> [@location(1)], %4:vec4<f32> [@location(2), @interpolate(linear)]):void {
+  $B1: {
+    %5:tint_symbol_2 = construct %3, %4
+    %6:vec4<f32> = access %5, 0u
+    %7:vec4<f32> = access %5, 1u
+    %8:vec4<f32> = mul %6, %7
+    %9:vec4<f32> = add %8, %2
     ret
   }
 }
-%frag_main = @fragment func():tint_symbol_5 {
-  $B4: {
-    %13:void = call %frag_main_inner
-    %14:vec4<f32> = load %1
-    %15:vec4<f32> = load %2
-    %16:tint_symbol_5 = construct %14, %15
-    ret %16
+%cs_main = @compute @workgroup_size(1u, 1u, 1u) func():void {
+  $B2: {
+    ret
+  }
+}
+)");
+}
+
+// In Vulkan it is valid to have a texture and sampler with the same set and binding, so we use the
+// `ResolveBindingConflictsPass` SPIR-V tools pass to remove the conflicts.
+// See crbug.com/435251397.
+TEST_F(SpirvReaderTest, ResolveBindingConflicts) {
+    auto got = Run(R"(
+; SPIR-V
+; Version: 1.0
+; Generator: Google spiregg; 0
+; Bound: 40
+; Schema: 0
+               OpCapability Shader
+               OpMemoryModel Logical GLSL450
+               OpEntryPoint Fragment %PS_Viewport "PS_Viewport" %in_var_TEXCOORD0 %out_var_SV_Target
+               OpExecutionMode %PS_Viewport OriginUpperLeft
+               OpSource HLSL 600
+               OpName %type_constants_ "type.constants_"
+               OpMemberName %type_constants_ 0 "constants"
+               OpName %Constants "Constants"
+               OpMemberName %Constants 0 "color"
+               OpMemberName %Constants 1 "scale"
+               OpMemberName %Constants 2 "padding"
+               OpName %constants_ "constants_"
+               OpName %type_2d_image "type.2d.image"
+               OpName %tex "tex"
+               OpName %type_sampler "type.sampler"
+               OpName %samplerTex "samplerTex"
+               OpName %in_var_TEXCOORD0 "in.var.TEXCOORD0"
+               OpName %out_var_SV_Target "out.var.SV_Target"
+               OpName %PS_Viewport "PS_Viewport"
+               OpName %type_sampled_image "type.sampled.image"
+               OpDecorate %in_var_TEXCOORD0 Location 0
+               OpDecorate %out_var_SV_Target Location 0
+               OpDecorate %constants_ DescriptorSet 0
+               OpDecorate %constants_ Binding 0
+               OpDecorate %tex DescriptorSet 0
+               OpDecorate %tex Binding 0
+               OpDecorate %samplerTex DescriptorSet 0
+               OpDecorate %samplerTex Binding 0
+               OpMemberDecorate %Constants 0 Offset 0
+               OpMemberDecorate %Constants 1 Offset 16
+               OpMemberDecorate %Constants 2 Offset 24
+               OpMemberDecorate %type_constants_ 0 Offset 0
+               OpDecorate %type_constants_ Block
+        %int = OpTypeInt 32 1
+      %int_0 = OpConstant %int 0
+      %float = OpTypeFloat 32
+    %float_0 = OpConstant %float 0
+    %v4float = OpTypeVector %float 4
+    %v2float = OpTypeVector %float 2
+  %Constants = OpTypeStruct %v4float %v2float %v2float
+%type_constants_ = OpTypeStruct %Constants
+%_ptr_Uniform_type_constants_ = OpTypePointer Uniform %type_constants_
+%type_2d_image = OpTypeImage %float 2D 2 0 0 1 Unknown
+%_ptr_UniformConstant_type_2d_image = OpTypePointer UniformConstant %type_2d_image
+%type_sampler = OpTypeSampler
+%_ptr_UniformConstant_type_sampler = OpTypePointer UniformConstant %type_sampler
+%_ptr_Input_v2float = OpTypePointer Input %v2float
+%_ptr_Output_v4float = OpTypePointer Output %v4float
+       %void = OpTypeVoid
+         %24 = OpTypeFunction %void
+%_ptr_Uniform_v4float = OpTypePointer Uniform %v4float
+%type_sampled_image = OpTypeSampledImage %type_2d_image
+       %bool = OpTypeBool
+ %constants_ = OpVariable %_ptr_Uniform_type_constants_ Uniform
+        %tex = OpVariable %_ptr_UniformConstant_type_2d_image UniformConstant
+ %samplerTex = OpVariable %_ptr_UniformConstant_type_sampler UniformConstant
+%in_var_TEXCOORD0 = OpVariable %_ptr_Input_v2float Input
+%out_var_SV_Target = OpVariable %_ptr_Output_v4float Output
+%PS_Viewport = OpFunction %void None %24
+         %27 = OpLabel
+         %28 = OpLoad %v2float %in_var_TEXCOORD0
+         %29 = OpAccessChain %_ptr_Uniform_v4float %constants_ %int_0 %int_0
+         %30 = OpLoad %v4float %29
+         %31 = OpLoad %type_2d_image %tex
+         %32 = OpLoad %type_sampler %samplerTex
+         %33 = OpSampledImage %type_sampled_image %31 %32
+         %34 = OpImageSampleImplicitLod %v4float %33 %28 None
+         %35 = OpFMul %v4float %30 %34
+         %36 = OpCompositeExtract %float %35 3
+         %37 = OpFOrdLessThan %bool %36 %float_0
+               OpSelectionMerge %38 None
+               OpBranchConditional %37 %39 %38
+         %39 = OpLabel
+               OpKill
+         %38 = OpLabel
+               OpStore %out_var_SV_Target %35
+               OpReturn
+               OpFunctionEnd
+)");
+    ASSERT_EQ(got, Success);
+    EXPECT_EQ(got, R"(
+Constants = struct @align(16) {
+  color:vec4<f32> @offset(0)
+  scale:vec2<f32> @offset(16)
+  padding:vec2<f32> @offset(24)
+}
+
+type.constants_ = struct @align(16) {
+  constants:Constants @offset(0)
+}
+
+$B1: {  # root
+  %constants_:ptr<uniform, type.constants_, read> = var undef @binding_point(0, 0)
+  %tex:ptr<handle, texture_2d<f32>, read> = var undef @binding_point(0, 1)
+  %samplerTex:ptr<handle, sampler, read> = var undef @binding_point(0, 2)
+  %out.var.SV_Target:ptr<private, vec4<f32>, read_write> = var undef
+}
+
+%PS_Viewport_inner = func(%in.var.TEXCOORD0:vec2<f32>):void {
+  $B2: {
+    %7:ptr<uniform, vec4<f32>, read> = access %constants_, 0i, 0i
+    %8:vec4<f32> = load %7
+    %9:texture_2d<f32> = load %tex
+    %10:sampler = load %samplerTex
+    %11:vec4<f32> = textureSample %9, %10, %in.var.TEXCOORD0
+    %12:vec4<f32> = mul %8, %11
+    %13:f32 = access %12, 3u
+    %14:bool = lt %13, 0.0f
+    if %14 [t: $B3, f: $B4] {  # if_1
+      $B3: {  # true
+        discard
+        ret
+      }
+      $B4: {  # false
+        exit_if  # if_1
+      }
+    }
+    store %out.var.SV_Target, %12
+    ret
+  }
+}
+%PS_Viewport = @fragment func(%in.var.TEXCOORD0_1:vec2<f32> [@location(0)]):vec4<f32> [@location(0)] {  # %in.var.TEXCOORD0_1: 'in.var.TEXCOORD0'
+  $B5: {
+    %17:void = call %PS_Viewport_inner, %in.var.TEXCOORD0_1
+    %18:vec4<f32> = load %out.var.SV_Target
+    ret %18
   }
 }
 )");

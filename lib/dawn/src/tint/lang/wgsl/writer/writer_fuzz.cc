@@ -27,15 +27,15 @@
 
 // GEN_BUILD:CONDITION(tint_build_wgsl_reader)
 
-#include "src/tint/lang/wgsl/writer/writer.h"
-
 #include "src/tint/cmd/fuzz/wgsl/fuzz.h"
+#include "src/tint/lang/wgsl/writer/writer.h"
 
 namespace tint::wgsl::writer {
 namespace {
 
 void WriterFuzzer(const tint::Program& program) {
-    [[maybe_unused]] auto res = tint::wgsl::writer::Generate(program, {});
+    auto output = tint::wgsl::writer::Generate(program);
+    TINT_ASSERT(output == Success) << "Generate() failed: " << output.Failure().reason;
 }
 
 }  // namespace

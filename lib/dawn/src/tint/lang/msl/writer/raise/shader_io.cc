@@ -28,7 +28,6 @@
 #include "src/tint/lang/msl/writer/raise/shader_io.h"
 
 #include <memory>
-#include <utility>
 
 #include "src/tint/lang/core/ir/builder.h"
 #include "src/tint/lang/core/ir/module.h"
@@ -42,21 +41,12 @@ namespace tint::msl::writer::raise {
 
 namespace {
 
-/// State that persists across the whole module and can be shared between entry points.
-struct PerModuleState {
-    /// The frag_depth clamp arguments.
-    core::ir::Value* frag_depth_clamp_args = nullptr;
-};
-
 /// PIMPL state for the parts of the shader IO transform specific to MSL.
 /// For MSL, we take builtin inputs as entry point parameters, move non-builtin inputs to a struct
 /// passed as an entry point parameter, and wrap outputs in a structure returned by the entry point.
 struct StateImpl : core::ir::transform::ShaderIOBackendState {
     /// The configuration options.
     const ShaderIOConfig& config;
-
-    /// The per-module state object.
-    PerModuleState& module_state;
 
     /// The input parameters of the entry point.
     Vector<core::ir::FunctionParam*, 4> input_params;
@@ -77,27 +67,82 @@ struct StateImpl : core::ir::transform::ShaderIOBackendState {
     /// The index of the fixed sample mask builtin, if it was added.
     std::optional<uint32_t> fixed_sample_mask_index;
 
+    std::optional<uint32_t> global_invocation_index_index;
+    std::optional<uint32_t> global_invocation_id_index;
+    std::optional<uint32_t> workgroup_index_index;
+    std::optional<uint32_t> workgroup_id_index;
+    std::optional<uint32_t> num_workgroups_index;
+
     /// Constructor
-    StateImpl(core::ir::Module& mod,
-              core::ir::Function* f,
-              const ShaderIOConfig& cfg,
-              PerModuleState& mod_state)
-        : ShaderIOBackendState(mod, f), config(cfg), module_state(mod_state) {}
+    StateImpl(core::ir::Module& mod, core::ir::Function* f, const ShaderIOConfig& cfg)
+        : ShaderIOBackendState(mod, f), config(cfg) {
+        if (auto wgsize = func->WorkgroupSizeAsConst()) {
+            workgroup_size = wgsize;
+        }
+    }
 
     /// Destructor
     ~StateImpl() override {}
 
     /// @copydoc ShaderIO::BackendState::FinalizeInputs
     Vector<core::ir::FunctionParam*, 4> FinalizeInputs() override {
+        // The following builtin values are polyfilled using other builtin values:
+        // * workgroup_index - workgroup_id and num_workgroups
+        // * global_invocation_index - global_invocation_id, num_workgroups (and workgroup size)
+        const bool has_global_invocation_index =
+            HasBuiltinInput(core::BuiltinValue::kGlobalInvocationIndex);
+        const bool has_workgroup_index = HasBuiltinInput(core::BuiltinValue::kWorkgroupIndex);
+        const bool needs_workgroup_id = has_workgroup_index;
+        if (needs_workgroup_id) {
+            RequireBuiltinInput(core::BuiltinValue::kWorkgroupId, ty.vec3u(), "workgroup_id");
+        }
+        const bool needs_num_workgroups = has_workgroup_index || has_global_invocation_index;
+        if (needs_num_workgroups) {
+            RequireBuiltinInput(core::BuiltinValue::kNumWorkgroups, ty.vec3u(), "num_workgroups");
+        }
+        const bool needs_global_invocation_id = has_global_invocation_index;
+        if (needs_global_invocation_id) {
+            RequireBuiltinInput(core::BuiltinValue::kGlobalInvocationId, ty.vec3u(),
+                                "global_invocation_id");
+        }
+
         Vector<core::type::Manager::StructMemberDesc, 4> input_struct_members;
         core::ir::FunctionParam* input_struct_param = nullptr;
         uint32_t input_struct_param_index = 0xffffffff;
 
         for (auto& input : inputs) {
             if (input.attributes.builtin) {
-                auto* param = b.FunctionParam(input.name.Name(), input.type);
+                auto builtin_value = input.attributes.builtin.value();
+                auto index = static_cast<uint32_t>(input_indices.Length());
+                switch (builtin_value) {
+                    // Record an index for polyfilled inputs.
+                    case core::BuiltinValue::kGlobalInvocationIndex:
+                        input_indices.Push(InputIndex{index, 0u});
+                        global_invocation_index_index = index;
+                        continue;
+                    case core::BuiltinValue::kWorkgroupIndex:
+                        input_indices.Push(InputIndex{index, 0u});
+                        workgroup_index_index = index;
+                        continue;
+                    // Save the indices of the builtins below for use in polyfills.
+                    case core::BuiltinValue::kGlobalInvocationId:
+                        global_invocation_id_index = index;
+                        break;
+                    case core::BuiltinValue::kWorkgroupId:
+                        workgroup_id_index = index;
+                        break;
+                    case core::BuiltinValue::kNumWorkgroups:
+                        num_workgroups_index = index;
+                        break;
+                    default:
+                        break;
+                }
+                auto* param = b.FunctionParam(input.type);
+                if (input.name) {
+                    ir.SetName(param, input.name);
+                }
                 param->SetInvariant(input.attributes.invariant);
-                param->SetBuiltin(input.attributes.builtin.value());
+                param->SetBuiltin(builtin_value);
                 input_indices.Push(InputIndex{static_cast<uint32_t>(input_params.Length()), 0u});
                 input_params.Push(param);
             } else {
@@ -125,7 +170,7 @@ struct StateImpl : core::ir::transform::ShaderIOBackendState {
                     break;
                 case core::ir::Function::PipelineStage::kCompute:
                 case core::ir::Function::PipelineStage::kUndefined:
-                    TINT_UNREACHABLE();
+                    TINT_IR_UNREACHABLE(ir);
             }
             input_struct_param->SetType(input_struct);
         }
@@ -136,8 +181,7 @@ struct StateImpl : core::ir::transform::ShaderIOBackendState {
     /// @copydoc ShaderIO::BackendState::FinalizeOutputs
     const core::type::Type* FinalizeOutputs() override {
         // Add a fixed sample mask builtin for fragment shaders if needed.
-        if (config.fixed_sample_mask != UINT32_MAX &&
-            func->Stage() == core::ir::Function::PipelineStage::kFragment) {
+        if (config.fixed_sample_mask != UINT32_MAX && func->IsFragment()) {
             AddFixedSampleMaskOutput();
         }
 
@@ -154,7 +198,7 @@ struct StateImpl : core::ir::transform::ShaderIOBackendState {
                 break;
             case core::ir::Function::PipelineStage::kCompute:
             case core::ir::Function::PipelineStage::kUndefined:
-                TINT_UNREACHABLE();
+                TINT_IR_UNREACHABLE(ir);
         }
         output_values.Resize(outputs.Length());
         return output_struct;
@@ -162,10 +206,19 @@ struct StateImpl : core::ir::transform::ShaderIOBackendState {
 
     /// @copydoc ShaderIO::BackendState::GetInput
     core::ir::Value* GetInput(core::ir::Builder& builder, uint32_t idx) override {
+        if (idx == global_invocation_index_index) {
+            return PolyfillGlobalInvocationIndex(builder, global_invocation_id_index.value(),
+                                                 num_workgroups_index.value());
+        }
+        if (idx == workgroup_index_index) {
+            return PolyfillWorkgroupIndex(builder, workgroup_id_index.value(),
+                                          num_workgroups_index.value());
+        }
+
         auto index = input_indices[idx];
         auto* param = input_params[index.param_index];
         if (param->Type()->Is<core::type::Struct>()) {
-            return builder.Access(inputs[idx].type, param, u32(index.member_index))->Result(0);
+            return builder.Access(inputs[idx].type, param, u32(index.member_index))->Result();
         } else {
             return param;
         }
@@ -173,11 +226,19 @@ struct StateImpl : core::ir::transform::ShaderIOBackendState {
 
     /// @copydoc ShaderIO::BackendState::SetOutput
     void SetOutput(core::ir::Builder& builder, uint32_t idx, core::ir::Value* value) override {
+        auto& output = outputs[idx];
+
         // If this a sample mask builtin, combine with the fixed sample mask if provided.
         if (config.fixed_sample_mask != UINT32_MAX &&
-            outputs[idx].attributes.builtin == core::BuiltinValue::kSampleMask) {
-            value = builder.And<u32>(value, u32(config.fixed_sample_mask))->Result(0);
+            output.attributes.builtin == core::BuiltinValue::kSampleMask) {
+            value = builder.And(value, u32(config.fixed_sample_mask))->Result();
         }
+
+        // Clamp frag_depth values if necessary.
+        if (output.attributes.builtin == core::BuiltinValue::kFragDepth) {
+            value = ClampFragDepth(builder, value);
+        }
+
         output_values[idx] = value;
     }
 
@@ -201,7 +262,7 @@ struct StateImpl : core::ir::transform::ShaderIOBackendState {
             if (outputs[i].attributes.builtin == core::BuiltinValue::kClipDistances) {
                 // Copy each clip distance to the result array.
                 auto* arr = outputs[i].type->As<core::type::Array>();
-                TINT_ASSERT(arr && arr->ConstantCount());
+                TINT_IR_ASSERT(ir, arr && arr->ConstantCount());
                 for (uint32_t d = 0; d < arr->ConstantCount(); d++) {
                     auto* to = builder.Access<ptr<function, f32>>(result, u32(i), u32(d));
                     auto* from = builder.Access<f32>(output_values[i], u32(d));
@@ -214,7 +275,7 @@ struct StateImpl : core::ir::transform::ShaderIOBackendState {
                     output_values[i]);
             }
         }
-        return builder.Load(result)->Result(0);
+        return builder.Load(result)->Result();
     }
 
     /// @copydoc ShaderIO::BackendState::NeedsVertexPointSize
@@ -232,26 +293,41 @@ struct StateImpl : core::ir::transform::ShaderIOBackendState {
         // Create a new builtin sample mask output.
         fixed_sample_mask_index = AddOutput(ir.symbols.New("tint_sample_mask"), ty.u32(),
                                             core::IOAttributes{
-                                                /* location */ std::nullopt,
-                                                /* index */ std::nullopt,
-                                                /* color */ std::nullopt,
-                                                /* builtin */ core::BuiltinValue::kSampleMask,
-                                                /* interpolation */ std::nullopt,
-                                                /* invariant */ false,
+                                                .builtin = core::BuiltinValue::kSampleMask,
                                             });
     }
+
+    /// Clamp a frag_depth builtin value if necessary.
+    /// @param builder the builder to use for new instructions
+    /// @param frag_depth the incoming frag_depth value
+    /// @returns the clamped value
+    core::ir::Value* ClampFragDepth(core::ir::Builder& builder, core::ir::Value* frag_depth) {
+        if (!config.depth_range_offsets) {
+            return frag_depth;
+        }
+
+        auto* immediate_data = config.immediate_data_layout.var;
+        auto min_idx = u32(config.immediate_data_layout.IndexOf(config.depth_range_offsets->min));
+        auto max_idx = u32(config.immediate_data_layout.IndexOf(config.depth_range_offsets->max));
+        auto* min = builder.Load(builder.Access<ptr<immediate, f32>>(immediate_data, min_idx));
+        auto* max = builder.Load(builder.Access<ptr<immediate, f32>>(immediate_data, max_idx));
+        return builder.Clamp(frag_depth, min, max)->Result();
+    }
 };
+
 }  // namespace
 
 Result<SuccessType> ShaderIO(core::ir::Module& ir, const ShaderIOConfig& config) {
-    auto result = ValidateAndDumpIfNeeded(ir, "msl.ShaderIO");
-    if (result != Success) {
-        return result;
-    }
+    TINT_CHECK_RESULT(ValidateBeforeIfNeeded(ir,
+                                             tint::core::ir::Capabilities{
+                                                 core::ir::Capability::kAllow8BitIntegers,
+                                                 core::ir::Capability::kAllowDuplicateBindings,
+                                                 core::ir::Capability::kAllowNonCoreTypes,
+                                             },
+                                             "msl.ShaderIO"));
 
-    PerModuleState module_state;
     core::ir::transform::RunShaderIOBase(ir, [&](core::ir::Module& mod, core::ir::Function* func) {
-        return std::make_unique<StateImpl>(mod, func, config, module_state);
+        return std::make_unique<StateImpl>(mod, func, config);
     });
 
     return Success;

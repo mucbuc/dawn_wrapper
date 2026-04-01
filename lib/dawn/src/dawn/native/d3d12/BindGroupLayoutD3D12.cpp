@@ -29,7 +29,6 @@
 
 #include <utility>
 
-#include "dawn/common/BitSetIterator.h"
 #include "dawn/common/MatchVariant.h"
 #include "dawn/native/d3d12/DeviceD3D12.h"
 #include "dawn/native/d3d12/SamplerD3D12.h"
@@ -50,8 +49,11 @@ D3D12_DESCRIPTOR_RANGE_TYPE WGPUBindingInfoToDescriptorRangeType(const BindingIn
                 case kInternalStorageBufferBinding:
                     return D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
                 case wgpu::BufferBindingType::ReadOnlyStorage:
+                case kInternalReadOnlyStorageBufferBinding:
                     return D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+                case wgpu::BufferBindingType::BindingNotUsed:
                 case wgpu::BufferBindingType::Undefined:
+                default:
                     DAWN_UNREACHABLE();
             }
         },
@@ -71,36 +73,55 @@ D3D12_DESCRIPTOR_RANGE_TYPE WGPUBindingInfoToDescriptorRangeType(const BindingIn
                     return D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
                 case wgpu::StorageTextureAccess::ReadOnly:
                     return D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+                case wgpu::StorageTextureAccess::BindingNotUsed:
                 case wgpu::StorageTextureAccess::Undefined:
+                default:
                     DAWN_UNREACHABLE();
             }
         },
+        [](const TexelBufferBindingInfo&) -> D3D12_DESCRIPTOR_RANGE_TYPE {
+            // D3D12 does not support texel buffers.
+            // TODO(crbug/382544164): Prototype texel buffer feature
+            DAWN_UNREACHABLE();
+        },
         [](const InputAttachmentBindingInfo&) -> D3D12_DESCRIPTOR_RANGE_TYPE {
             DAWN_UNREACHABLE();
-            return D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+        },
+        [](const ExternalTextureBindingInfo&) -> D3D12_DESCRIPTOR_RANGE_TYPE {
+            DAWN_UNREACHABLE();
         });
 }
 }  // anonymous namespace
 
 // static
-Ref<BindGroupLayout> BindGroupLayout::Create(Device* device,
-                                             const BindGroupLayoutDescriptor* descriptor) {
+Ref<BindGroupLayout> BindGroupLayout::Create(
+    Device* device,
+    const UnpackedPtr<BindGroupLayoutDescriptor>& descriptor) {
     return AcquireRef(new BindGroupLayout(device, descriptor));
 }
 
-BindGroupLayout::BindGroupLayout(Device* device, const BindGroupLayoutDescriptor* descriptor)
+BindGroupLayout::BindGroupLayout(Device* device,
+                                 const UnpackedPtr<BindGroupLayoutDescriptor>& descriptor)
     : BindGroupLayoutInternalBase(device, descriptor),
       mDescriptorHeapOffsets(GetBindingCount()),
       mShaderRegisters(GetBindingCount()),
       mCbvUavSrvDescriptorCount(0),
       mSamplerDescriptorCount(0),
+      mViewSizeIncrement(0),
       mBindGroupAllocator(MakeFrontendBindGroupAllocator<BindGroup>(4096)) {
     for (BindingIndex bindingIndex{0}; bindingIndex < GetBindingCount(); ++bindingIndex) {
         const BindingInfo& bindingInfo = GetBindingInfo(bindingIndex);
 
+        // Skip over bindings that cannot be seen by any shaders as they could cause us to create
+        // bindgroups much larger than what the rest of the backend expects (like 1000 samplers at
+        // once).
+        if (bindingInfo.visibility == wgpu::ShaderStage::None) {
+            continue;
+        }
+
         D3D12_DESCRIPTOR_RANGE_TYPE descriptorRangeType =
             WGPUBindingInfoToDescriptorRangeType(bindingInfo);
-        mShaderRegisters[bindingIndex] = uint32_t(bindingInfo.binding);
+        mShaderRegisters[bindingIndex] = uint32_t(bindingIndex);
 
         // Static samplers aren't stored in the descriptor heap. Handle them separately.
         if (std::holds_alternative<StaticSamplerBindingInfo>(bindingInfo.bindingLayout)) {
@@ -129,13 +150,11 @@ BindGroupLayout::BindGroupLayout(Device* device, const BindGroupLayoutDescriptor
             continue;
         }
 
-        // For dynamic resources, Dawn uses root descriptor in D3D12 backend. So there is no
-        // need to allocate the descriptor from descriptor heap or create descriptor ranges.
-        if (bindingIndex < GetDynamicBufferCount()) {
+        // For dynamic uniform buffers, Dawn uses root descriptors in the D3D12 backend. So there is
+        // no need to allocate the descriptor from the descriptor heap or create descriptor ranges.
+        if (bindingIndex < GetDynamicBufferCount() && !IsStorageBufferBinding(bindingIndex)) {
             continue;
         }
-        DAWN_ASSERT(!std::holds_alternative<BufferBindingInfo>(bindingInfo.bindingLayout) ||
-                    !std::get<BufferBindingInfo>(bindingInfo.bindingLayout).hasDynamicOffset);
 
         mDescriptorHeapOffsets[bindingIndex] =
             descriptorRangeType == D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER
@@ -186,9 +205,16 @@ BindGroupLayout::BindGroupLayout(Device* device, const BindGroupLayoutDescriptor
             [](const StorageTextureBindingInfo&) -> D3D12_DESCRIPTOR_RANGE_FLAGS {
                 return D3D12_DESCRIPTOR_RANGE_FLAG_DATA_VOLATILE;
             },
+            [](const TexelBufferBindingInfo&) -> D3D12_DESCRIPTOR_RANGE_FLAGS {
+                // D3D12 does not support texel buffers.
+                // TODO(crbug/382544164): Prototype texel buffer feature
+                DAWN_UNREACHABLE();
+            },
             [](const InputAttachmentBindingInfo&) -> D3D12_DESCRIPTOR_RANGE_FLAGS {
                 DAWN_UNREACHABLE();
-                return D3D12_DESCRIPTOR_RANGE_FLAG_DATA_VOLATILE;
+            },
+            [](const ExternalTextureBindingInfo&) -> D3D12_DESCRIPTOR_RANGE_FLAGS {
+                DAWN_UNREACHABLE();
             });
 
         std::vector<D3D12_DESCRIPTOR_RANGE1>& descriptorRanges =
@@ -198,9 +224,9 @@ BindGroupLayout::BindGroupLayout(Device* device, const BindGroupLayoutDescriptor
         // Try to join this range with the previous one, if the current range is a continuation
         // of the previous. This is possible because the binding infos in the base type are
         // sorted.
-        if (descriptorRanges.size() >= 2) {
+        if (!descriptorRanges.empty()) {
             D3D12_DESCRIPTOR_RANGE1& previous = descriptorRanges.back();
-            if (previous.RangeType == range.RangeType &&
+            if (previous.RangeType == range.RangeType && previous.Flags == range.Flags &&
                 previous.BaseShaderRegister + previous.NumDescriptors == range.BaseShaderRegister) {
                 previous.NumDescriptors += range.NumDescriptors;
                 continue;
@@ -209,46 +235,58 @@ BindGroupLayout::BindGroupLayout(Device* device, const BindGroupLayoutDescriptor
 
         descriptorRanges.push_back(range);
     }
-
-    mViewAllocator = device->GetViewStagingDescriptorAllocator(GetCbvUavSrvDescriptorCount());
-    mSamplerAllocator = device->GetSamplerStagingDescriptorAllocator(GetSamplerDescriptorCount());
+    if (mCbvUavSrvDescriptorCount > 0) {
+        auto* viewAllocator = device->GetViewStagingDescriptorAllocator(mCbvUavSrvDescriptorCount);
+        mViewSizeIncrement = (*viewAllocator)->GetSizeIncrement();
+    }
 }
 
 ResultOrError<Ref<BindGroup>> BindGroupLayout::AllocateBindGroup(
     Device* device,
-    const BindGroupDescriptor* descriptor) {
-    uint32_t viewSizeIncrement = 0;
+    const UnpackedPtr<BindGroupDescriptor>& descriptor) {
     CPUDescriptorHeapAllocation viewAllocation;
     if (GetCbvUavSrvDescriptorCount() > 0) {
-        DAWN_ASSERT(mViewAllocator != nullptr);
-        DAWN_TRY((*mViewAllocator).Use([&](auto viewAllocator) -> MaybeError {
+        auto* viewAllocator =
+            device->GetViewStagingDescriptorAllocator(GetCbvUavSrvDescriptorCount());
+        DAWN_ASSERT(viewAllocator != nullptr);
+        DAWN_TRY((*viewAllocator).Use([&](auto viewAllocator) -> MaybeError {
             DAWN_TRY_ASSIGN(viewAllocation, viewAllocator->AllocateCPUDescriptors());
-            viewSizeIncrement = viewAllocator->GetSizeIncrement();
             return {};
         }));
     }
 
-    Ref<BindGroup> bindGroup = AcquireRef<BindGroup>(
-        mBindGroupAllocator->Allocate(device, descriptor, viewSizeIncrement, viewAllocation));
+    Ref<BindGroup> bindGroup =
+        AcquireRef<BindGroup>(mBindGroupAllocator->Allocate(device, descriptor, viewAllocation));
+
+    // The bindgroup must be initialized before getting a sampler heap cache entry because we need
+    // to look at the contents of the bind group to deduplicate the sampler heap allocation.
+    DAWN_TRY(bindGroup->Initialize(descriptor));
 
     if (GetSamplerDescriptorCount() > 0) {
-        DAWN_ASSERT(mSamplerAllocator != nullptr);
         Ref<SamplerHeapCacheEntry> samplerHeapCacheEntry;
-        DAWN_TRY_ASSIGN(samplerHeapCacheEntry, device->GetSamplerHeapCache()->GetOrCreate(
-                                                   bindGroup.Get(), *mSamplerAllocator));
+        DAWN_TRY_ASSIGN(samplerHeapCacheEntry,
+                        device->GetSamplerHeapCache()->GetOrCreate(bindGroup.Get()));
         bindGroup->SetSamplerAllocationEntry(std::move(samplerHeapCacheEntry));
     }
 
     return bindGroup;
 }
 
-void BindGroupLayout::DeallocateBindGroup(BindGroup* bindGroup,
-                                          CPUDescriptorHeapAllocation* viewAllocation) {
-    if (viewAllocation->IsValid()) {
-        (*mViewAllocator)->Deallocate(viewAllocation);
-    }
-
+void BindGroupLayout::DeallocateBindGroup(BindGroup* bindGroup) {
     mBindGroupAllocator->Deallocate(bindGroup);
+}
+
+void BindGroupLayout::DeallocateDescriptor(CPUDescriptorHeapAllocation* viewAllocation) {
+    if (viewAllocation->IsValid()) {
+        Device* device = ToBackend(GetDevice());
+        auto* viewAllocator =
+            device->GetViewStagingDescriptorAllocator(GetCbvUavSrvDescriptorCount());
+        (*viewAllocator)->Deallocate(viewAllocation);
+    }
+}
+
+void BindGroupLayout::ReduceMemoryUsage() {
+    mBindGroupAllocator->DeleteEmptySlabs();
 }
 
 ityp::span<BindingIndex, const uint32_t> BindGroupLayout::GetDescriptorHeapOffsets() const {
@@ -265,6 +303,10 @@ uint32_t BindGroupLayout::GetCbvUavSrvDescriptorCount() const {
 
 uint32_t BindGroupLayout::GetSamplerDescriptorCount() const {
     return mSamplerDescriptorCount;
+}
+
+uint32_t BindGroupLayout::GetViewSizeIncrement() const {
+    return mViewSizeIncrement;
 }
 
 const std::vector<D3D12_DESCRIPTOR_RANGE1>& BindGroupLayout::GetCbvUavSrvDescriptorRanges() const {

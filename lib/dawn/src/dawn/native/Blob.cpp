@@ -25,11 +25,12 @@
 // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+#include "dawn/native/Blob.h"
+
 #include <utility>
 
 #include "dawn/common/Assert.h"
 #include "dawn/common/Math.h"
-#include "dawn/native/Blob.h"
 #include "dawn/native/stream/Stream.h"
 
 namespace dawn::native {
@@ -95,6 +96,13 @@ uint8_t* Blob::Data() {
 
 size_t Blob::Size() const {
     return mSize;
+}
+
+bool Blob::operator==(const Blob& other) const {
+    if (other.Size() != Size()) {
+        return false;
+    }
+    return 0 == memcmp(Data(), other.Data(), Size());
 }
 
 template <>

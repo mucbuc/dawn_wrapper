@@ -31,7 +31,6 @@
 #include <vector>
 
 #include "dawn/native/RenderPipeline.h"
-
 #include "dawn/native/opengl/PipelineGL.h"
 #include "dawn/native/opengl/opengl_platform.h"
 
@@ -47,21 +46,25 @@ class RenderPipeline final : public RenderPipelineBase, public PipelineGL {
         const UnpackedPtr<RenderPipelineDescriptor>& descriptor);
 
     GLenum GetGLPrimitiveTopology() const;
+    GLuint GetVertexArrayObject() const;
+    GLuint GetProgramHandle() const;
+
     VertexAttributeMask GetAttributesUsingVertexBuffer(VertexBufferSlot slot) const;
 
-    void ApplyNow(PersistentPipelineState& persistentPipelineState);
+    MaybeError ApplyNow(const OpenGLFunctions& gl,
+                        PersistentPipelineState& persistentPipelineState);
 
     MaybeError InitializeImpl() override;
 
   private:
     RenderPipeline(Device* device, const UnpackedPtr<RenderPipelineDescriptor>& descriptor);
     ~RenderPipeline() override;
-    void DestroyImpl() override;
+    void DestroyImpl(DestroyReason reason) override;
 
-    void CreateVAOForVertexState();
+    MaybeError CreateVAOForVertexState(const OpenGLFunctions& gl);
 
-    void ApplyDepthStencilState(const OpenGLFunctions& gl,
-                                PersistentPipelineState* persistentPipelineState);
+    MaybeError ApplyDepthStencilState(const OpenGLFunctions& gl,
+                                      PersistentPipelineState* persistentPipelineState);
 
     // TODO(yunchao.he@intel.com): vao need to be deduplicated between pipelines.
     GLuint mVertexArrayObject;

@@ -27,11 +27,17 @@
 
 // GEN_BUILD:CONDITION(tint_build_is_win)
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/439062058): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "src/tint/utils/command/command.h"
 
 #define WIN32_LEAN_AND_MEAN 1
 #include <Windows.h>
 #include <dbghelp.h>
+
 #include <string>
 
 #include "src/tint/utils/macros/defer.h"
@@ -130,6 +136,7 @@ bool ExecutableExists(const std::string& path) {
     }
 
     void* addr_header = MapViewOfFileEx(map, FILE_MAP_READ, 0, 0, 0, nullptr);
+    TINT_DEFER(UnmapViewOfFile(addr_header));
 
     // Dynamically obtain the address of, and call ImageNtHeader. This is done to avoid tint.exe
     // needing to statically link Dbghelp.lib.

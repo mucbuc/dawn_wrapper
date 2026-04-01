@@ -27,14 +27,21 @@
 
 import("../../../scripts/dawn_overrides_with_defaults.gni")
 
+import("${dawn_root}/scripts/dawn_features.gni")
+
 group("samples") {
   deps = [
     ":Animometer",
     ":ComputeBoids",
-    ":DawnInfo",
     ":HelloTriangle",
-    ":ManualSurfaceTest",
   ]
+
+  if (dawn_supports_glfw_for_windowing) {
+    deps += [
+      ":DawnInfo",
+      ":ManualSurfaceTest",
+    ]
+  }
 }
 
 # Static library to contain code and dependencies common to all samples
@@ -48,10 +55,17 @@ static_library("utils") {
   public_deps = [
     "${dawn_root}/include/dawn:cpp_headers",
     "${dawn_root}/src/dawn/common",
-    "${dawn_root}/src/dawn/glfw",
-    "${dawn_root}/src/dawn/native",
-    "${dawn_root}/src/dawn/utils",
+    "${dawn_root}/src/dawn/partition_alloc:raw_ptr",
+    "${dawn_root}/src/dawn/utils:system_utils",
+    "${dawn_root}/src/dawn/utils:wgpu_utils",
   ]
+
+  if (dawn_supports_glfw_for_windowing) {
+    public_deps += [
+      "${dawn_root}/src/dawn/glfw",
+      "${dawn_root}/src/dawn/native",
+    ]
+  }
 }
 
 # Template for samples to avoid listing utils as a dep every time
@@ -62,6 +76,14 @@ template("sample") {
 
     if (defined(invoker.deps)) {
       deps += invoker.deps
+    }
+
+    if (is_wasm) {
+      # The Dawn samples require either JSPI or Asyncify to run.
+      ldflags = [
+        "-Wno-experimental",  # -sJSPI is experimental.
+        "-sJSPI",
+      ]
     }
   }
 }
@@ -78,10 +100,12 @@ sample("Animometer") {
   sources = [ "Animometer.cpp" ]
 }
 
-sample("ManualSurfaceTest") {
-  sources = [ "ManualSurfaceTest.cpp" ]
-}
+if (dawn_supports_glfw_for_windowing) {
+  sample("ManualSurfaceTest") {
+    sources = [ "ManualSurfaceTest.cpp" ]
+  }
 
-sample("DawnInfo") {
-  sources = [ "DawnInfo.cpp" ]
+  sample("DawnInfo") {
+    sources = [ "DawnInfo.cpp" ]
+  }
 }

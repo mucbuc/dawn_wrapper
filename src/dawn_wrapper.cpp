@@ -43,18 +43,19 @@ struct dawn_plugin::dawn_pimpl {
     {
         instance.RequestAdapter(
             nullptr,
-            [](auto status, auto adapter, auto message, auto userdata) {
+            CallbackMode::AllowSpontaneous,
+            [](RequestAdapterStatus status, Adapter adapter, const char * message, void * userdata) {
                 auto pimpl = reinterpret_cast<dawn_pimpl*>(userdata);
-                if (status != WGPURequestAdapterStatus_Success) {
+                if (status != RequestAdapterStatus::Success) {
                     pimpl->log_error("error requesting webgpu device adapter");
                     pimpl->m_loaded_callback();
                     return;
                 }
 
-                pimpl->m_adapter = Adapter::Acquire(adapter);
+                pimpl->m_adapter = adapter;
                 pimpl->request_device(pimpl->m_adapter, pimpl->m_label.c_str());
             },
-            this);
+            (void*) this);
     }
 
     void request_device(Adapter adapter, const char* label = "")
@@ -70,25 +71,23 @@ struct dawn_plugin::dawn_pimpl {
 #endif
 
         DeviceDescriptor deviceDesc = {};
-        RequiredLimits requiredLimits = {};
+        Limits requiredLimits = {};
         //        requiredLimits.limits.maxStorageBuffersPerShaderStage = 10;
         //        requiredLimits.limits.maxSamplersPerShaderStage = 1;
         deviceDesc.requiredLimits = &requiredLimits;
 
 #ifndef __EMSCRIPTEN__
-        deviceDesc.deviceLostCallbackInfo.callback = [](auto device, auto reason, auto message, auto userdata) {
+        deviceDesc.SetDeviceLostCallback(CallbackMode::AllowSpontaneous, [](const wgpu::Device & device, wgpu::DeviceLostReason reason, wgpu::StringView message, void * userdata) {
             auto pimpl = reinterpret_cast<dawn_pimpl*>(userdata);
             pimpl->log_error("device lost: ", message);
-        };
-        deviceDesc.deviceLostCallbackInfo.userdata = this;
+        }, (void*) this);
 
-        deviceDesc.uncapturedErrorCallbackInfo.callback = [](auto type, auto message, auto userdata) {
+        deviceDesc.SetUncapturedErrorCallback([](const wgpu::Device & device, wgpu::ErrorType type, wgpu::StringView message, void * userdata) {
             auto pimpl = reinterpret_cast<dawn_pimpl*>(userdata);
             pimpl->log_error("error: ", message);
 
             ASSERT(false);
-        };
-        deviceDesc.uncapturedErrorCallbackInfo.userdata = this;
+        }, (void *) this);
 #endif
 
 #if 1
@@ -99,26 +98,28 @@ struct dawn_plugin::dawn_pimpl {
 
         deviceDesc.label = label;
         adapter.RequestDevice(
-            &deviceDesc, [](auto status, auto device, auto message, auto userdata) {
+            &deviceDesc, CallbackMode::AllowSpontaneous, [](RequestDeviceStatus status, Device device, const char * message, void * userdata) {
+
                 auto pimpl = reinterpret_cast<dawn_pimpl*>(userdata);
-                if (status != WGPURequestDeviceStatus_Success) {
+                if (status != RequestDeviceStatus::Success) {
                     pimpl->log_error("error requesting webgpu device");
                     return;
                 }
 
-                pimpl->m_device = Device::Acquire(device);
+                pimpl->m_device = device;
 
 #ifndef __EMSCRIPTEN__
-                pimpl->m_device.SetLoggingCallback([](auto type, auto message, auto userdata) {
+
+                pimpl->m_device.SetLoggingCallback([](LoggingType type, const char * message, void * userdata) {
                     auto pimpl = reinterpret_cast<dawn_pimpl*>(userdata);
                     pimpl->log_error("error requesting webgpu device");
                 },
-                    pimpl);
+                (void*)pimpl);
 #endif
 
                 pimpl->m_loaded_callback();
             },
-            this);
+            (void*) this);
     }
 
     bool run()

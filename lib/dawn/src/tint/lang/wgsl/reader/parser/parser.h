@@ -29,13 +29,14 @@
 #define SRC_TINT_LANG_WGSL_READER_PARSER_PARSER_H_
 
 #include <memory>
+#include <span>
 #include <string>
 #include <string_view>
 #include <unordered_map>
 #include <utility>
 #include <vector>
 
-#include "src/tint/lang/core/access.h"
+#include "src/tint/lang/core/enums.h"
 #include "src/tint/lang/wgsl/program/program_builder.h"
 #include "src/tint/lang/wgsl/reader/parser/detail.h"
 #include "src/tint/lang/wgsl/reader/parser/token.h"
@@ -890,7 +891,7 @@ class Parser {
     template <typename ENUM>
     Expect<ENUM> expect_enum(std::string_view name,
                              ENUM (*parse)(std::string_view str),
-                             Slice<const std::string_view> strings,
+                             std::span<const std::string_view> strings,
                              std::string_view use = "");
 
     Expect<ast::Type> expect_type(std::string_view use);

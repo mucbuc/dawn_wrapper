@@ -40,6 +40,7 @@ struct D3D12DeviceInfo {
     bool isUMA;
     bool isCacheCoherentUMA;
     uint32_t resourceHeapTier;
+    uint32_t resourceBindingTier;
     bool supportsRenderPass;
     // Whether the device support native 16bit shader ops, required for shader f16 feature. Note
     // that the feature also requires using shader model version >= 6.2.
@@ -54,8 +55,10 @@ struct D3D12DeviceInfo {
     bool use64KBAlignedMSAATexture;
     bool supportsHeapFlagCreateNotZeroed;
     bool supportsTextureCopyBetweenDimensions;
+    bool supportsUnrestrictedBufferTextureCopyPitch;
     // Whether the device support wave intrinsics
     bool supportsWaveOps;
+    bool supportsExistingHeap;
     uint32_t waveLaneCountMin;
     // Currently the WaveLaneCountMax queried from D3D12 API is not reliable and the meaning is
     // unclear. Reference:

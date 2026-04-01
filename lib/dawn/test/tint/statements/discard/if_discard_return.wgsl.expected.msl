@@ -1,10 +1,22 @@
 #include <metal_stdlib>
-
 using namespace metal;
-void f(bool cond) {
+
+struct tint_module_vars_struct {
+  thread bool* continue_execution;
+};
+
+void f(bool cond, tint_module_vars_struct tint_module_vars) {
   if (cond) {
-    discard_fragment();
+    (*tint_module_vars.continue_execution) = false;
     return;
   }
 }
 
+fragment void v() {
+  thread bool continue_execution = true;
+  tint_module_vars_struct const tint_module_vars = tint_module_vars_struct{.continue_execution=(&continue_execution)};
+  f(false, tint_module_vars);
+  if (!((*tint_module_vars.continue_execution))) {
+    discard_fragment();
+  }
+}

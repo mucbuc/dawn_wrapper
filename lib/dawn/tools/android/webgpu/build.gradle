@@ -29,36 +29,38 @@ plugins {
     id 'com.android.library'
     id 'maven-publish'
     id 'org.jetbrains.kotlin.android'
+    id 'com.android.application' apply false
 }
 
 android {
     namespace 'net.android.webgpu'
     defaultConfig {
-        minSdkVersion 26
+        minSdkVersion 24
         compileSdk 34
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
         externalNativeBuild {
             cmake {
                 arguments '-DANDROID_STL=c++_shared'
                 version '3.22.1'
-                targets 'webgpu_c_bundled'
+                targets 'webgpu_c_bundled', 'webgpu_wrapper_tests'
             }
         }
     }
-
     externalNativeBuild {
         cmake {
             path file('src/main/cpp/CMakeLists.txt')
         }
     }
-
     buildFeatures {
+        prefab true
         prefabPublishing true
     }
-
     prefab {
         webgpu_c_bundled {
             headers "src/main/cpp/gen/include"
+        }
+        webgpu_wrapper_tests {
+            name "webgpu_wrapper_tests"
         }
     }
     kotlinOptions {
@@ -75,23 +77,46 @@ android {
             java.srcDirs += "$project.projectDir/../../../out/Debug/gen/java"
         }
     }
+    packagingOptions {
+        pickFirst 'lib/x86/libc++_shared.so'
+        pickFirst 'lib/x86_64/libc++_shared.so'
+        pickFirst 'lib/armeabi-v7a/libc++_shared.so'
+        pickFirst 'lib/arm64-v8a/libc++_shared.so'
+    }
     ndkVersion '27.0.12077973'
+}
+
+androidComponents {
+    onVariants(selector().all()) { variant ->
+        variant.sources.assets.addStaticSourceDirectory('meta')
+    }
 }
 
 dependencies {
     implementation 'androidx.core:core-ktx:1.13.1'
+    implementation 'androidx.test.ext:junit-gtest:1.0.0-alpha01'
+    implementation 'com.android.ndk.thirdparty:googletest:1.11.0-beta-1'
 
     testImplementation 'junit:junit:4.13.2'
     testImplementation 'org.reflections:reflections:0.10.2'
     testImplementation("org.jetbrains.kotlin:kotlin-reflect")
     testImplementation("org.jetbrains.kotlin:kotlin-test")
-    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.6.4")
-    testImplementation("org.mockito:mockito-core:5.12.0")
-    testImplementation("org.mockito.kotlin:mockito-kotlin:5.3.1")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
+    testImplementation("org.mockito:mockito-core:4.8.0")
+    testImplementation("org.mockito.kotlin:mockito-kotlin:4.0.0")
+    testImplementation("com.linkedin.dexmaker:dexmaker-mockito-inline:2.28.6")
+    testImplementation("net.bytebuddy:byte-buddy:1.14.9")
 
-    androidTestImplementation 'androidx.test.ext:junit-ktx:1.2.1'
-    androidTestImplementation 'androidx.test:runner:1.6.1'
-    androidTestImplementation 'org.jetbrains.kotlinx:kotlinx-coroutines-test:1.6.4'
+    androidTestImplementation 'androidx.test.ext:junit-ktx:1.3.0'
+    androidTestImplementation 'androidx.test:runner:1.7.0'
+    androidTestImplementation 'org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0'
+
+    androidTestUtil 'androidx.test:orchestrator:1.5.1'
+}
+
+tasks.register('sourcesJar', Jar) {
+    archiveClassifier.set('sources')
+    from android.sourceSets.main.java.srcDirs
 }
 
 project.afterEvaluate {
@@ -102,6 +127,7 @@ project.afterEvaluate {
                 setArtifactId 'webgpu'
                 version '1.1.34'
                 artifact bundleReleaseAar
+                artifact sourcesJar
             }
         }
     }
@@ -115,9 +141,15 @@ tasks.register('generateBindings', Exec) {
     '--dawn-json', 'src/dawn/dawn.json',
     '--targets', 'kotlin',
     '--kotlin-json', 'src/dawn/dawn_kotlin.json',
-    '--jinja2-path', 'third_party/jinja2'
+    '--jinja2-path', 'third_party/jinja2',
+    '--webgpu-kt-docs', 'src/dawn/webgpu_kt_docs.json'
+}
+
+tasks.register('createDirectory', Exec) {
+    commandLine 'mkdir', '-p', 'src/main/cpp/gen/include'
 }
 
 preBuild {
+    dependsOn createDirectory
     dependsOn generateBindings
 }

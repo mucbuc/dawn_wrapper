@@ -29,9 +29,8 @@
 #define SRC_DAWN_NATIVE_D3D_PHYSICALDEVICED3D_H_
 
 #include "dawn/native/PhysicalDevice.h"
-#include "partition_alloc/pointers/raw_ptr.h"
-
 #include "dawn/native/d3d/d3d_platform.h"
+#include "partition_alloc/pointers/raw_ptr.h"
 
 namespace dawn::native::d3d {
 
@@ -40,11 +39,11 @@ class Backend;
 class PhysicalDevice : public PhysicalDeviceBase {
   public:
     PhysicalDevice(Backend* backend,
-                   ComPtr<IDXGIAdapter4> hardwareAdapter,
+                   ComPtr<IDXGIAdapter3> hardwareAdapter,
                    wgpu::BackendType backendType);
     ~PhysicalDevice() override;
 
-    IDXGIAdapter4* GetHardwareAdapter() const;
+    IDXGIAdapter3* GetHardwareAdapter() const;
     Backend* GetBackend() const;
 
     ResultOrError<PhysicalDeviceSurfaceCapabilities> GetSurfaceCapabilities(
@@ -55,7 +54,7 @@ class PhysicalDevice : public PhysicalDeviceBase {
     MaybeError InitializeImpl() override;
 
   private:
-    ComPtr<IDXGIAdapter4> mHardwareAdapter;
+    ComPtr<IDXGIAdapter3> mHardwareAdapter;
     raw_ptr<Backend> mBackend;
 };
 

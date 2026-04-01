@@ -43,7 +43,6 @@ namespace {
 
 using testing::_;
 using testing::EmptySizedString;
-using testing::Invoke;
 using testing::InvokeWithoutArgs;
 using testing::IsNull;
 using testing::NonEmptySizedString;
@@ -52,7 +51,7 @@ using testing::Return;
 using testing::SizedString;
 using testing::WithArg;
 
-using WireAdapterTestBase = WireFutureTest<wgpu::RequestDeviceCallback2<void>*>;
+using WireAdapterTestBase = WireFutureTest<wgpu::RequestDeviceCallback<void>*>;
 class WireAdapterTests : public WireAdapterTestBase {
   protected:
     void RequestDevice(const wgpu::DeviceDescriptor* descriptor) {
@@ -69,16 +68,16 @@ TEST_P(WireAdapterTests, RequestDeviceEmptyDescriptor) {
     wgpu::DeviceDescriptor desc = {};
     RequestDevice(&desc);
 
-    EXPECT_CALL(api, OnAdapterRequestDevice2(apiAdapter, NotNull(), _))
-        .WillOnce(WithArg<1>(Invoke([&](const WGPUDeviceDescriptor* apiDesc) {
+    EXPECT_CALL(api, OnAdapterRequestDevice(apiAdapter, NotNull(), _))
+        .WillOnce(WithArg<1>([&](const WGPUDeviceDescriptor* apiDesc) {
             EXPECT_EQ(apiDesc->label.data, nullptr);
             EXPECT_EQ(apiDesc->requiredFeatureCount, 0u);
             EXPECT_EQ(apiDesc->requiredLimits, nullptr);
 
             // Call the callback so the test doesn't wait indefinitely.
-            api.CallAdapterRequestDevice2Callback(apiAdapter, WGPURequestDeviceStatus_Error,
-                                                  nullptr, kEmptyOutputStringView);
-        })));
+            api.CallAdapterRequestDeviceCallback(apiAdapter, WGPURequestDeviceStatus_Error, nullptr,
+                                                 kEmptyOutputStringView);
+        }));
     FlushClient();
     FlushFutures();
     ExpectWireCallbacksWhen([&](auto& mockCb) {
@@ -92,16 +91,16 @@ TEST_P(WireAdapterTests, RequestDeviceEmptyDescriptor) {
 TEST_P(WireAdapterTests, RequestDeviceNullDescriptor) {
     RequestDevice(nullptr);
 
-    EXPECT_CALL(api, OnAdapterRequestDevice2(apiAdapter, NotNull(), _))
-        .WillOnce(WithArg<1>(Invoke([&](const WGPUDeviceDescriptor* apiDesc) {
+    EXPECT_CALL(api, OnAdapterRequestDevice(apiAdapter, NotNull(), _))
+        .WillOnce(WithArg<1>([&](const WGPUDeviceDescriptor* apiDesc) {
             EXPECT_EQ(apiDesc->label.data, nullptr);
             EXPECT_EQ(apiDesc->requiredFeatureCount, 0u);
             EXPECT_EQ(apiDesc->requiredLimits, nullptr);
 
             // Call the callback so the test doesn't wait indefinitely.
-            api.CallAdapterRequestDevice2Callback(apiAdapter, WGPURequestDeviceStatus_Error,
-                                                  nullptr, kEmptyOutputStringView);
-        })));
+            api.CallAdapterRequestDeviceCallback(apiAdapter, WGPURequestDeviceStatus_Error, nullptr,
+                                                 kEmptyOutputStringView);
+        }));
     FlushClient();
     FlushFutures();
     ExpectWireCallbacksWhen([&](auto& mockCb) {
@@ -121,23 +120,23 @@ TEST_P(WireAdapterTests, RequestDeviceCallbackPointers) {
     desc.SetUncapturedErrorCallback([](const wgpu::Device&, wgpu::ErrorType, wgpu::StringView) {});
     RequestDevice(&desc);
 
-    EXPECT_CALL(api, OnAdapterRequestDevice2(apiAdapter, NotNull(), _))
-        .WillOnce(WithArg<1>(Invoke([&](const WGPUDeviceDescriptor* apiDesc) {
+    EXPECT_CALL(api, OnAdapterRequestDevice(apiAdapter, NotNull(), _))
+        .WillOnce(WithArg<1>([&](const WGPUDeviceDescriptor* apiDesc) {
             EXPECT_STREQ(apiDesc->label.data, desc.label.data);
 
             // The callback should not be passed through to the server, and it should be overridden.
             WGPUDeviceDescriptor& inputDesc = *reinterpret_cast<WGPUDeviceDescriptor*>(&desc);
-            ASSERT_NE(apiDesc->deviceLostCallbackInfo2.callback,
-                      inputDesc.deviceLostCallbackInfo2.callback);
-            ASSERT_NE(apiDesc->deviceLostCallbackInfo2.callback, nullptr);
-            ASSERT_NE(apiDesc->uncapturedErrorCallbackInfo2.callback,
-                      inputDesc.uncapturedErrorCallbackInfo2.callback);
-            ASSERT_NE(apiDesc->uncapturedErrorCallbackInfo2.callback, nullptr);
+            ASSERT_NE(apiDesc->deviceLostCallbackInfo.callback,
+                      inputDesc.deviceLostCallbackInfo.callback);
+            ASSERT_NE(apiDesc->deviceLostCallbackInfo.callback, nullptr);
+            ASSERT_NE(apiDesc->uncapturedErrorCallbackInfo.callback,
+                      inputDesc.uncapturedErrorCallbackInfo.callback);
+            ASSERT_NE(apiDesc->uncapturedErrorCallbackInfo.callback, nullptr);
 
             // Call the callback so the test doesn't wait indefinitely.
-            api.CallAdapterRequestDevice2Callback(apiAdapter, WGPURequestDeviceStatus_Error,
-                                                  nullptr, kEmptyOutputStringView);
-        })));
+            api.CallAdapterRequestDeviceCallback(apiAdapter, WGPURequestDeviceStatus_Error, nullptr,
+                                                 kEmptyOutputStringView);
+        }));
     FlushClient();
     FlushFutures();
     ExpectWireCallbacksWhen([&](auto& mockCb) {
@@ -149,9 +148,9 @@ TEST_P(WireAdapterTests, RequestDeviceCallbackPointers) {
 
 // Test that RequestDevice forwards the device information to the client.
 TEST_P(WireAdapterTests, RequestDeviceSuccess) {
-    wgpu::SupportedLimits fakeLimits = {};
-    fakeLimits.limits.maxTextureDimension1D = 433;
-    fakeLimits.limits.maxVertexAttributes = 1243;
+    wgpu::Limits fakeLimits = {};
+    fakeLimits.maxTextureDimension1D = 433;
+    fakeLimits.maxVertexAttributes = 1243;
 
     std::initializer_list<WGPUFeatureName> fakeFeaturesList = {
         WGPUFeatureName_Depth32FloatStencil8,
@@ -163,30 +162,30 @@ TEST_P(WireAdapterTests, RequestDeviceSuccess) {
     RequestDevice(&desc);
 
     // Expect the server to receive the message. Then, mock a fake reply.
-    WGPUDevice apiDevice = api.GetNewDevice();
+    WGPUDevice apiDevice = GetNewDevice();
     // The backend device should not be known by the wire server.
     EXPECT_FALSE(GetWireServer()->IsDeviceKnown(apiDevice));
 
-    EXPECT_CALL(api, OnAdapterRequestDevice2(apiAdapter, NotNull(), _))
+    EXPECT_CALL(api, OnAdapterRequestDevice(apiAdapter, NotNull(), _))
         .WillOnce(InvokeWithoutArgs([&] {
             // Set on device creation to forward callbacks to the client.
-            EXPECT_CALL(api, OnDeviceSetLoggingCallback(apiDevice, NotNull(), NotNull())).Times(1);
+            EXPECT_CALL(api, OnDeviceSetLoggingCallback(apiDevice, _)).Times(1);
 
             EXPECT_CALL(api, DeviceGetLimits(apiDevice, NotNull()))
-                .WillOnce(WithArg<1>(Invoke([&](WGPUSupportedLimits* limits) {
-                    *reinterpret_cast<wgpu::SupportedLimits*>(limits) = fakeLimits;
+                .WillOnce(WithArg<1>([&](WGPULimits* limits) {
+                    *reinterpret_cast<wgpu::Limits*>(limits) = fakeLimits;
                     return WGPUStatus_Success;
-                })));
+                }));
 
             EXPECT_CALL(api, DeviceGetFeatures(apiDevice, NotNull()))
-                .WillOnce(WithArg<1>(
-                    Invoke([&](WGPUSupportedFeatures* features) { *features = fakeFeatures; })));
+                .WillOnce(
+                    WithArg<1>([&](WGPUSupportedFeatures* features) { *features = fakeFeatures; }));
 
             // The backend device should still not be known by the wire server since the
             // callback has not been called yet.
             EXPECT_FALSE(GetWireServer()->IsDeviceKnown(apiDevice));
-            api.CallAdapterRequestDevice2Callback(apiAdapter, WGPURequestDeviceStatus_Success,
-                                                  apiDevice, kEmptyOutputStringView);
+            api.CallAdapterRequestDeviceCallback(apiAdapter, WGPURequestDeviceStatus_Success,
+                                                 apiDevice, kEmptyOutputStringView);
             // After the callback is called, the backend device is now known by the server.
             EXPECT_TRUE(GetWireServer()->IsDeviceKnown(apiDevice));
         }));
@@ -198,7 +197,7 @@ TEST_P(WireAdapterTests, RequestDeviceSuccess) {
     // Expect the callback in the client and all the device information to match.
     ExpectWireCallbacksWhen([&](auto& mockCb) {
         EXPECT_CALL(mockCb, Call(wgpu::RequestDeviceStatus::Success, NotNull(), EmptySizedString()))
-            .WillOnce(WithArg<1>(Invoke([&](wgpu::Device result) {
+            .WillOnce(WithArg<1>([&](wgpu::Device result) {
                 device = std::move(result);
 
                 wgpu::AdapterInfo adapterInfo;
@@ -208,11 +207,10 @@ TEST_P(WireAdapterTests, RequestDeviceSuccess) {
                 EXPECT_EQ(adapterInfo.device, kEmptyOutputStringView);
                 EXPECT_EQ(adapterInfo.description, kEmptyOutputStringView);
 
-                wgpu::SupportedLimits limits;
+                wgpu::Limits limits;
                 EXPECT_EQ(device.GetLimits(&limits), wgpu::Status::Success);
-                EXPECT_EQ(limits.limits.maxTextureDimension1D,
-                          fakeLimits.limits.maxTextureDimension1D);
-                EXPECT_EQ(limits.limits.maxVertexAttributes, fakeLimits.limits.maxVertexAttributes);
+                EXPECT_EQ(limits.maxTextureDimension1D, fakeLimits.maxTextureDimension1D);
+                EXPECT_EQ(limits.maxVertexAttributes, fakeLimits.maxVertexAttributes);
 
                 WGPUSupportedFeatures features = {};
                 device.GetFeatures(reinterpret_cast<wgpu::SupportedFeatures*>(&features));
@@ -224,7 +222,7 @@ TEST_P(WireAdapterTests, RequestDeviceSuccess) {
                 for (WGPUFeatureName feature : featuresList) {
                     EXPECT_EQ(featureSet.erase(feature), 1u);
                 }
-            })));
+            }));
         FlushCallbacks();
     });
 
@@ -232,7 +230,6 @@ TEST_P(WireAdapterTests, RequestDeviceSuccess) {
 
     device = nullptr;
     // Cleared when the device is destroyed.
-    EXPECT_CALL(api, OnDeviceSetLoggingCallback(apiDevice, nullptr, nullptr)).Times(1);
     EXPECT_CALL(api, DeviceRelease(apiDevice));
 
     // Server has not recevied the release yet, so the device should be known.
@@ -246,8 +243,8 @@ TEST_P(WireAdapterTests, RequestDeviceSuccess) {
 // wire reject the callback.
 TEST_P(WireAdapterTests, RequestFeatureUnsupportedByWire) {
     std::initializer_list<WGPUFeatureName> fakeFeaturesList = {
-        // Some value that is not a valid feature
-        static_cast<WGPUFeatureName>(-2),
+        // Default feature is an undefined feature.
+        {},
         WGPUFeatureName_TextureCompressionASTC,
     };
     WGPUSupportedFeatures fakeFeatures = {fakeFeaturesList.size(), std::data(fakeFeaturesList)};
@@ -259,11 +256,11 @@ TEST_P(WireAdapterTests, RequestFeatureUnsupportedByWire) {
     // The reply contains features that the device implementation supports, but the
     // wire does not.
     WGPUDevice apiDevice = api.GetNewDevice();
-    EXPECT_CALL(api, OnAdapterRequestDevice2(apiAdapter, NotNull(), _))
+    EXPECT_CALL(api, OnAdapterRequestDevice(apiAdapter, NotNull(), _))
         .WillOnce(InvokeWithoutArgs([&] {
             EXPECT_CALL(api, DeviceGetFeatures(apiDevice, NotNull()))
-                .WillOnce(WithArg<1>(
-                    Invoke([&](WGPUSupportedFeatures* features) { *features = fakeFeatures; })));
+                .WillOnce(
+                    WithArg<1>([&](WGPUSupportedFeatures* features) { *features = fakeFeatures; }));
 
             // The device was actually created, but the wire didn't support its features.
             // Expect it to be released.
@@ -271,8 +268,8 @@ TEST_P(WireAdapterTests, RequestFeatureUnsupportedByWire) {
 
             // Fake successful creation. The client still receives a failure due to
             // unsupported features.
-            api.CallAdapterRequestDevice2Callback(apiAdapter, WGPURequestDeviceStatus_Success,
-                                                  apiDevice, kEmptyOutputStringView);
+            api.CallAdapterRequestDeviceCallback(apiAdapter, WGPURequestDeviceStatus_Success,
+                                                 apiDevice, kEmptyOutputStringView);
         }));
     FlushClient();
     FlushFutures();
@@ -292,11 +289,10 @@ TEST_P(WireAdapterTests, RequestDeviceError) {
     RequestDevice(&desc);
 
     // Expect the server to receive the message. Then, mock an error.
-    EXPECT_CALL(api, OnAdapterRequestDevice2(apiAdapter, NotNull(), _))
+    EXPECT_CALL(api, OnAdapterRequestDevice(apiAdapter, NotNull(), _))
         .WillOnce(InvokeWithoutArgs([&] {
-            api.CallAdapterRequestDevice2Callback(apiAdapter, WGPURequestDeviceStatus_Error,
-                                                  nullptr,
-                                                  ToOutputStringView("Request device failed"));
+            api.CallAdapterRequestDeviceCallback(apiAdapter, WGPURequestDeviceStatus_Error, nullptr,
+                                                 ToOutputStringView("Request device failed"));
         }));
     FlushClient();
     FlushFutures();
@@ -318,16 +314,16 @@ TEST_P(WireAdapterTests, RequestDeviceAdapterDestroyedBeforeCallback) {
     adapter = nullptr;
 
     // Mock a reply from the server.
-    WGPUDevice apiDevice = api.GetNewDevice();
-    EXPECT_CALL(api, OnAdapterRequestDevice2(apiAdapter, NotNull(), _))
+    WGPUDevice apiDevice = GetNewDevice();
+    EXPECT_CALL(api, OnAdapterRequestDevice(apiAdapter, NotNull(), _))
         .WillOnce(InvokeWithoutArgs([&] {
             // Set on device creation to forward callbacks to the client.
-            EXPECT_CALL(api, OnDeviceSetLoggingCallback(apiDevice, NotNull(), NotNull())).Times(1);
+            EXPECT_CALL(api, OnDeviceSetLoggingCallback(apiDevice, _)).Times(1);
             EXPECT_CALL(api, DeviceGetLimits(apiDevice, NotNull())).Times(1);
             EXPECT_CALL(api, DeviceGetFeatures(apiDevice, NotNull())).Times(1);
 
-            api.CallAdapterRequestDevice2Callback(apiAdapter, WGPURequestDeviceStatus_Success,
-                                                  apiDevice, kEmptyOutputStringView);
+            api.CallAdapterRequestDeviceCallback(apiAdapter, WGPURequestDeviceStatus_Success,
+                                                 apiDevice, kEmptyOutputStringView);
         }));
     FlushClient();
     FlushFutures();
@@ -336,15 +332,9 @@ TEST_P(WireAdapterTests, RequestDeviceAdapterDestroyedBeforeCallback) {
     // Expect the callback in the client.
     ExpectWireCallbacksWhen([&](auto& mockCb) {
         EXPECT_CALL(mockCb, Call(wgpu::RequestDeviceStatus::Success, NotNull(), EmptySizedString()))
-            .WillOnce(WithArg<1>(Invoke([&](wgpu::Device result) { device = std::move(result); })));
+            .WillOnce(WithArg<1>([&](wgpu::Device result) { device = std::move(result); }));
         FlushCallbacks();
     });
-
-    device = nullptr;
-    // Cleared when the device is destroyed.
-    EXPECT_CALL(api, OnDeviceSetLoggingCallback(apiDevice, nullptr, nullptr)).Times(1);
-    EXPECT_CALL(api, DeviceRelease(apiDevice));
-    FlushClient();
 }
 
 // Test that RequestDevice receives unknown status if the wire is disconnected
@@ -354,12 +344,51 @@ TEST_P(WireAdapterTests, RequestDeviceWireDisconnectedBeforeCallback) {
     RequestDevice(&desc);
 
     ExpectWireCallbacksWhen([&](auto& mockCb) {
-        EXPECT_CALL(mockCb, Call(wgpu::RequestDeviceStatus::InstanceDropped, IsNull(),
+        EXPECT_CALL(mockCb, Call(wgpu::RequestDeviceStatus::CallbackCancelled, IsNull(),
                                  NonEmptySizedString()))
             .Times(1);
 
         GetWireClient()->Disconnect();
     });
+}
+
+// Test that a device's wire handle (id and generation) matches between the client and server.
+TEST_P(WireAdapterTests, RequestDeviceWireHandle) {
+    RequestDevice(nullptr);
+
+    // Expect the server to receive the message. Then, mock a fake reply.
+    WGPUDevice apiDevice = GetNewDevice();
+    EXPECT_CALL(api, OnAdapterRequestDevice(apiAdapter, NotNull(), _))
+        .WillOnce(InvokeWithoutArgs([&] {
+            // Set on device creation to forward callbacks to the client.
+            EXPECT_CALL(api, OnDeviceSetLoggingCallback(apiDevice, _)).Times(1);
+            EXPECT_CALL(api, DeviceGetLimits(apiDevice, NotNull())).Times(1);
+            EXPECT_CALL(api, DeviceGetFeatures(apiDevice, NotNull())).Times(1);
+            api.CallAdapterRequestDeviceCallback(apiAdapter, WGPURequestDeviceStatus_Success,
+                                                 apiDevice, kEmptyOutputStringView);
+        }));
+    FlushClient();
+    FlushFutures();
+
+    wgpu::Device device;
+    // Expect the callback in the client and the wire handles match.
+    ExpectWireCallbacksWhen([&](auto& mockCb) {
+        EXPECT_CALL(mockCb, Call(wgpu::RequestDeviceStatus::Success, NotNull(), EmptySizedString()))
+            .WillOnce(WithArg<1>([&](wgpu::Device result) {
+                device = std::move(result);
+
+                Handle deviceWireHandle = GetWireClient()->GetWireHandle(device.Get());
+                WGPUDevice apiDeviceExpected =
+                    GetWireServer()->GetDevice(deviceWireHandle.id, deviceWireHandle.generation);
+                EXPECT_EQ(apiDevice, apiDeviceExpected);
+            }));
+        FlushCallbacks();
+    });
+
+    device = nullptr;
+    // Cleared when the device is destroyed.
+    EXPECT_CALL(api, DeviceRelease(apiDevice));
+    FlushClient();
 }
 
 }  // anonymous namespace

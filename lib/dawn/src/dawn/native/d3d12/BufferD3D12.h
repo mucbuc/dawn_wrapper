@@ -30,12 +30,12 @@
 
 #include <limits>
 #include <memory>
+#include <vector>
 
 #include "dawn/native/Buffer.h"
-#include "partition_alloc/pointers/raw_ptr.h"
-
 #include "dawn/native/d3d12/ResourceHeapAllocationD3D12.h"
 #include "dawn/native/d3d12/d3d12_platform.h"
+#include "partition_alloc/pointers/raw_ptr.h"
 
 namespace dawn::native::d3d12 {
 
@@ -70,6 +70,9 @@ class Buffer final : public BufferBase {
     MaybeError EnsureDataInitializedAsDestination(CommandRecordingContext* commandContext,
                                                   const CopyTextureToBufferCmd* copy);
 
+    MaybeError SynchronizeBufferBeforeMapping();
+    MaybeError SynchronizeBufferBeforeUseOnGPU();
+
     // Dawn API
     void SetLabelImpl() override;
 
@@ -82,11 +85,12 @@ class Buffer final : public BufferBase {
     MaybeError InitializeAsExternalBuffer(ComPtr<ID3D12Resource> d3dBuffer,
                                           const UnpackedPtr<BufferDescriptor>& descriptor);
     MaybeError MapAsyncImpl(wgpu::MapMode mode, size_t offset, size_t size) override;
-    void UnmapImpl() override;
-    void DestroyImpl() override;
+    MaybeError FinalizeMapImpl(BufferState newState) override;
+    void UnmapImpl(BufferState oldState, BufferState newState) override;
+    void DestroyImpl(DestroyReason reason) override;
     bool IsCPUWritableAtCreation() const override;
     MaybeError MapAtCreationImpl() override;
-    void* GetMappedPointer() override;
+    void* GetMappedPointerImpl() override;
 
     MaybeError MapInternal(bool isWrite, size_t start, size_t end, const char* contextInfo);
 
@@ -102,7 +106,7 @@ class Buffer final : public BufferBase {
     ExecutionSerial mLastUsedSerial = std::numeric_limits<ExecutionSerial>::max();
 
     D3D12_RANGE mWrittenMappedRange = {0, 0};
-    void* mMappedData = nullptr;
+    raw_ptr<void> mMappedData = nullptr;
 
     std::unique_ptr<Heap> mHostMappedHeap;
     wgpu::Callback mHostMappedDisposeCallback = nullptr;

@@ -36,7 +36,6 @@
 
 using testing::_;
 using testing::HasSubstr;
-using testing::Invoke;
 using testing::MockCppCallback;
 using testing::TestParamInfo;
 using testing::Values;
@@ -96,7 +95,7 @@ TEST_F(BufferValidationTest, CreationMaxBufferSize) {
     // Success when at limit
     {
         wgpu::BufferDescriptor descriptor;
-        descriptor.size = GetSupportedLimits().limits.maxBufferSize;
+        descriptor.size = GetSupportedLimits().maxBufferSize;
         descriptor.usage = wgpu::BufferUsage::Uniform;
 
         device.CreateBuffer(&descriptor);
@@ -105,9 +104,8 @@ TEST_F(BufferValidationTest, CreationMaxBufferSize) {
     // max possible limit given the adapters.)
     {
         wgpu::BufferDescriptor descriptor;
-        ASSERT_TRUE(GetSupportedLimits().limits.maxBufferSize <
-                    std::numeric_limits<uint32_t>::max());
-        descriptor.size = GetSupportedLimits().limits.maxBufferSize + 1;
+        ASSERT_TRUE(GetSupportedLimits().maxBufferSize < std::numeric_limits<uint32_t>::max());
+        descriptor.size = GetSupportedLimits().maxBufferSize + 1;
         descriptor.usage = wgpu::BufferUsage::Uniform;
 
         ASSERT_DEVICE_ERROR(device.CreateBuffer(&descriptor));
@@ -250,6 +248,18 @@ TEST_P(BufferMappingValidationTest, MapAsync_ErrorBuffer) {
     AssertMapAsyncError(buffer, GetParam(), 0, 4);
 }
 
+// Test map async with a mode that includes exactly one valid mode, but is an invalid value.
+TEST_P(BufferMappingValidationTest, MapAsync_UnsupportedMode) {
+    wgpu::Buffer buffer = CreateBuffer(4);
+
+    // Create an invalid map mode that includes the valid mode.
+    static constexpr wgpu::MapMode kInvalidMapModeBits =
+        ~(wgpu::MapMode::Read | wgpu::MapMode::Write);
+    wgpu::MapMode mode = kInvalidMapModeBits | GetParam();
+
+    AssertMapAsyncError(buffer, mode, 0, 4);
+}
+
 // Test map async with an invalid offset and size alignment.
 TEST_P(BufferMappingValidationTest, MapAsync_OffsetSizeAlignment) {
     // Control case, offset aligned to 8 and size to 4 is valid
@@ -376,9 +386,8 @@ TEST_P(BufferMappingValidationTest, MapAsync_AlreadyMapped) {
 
 // Test MapAsync() immediately causes a pending map error
 TEST_P(BufferMappingValidationTest, MapAsync_PendingMap) {
-    // Note that in the wire, we currently don't generate a validation error while in native we do.
-    // If eventually we add a way to inject errors on the wire, we may be able to make this behavior
-    // more aligned.
+    // TODO(crbug.com/42241221): Inject a validation error from the wire client, so that behavior
+    // is consistent between native and wire.
     bool validationError = !UsesWire();
 
     // Overlapping range
@@ -478,9 +487,7 @@ TEST_P(BufferMappingValidationTest, MapAsync_UnmapCalledInCallback) {
     wgpu::Buffer buffer = CreateBuffer(4);
 
     MockMapAsyncCallback mockCb;
-    EXPECT_CALL(mockCb, Call(wgpu::MapAsyncStatus::Success, _)).WillOnce(Invoke([&] {
-        buffer.Unmap();
-    }));
+    EXPECT_CALL(mockCb, Call(wgpu::MapAsyncStatus::Success, _)).WillOnce([&] { buffer.Unmap(); });
 
     buffer.MapAsync(GetParam(), 0, 4, wgpu::CallbackMode::AllowProcessEvents, mockCb.Callback());
     WaitForAllOperations();
@@ -491,9 +498,7 @@ TEST_P(BufferMappingValidationTest, MapAsync_DestroyCalledInCallback) {
     wgpu::Buffer buffer = CreateBuffer(4);
 
     MockMapAsyncCallback mockCb;
-    EXPECT_CALL(mockCb, Call(wgpu::MapAsyncStatus::Success, _)).WillOnce(Invoke([&] {
-        buffer.Destroy();
-    }));
+    EXPECT_CALL(mockCb, Call(wgpu::MapAsyncStatus::Success, _)).WillOnce([&] { buffer.Destroy(); });
 
     buffer.MapAsync(GetParam(), 0, 4, wgpu::CallbackMode::AllowProcessEvents, mockCb.Callback());
     WaitForAllOperations();
@@ -504,13 +509,13 @@ TEST_P(BufferMappingValidationTest, MapAsync_RetryInSuccessCallback) {
     wgpu::Buffer buffer = CreateBuffer(4);
 
     MockMapAsyncCallback mockCb;
-    EXPECT_CALL(mockCb, Call(wgpu::MapAsyncStatus::Success, _)).WillOnce(Invoke([&] {
+    EXPECT_CALL(mockCb, Call(wgpu::MapAsyncStatus::Success, _)).WillOnce([&] {
         // MapAsync call on destroyed buffer should be invalid
         EXPECT_CALL(mockCb, Call(wgpu::MapAsyncStatus::Error, HasSubstr("already mapped")))
             .Times(1);
         ASSERT_DEVICE_ERROR(buffer.MapAsync(GetParam(), 0, 4, wgpu::CallbackMode::AllowSpontaneous,
                                             mockCb.Callback()));
-    }));
+    });
 
     buffer.MapAsync(GetParam(), 0, 4, wgpu::CallbackMode::AllowProcessEvents, mockCb.Callback());
     WaitForAllOperations();
@@ -521,12 +526,12 @@ TEST_P(BufferMappingValidationTest, MapAsync_RetryInErrorCallback) {
     wgpu::Buffer buffer = CreateBuffer(4);
 
     MockMapAsyncCallback mockCb;
-    EXPECT_CALL(mockCb, Call(wgpu::MapAsyncStatus::Error, _)).WillOnce(Invoke([&] {
+    EXPECT_CALL(mockCb, Call(wgpu::MapAsyncStatus::Error, _)).WillOnce([&] {
         // Retry with valid parameter and it should succeed
         EXPECT_CALL(mockCb, Call(wgpu::MapAsyncStatus::Success, _)).Times(1);
         buffer.MapAsync(GetParam(), 0, 4, wgpu::CallbackMode::AllowProcessEvents,
                         mockCb.Callback());
-    }));
+    });
 
     // Wrong map mode on buffer is invalid and it should reject with validation error
     ASSERT_DEVICE_ERROR(buffer.MapAsync(
@@ -540,12 +545,12 @@ TEST_P(BufferMappingValidationTest, MapAsync_RetryInUnmappedCallback) {
     wgpu::Buffer buffer = CreateBuffer(4);
 
     MockMapAsyncCallback mockCb;
-    EXPECT_CALL(mockCb, Call(wgpu::MapAsyncStatus::Aborted, _)).WillOnce(Invoke([&] {
+    EXPECT_CALL(mockCb, Call(wgpu::MapAsyncStatus::Aborted, _)).WillOnce([&] {
         // MapAsync call on unmapped buffer should be valid
         EXPECT_CALL(mockCb, Call(wgpu::MapAsyncStatus::Success, _)).Times(1);
         buffer.MapAsync(GetParam(), 0, 4, wgpu::CallbackMode::AllowProcessEvents,
                         mockCb.Callback());
-    }));
+    });
 
     buffer.MapAsync(GetParam(), 0, 4, wgpu::CallbackMode::AllowProcessEvents, mockCb.Callback());
     buffer.Unmap();
@@ -557,16 +562,52 @@ TEST_P(BufferMappingValidationTest, MapAsync_RetryInDestroyedCallback) {
     wgpu::Buffer buffer = CreateBuffer(4);
 
     MockMapAsyncCallback mockCb;
-    EXPECT_CALL(mockCb, Call(wgpu::MapAsyncStatus::Aborted, _)).WillOnce(Invoke([&] {
+    EXPECT_CALL(mockCb, Call(wgpu::MapAsyncStatus::Aborted, _)).WillOnce([&] {
         // MapAsync call on destroyed buffer should be invalid
         EXPECT_CALL(mockCb, Call(wgpu::MapAsyncStatus::Error, HasSubstr("destroyed"))).Times(1);
         ASSERT_DEVICE_ERROR(buffer.MapAsync(GetParam(), 0, 4, wgpu::CallbackMode::AllowSpontaneous,
                                             mockCb.Callback()));
-    }));
+    });
 
     buffer.MapAsync(GetParam(), 0, 4, wgpu::CallbackMode::AllowProcessEvents, mockCb.Callback());
     buffer.Destroy();
     WaitForAllOperations();
+}
+
+// Test that destroying the device cancels the mapping operation.
+TEST_P(BufferMappingValidationTest, DestroyDeviceWhilePending) {
+    wgpu::Buffer buffer = CreateBuffer(4);
+
+    MockMapAsyncCallback mockCb;
+    EXPECT_CALL(mockCb, Call(wgpu::MapAsyncStatus::Aborted, _)).Times(1);
+    buffer.MapAsync(GetParam(), 0, 4, wgpu::CallbackMode::AllowProcessEvents, mockCb.Callback());
+
+    ExpectDeviceDestruction();
+    device.Destroy();
+
+    WaitForAllOperations();
+    ASSERT_EQ(wgpu::BufferMapState::Unmapped, buffer.GetMapState());
+}
+
+// Test that destroying the device cancels the mapping operation.
+TEST_P(BufferMappingValidationTest, DestroyDeviceAfterMapping) {
+    // TODO(https://crbug.com/42240407): Unmap buffers in the wire client when
+    // device.Destroy() is called.
+    DAWN_SKIP_TEST_IF(UsesWire());
+
+    wgpu::Buffer buffer = CreateBuffer(4);
+
+    MockMapAsyncCallback mockCb;
+    EXPECT_CALL(mockCb, Call(wgpu::MapAsyncStatus::Success, _)).Times(1);
+    buffer.MapAsync(GetParam(), 0, 4, wgpu::CallbackMode::AllowProcessEvents, mockCb.Callback());
+    WaitForAllOperations();
+
+    ASSERT_EQ(wgpu::BufferMapState::Mapped, buffer.GetMapState());
+
+    ExpectDeviceDestruction();
+    device.Destroy();
+
+    ASSERT_EQ(wgpu::BufferMapState::Unmapped, buffer.GetMapState());
 }
 
 // Test the success case for mappedAtCreation
@@ -582,6 +623,41 @@ TEST_F(BufferValidationTest, NonMappableMappedAtCreationSuccess) {
 // Test there is an error when mappedAtCreation is set but the size isn't aligned to 4.
 TEST_F(BufferValidationTest, MappedAtCreationSizeAlignment) {
     ASSERT_DEVICE_ERROR(BufferMappedAtCreation(2, wgpu::BufferUsage::MapWrite));
+}
+
+// Test that if CreateBuffer OOMs while mapping at creation, it returns null.
+TEST_F(BufferValidationTest, MappedAtCreationOOM) {
+    uint64_t kStupidLarge = uint64_t(1) << uint64_t(63);
+
+    // Buffer would fail validation due to invalid usage combination
+    {
+        wgpu::Buffer buffer = BufferMappedAtCreation(
+            kStupidLarge, wgpu::BufferUsage::Storage | wgpu::BufferUsage::MapRead);
+        ASSERT_EQ(nullptr, buffer.Get());
+    }
+
+    // Buffer would fail validation due to maxBufferSize
+    {
+        wgpu::Buffer buffer = BufferMappedAtCreation(
+            kStupidLarge, wgpu::BufferUsage::CopyDst | wgpu::BufferUsage::MapRead);
+        ASSERT_EQ(nullptr, buffer.Get());
+    }
+}
+
+// Test that destroying the device cancels the mapping operation.
+TEST_F(BufferValidationTest, MappedAtCreationThenDestroyDevice) {
+    // TODO(https://crbug.com/42240407): Unmap buffers in the wire client when
+    // device.Destroy() is called.
+    DAWN_SKIP_TEST_IF(UsesWire());
+
+    wgpu::Buffer buffer = BufferMappedAtCreation(4, wgpu::BufferUsage::CopySrc);
+
+    ASSERT_EQ(wgpu::BufferMapState::Mapped, buffer.GetMapState());
+
+    ExpectDeviceDestruction();
+    device.Destroy();
+
+    ASSERT_EQ(wgpu::BufferMapState::Unmapped, buffer.GetMapState());
 }
 
 // Test that it is valid to destroy an error buffer
@@ -629,7 +705,7 @@ TEST_P(BufferMappingValidationTest, UnmapDestroyedBuffer) {
 // Test that unmap then mapping a destroyed buffer is an error.
 // Regression test for crbug.com/1388920.
 TEST_P(BufferMappingValidationTest, MapDestroyedBufferAfterUnmap) {
-    wgpu::Buffer buffer = CreateMapReadBuffer(4);
+    wgpu::Buffer buffer = CreateBuffer(4);
     buffer.Destroy();
     buffer.Unmap();
 
@@ -780,8 +856,10 @@ TEST_F(BufferValidationTest, GetMappedRange_OnUnmappedBuffer) {
         desc.usage = wgpu::BufferUsage::CopySrc;
         wgpu::Buffer buf = device.CreateBuffer(&desc);
 
-        ASSERT_EQ(nullptr, buf.GetMappedRange());
-        ASSERT_EQ(nullptr, buf.GetConstMappedRange());
+        ASSERT_NO_DEVICE_LOG({
+            ASSERT_EQ(nullptr, buf.GetMappedRange());
+            ASSERT_EQ(nullptr, buf.GetConstMappedRange());
+        });
     }
 
     // Unmapped after mappedAtCreation case.
@@ -858,7 +936,10 @@ TEST_F(BufferValidationTest, GetMappedRange_NonConstOnMappedForReading) {
                  mockCb.Callback());
     WaitForAllOperations();
 
-    ASSERT_EQ(nullptr, buf.GetMappedRange());
+    ASSERT_DEVICE_LOG(ASSERT_EQ(nullptr, buf.GetMappedRange()), wgpu::LoggingType::Error,
+                      testing::HasSubstr("Use GetConstMappedRange instead"));
+
+    ASSERT_NO_DEVICE_LOG(ASSERT_NE(nullptr, buf.GetConstMappedRange()));
 }
 
 // Test valid cases to call GetMappedRange on a buffer.
@@ -888,6 +969,7 @@ TEST_P(BufferMappingValidationTest, GetMappedRange_ValidBufferStateCases) {
 }
 
 // Test valid cases to call GetMappedRange on an error buffer.
+// (Note it's impossible to test a buffer that's OOM; CreateBuffer will return null in that case.)
 TEST_F(BufferValidationTest, GetMappedRange_OnErrorBuffer) {
     // GetMappedRange after mappedAtCreation a zero-sized buffer returns a non-nullptr.
     // This is to check we don't do a malloc(0).
@@ -907,30 +989,6 @@ TEST_F(BufferValidationTest, GetMappedRange_OnErrorBuffer) {
                                 4, wgpu::BufferUsage::Storage | wgpu::BufferUsage::MapRead));
 
         ASSERT_NE(buffer.GetConstMappedRange(), nullptr);
-        ASSERT_EQ(buffer.GetConstMappedRange(), buffer.GetMappedRange());
-    }
-}
-
-// Test valid cases to call GetMappedRange on an error buffer that's also OOM.
-TEST_F(BufferValidationTest, GetMappedRange_OnErrorBuffer_OOM) {
-    // TODO(crbug.com/dawn/1506): new (std::nothrow) crashes on OOM on Mac ARM64 because libunwind
-    // doesn't see the previous catchall try-catch.
-    DAWN_SKIP_TEST_IF(DAWN_PLATFORM_IS(MACOS) && DAWN_PLATFORM_IS(ARM64));
-
-    uint64_t kStupidLarge = uint64_t(1) << uint64_t(63);
-
-    if (UsesWire()) {
-        wgpu::Buffer buffer = BufferMappedAtCreation(
-            kStupidLarge, wgpu::BufferUsage::Storage | wgpu::BufferUsage::MapRead);
-        ASSERT_EQ(nullptr, buffer.Get());
-    } else {
-        wgpu::Buffer buffer;
-        ASSERT_DEVICE_ERROR(
-            buffer = BufferMappedAtCreation(
-                kStupidLarge, wgpu::BufferUsage::Storage | wgpu::BufferUsage::MapRead));
-
-        // GetMappedRange after mappedAtCreation OOM case returns nullptr.
-        ASSERT_EQ(buffer.GetConstMappedRange(), nullptr);
         ASSERT_EQ(buffer.GetConstMappedRange(), buffer.GetMappedRange());
     }
 }

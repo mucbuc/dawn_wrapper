@@ -41,10 +41,9 @@ WireResult Server::DoAdapterRequestDevice(Known<WGPUAdapter> adapter,
                                           WGPUFuture future,
                                           ObjectHandle deviceHandle,
                                           WGPUFuture deviceLostFuture,
-                                          const WGPUDeviceDescriptor* descriptor,
-                                          uint8_t userdataCount) {
+                                          const WGPUDeviceDescriptor* descriptor) {
     Reserved<WGPUDevice> device;
-    WIRE_TRY(Objects<WGPUDevice>().Allocate(&device, deviceHandle, AllocationState::Reserved));
+    WIRE_TRY(Allocate(&device, deviceHandle, AllocationState::Reserved));
 
     auto userdata = MakeUserdata<RequestDeviceUserdata>();
     userdata->eventManager = eventManager;
@@ -58,27 +57,25 @@ WireResult Server::DoAdapterRequestDevice(Known<WGPUAdapter> adapter,
     deviceLostUserdata->future = deviceLostFuture;
 
     WGPUDeviceDescriptor desc = *descriptor;
-    desc.deviceLostCallbackInfo2 = {nullptr, WGPUCallbackMode_AllowProcessEvents,
-                                    ForwardToServer2<&Server::OnDeviceLost>,
-                                    deviceLostUserdata.release(), nullptr};
-    desc.uncapturedErrorCallbackInfo2 = {
+    desc.deviceLostCallbackInfo =
+        MakeCallbackInfo<WGPUDeviceLostCallbackInfo, &Server::OnDeviceLost>(
+            deviceLostUserdata.release());
+    desc.uncapturedErrorCallbackInfo = {
         nullptr,
         [](WGPUDevice const*, WGPUErrorType type, WGPUStringView message, void*, void* userdata) {
             DeviceInfo* info = static_cast<DeviceInfo*>(userdata);
-            info->server->OnUncapturedError(info->self, type, message);
+            {
+                auto serverGuard = info->server->GetGuard();
+                info->server->OnUncapturedError(info->self, type, message);
+            }
+            info->server->Flush();
         },
         nullptr, device->info.get()};
 
-    if (userdataCount == 1) {
-        mProcs.adapterRequestDevice(adapter->handle, &desc,
-                                    ForwardToServer<&Server::OnRequestDeviceCallback>,
-                                    userdata.release());
-    } else {
-        mProcs.adapterRequestDevice2(
-            adapter->handle, &desc,
-            {nullptr, WGPUCallbackMode_AllowSpontaneous,
-             ForwardToServer2<&Server::OnRequestDeviceCallback>, userdata.release(), nullptr});
-    }
+    mProcs->adapterRequestDevice(
+        adapter->handle, &desc,
+        MakeCallbackInfo<WGPURequestDeviceCallbackInfo, &Server::OnRequestDeviceCallback,
+                         WGPUCallbackMode_AllowSpontaneous>(userdata.release()));
     return WireResult::Success;
 }
 
@@ -103,13 +100,13 @@ void Server::OnRequestDeviceCallback(RequestDeviceUserdata* data,
     // Note: We fail the callback here, instead of immediately upon receiving
     // the request to preserve callback ordering.
     FreeMembers<WGPUSupportedFeatures> supportedFeatures(mProcs);
-    mProcs.deviceGetFeatures(device, &supportedFeatures);
+    mProcs->deviceGetFeatures(device, &supportedFeatures);
     absl::Span<const WGPUFeatureName> features(supportedFeatures.features,
                                                supportedFeatures.featureCount);
     for (WGPUFeatureName feature : features) {
         if (!IsFeatureSupported(feature)) {
             // Release the device.
-            mProcs.deviceRelease(device);
+            mProcs->deviceRelease(device);
             device = nullptr;
 
             cmd.status = WGPURequestDeviceStatus_Error;
@@ -121,27 +118,24 @@ void Server::OnRequestDeviceCallback(RequestDeviceUserdata* data,
     cmd.featuresCount = features.size();
     cmd.features = features.data();
 
-    // Query and report the adapter limits, including DawnExperimentalSubgroupLimits and
-    // DawnExperimentalImmediateDataLimits. Reporting to client.
-    WGPUSupportedLimits limits = {};
+    // Query and report the adapter limits, including all known extension limits.
+    // TODO(crbug.com/421950205): Use dawn::utils::ComboLimits here.
+    WGPULimits limits = {};
+    // Chained CompatibilityModeLimits.
+    WGPUCompatibilityModeLimits compatLimits = WGPU_COMPATIBILITY_MODE_LIMITS_INIT;
+    limits.nextInChain = &compatLimits.chain;
+    // Chained DawnTexelCopyBufferRowAlignmentLimits.
+    WGPUDawnTexelCopyBufferRowAlignmentLimits texelCopyBufferRowAlignmentLimits =
+        WGPU_DAWN_TEXEL_COPY_BUFFER_ROW_ALIGNMENT_LIMITS_INIT;
+    compatLimits.chain.next = &texelCopyBufferRowAlignmentLimits.chain;
 
-    // Chained DawnExperimentalSubgroupLimits.
-    WGPUDawnExperimentalSubgroupLimits experimentalSubgroupLimits = {};
-    experimentalSubgroupLimits.chain.sType = WGPUSType_DawnExperimentalSubgroupLimits;
-    limits.nextInChain = &experimentalSubgroupLimits.chain;
-
-    // Chained DawnExperimentalImmediateDataLimits.
-    WGPUDawnExperimentalImmediateDataLimits experimentalImmediateDataLimits = {};
-    experimentalImmediateDataLimits.chain.sType = WGPUSType_DawnExperimentalImmediateDataLimits;
-    experimentalSubgroupLimits.chain.next = &experimentalImmediateDataLimits.chain;
-
-    mProcs.deviceGetLimits(device, &limits);
+    mProcs->deviceGetLimits(device, &limits);
     cmd.limits = &limits;
 
     // Assign the handle and allocated status if the device is created successfully.
     Known<WGPUDevice> reservation;
     if (FillReservation(data->deviceObjectId, device, &reservation) == WireResult::FatalError) {
-        cmd.status = WGPURequestDeviceStatus_Unknown;
+        cmd.status = WGPURequestDeviceStatus_CallbackCancelled;
         cmd.message = ToOutputStringView("Destroyed before request was fulfilled.");
         SerializeCommand(cmd);
         return;

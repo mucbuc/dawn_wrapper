@@ -47,60 +47,43 @@ struct ProgrammableStage;
 
 namespace vulkan {
 
-struct TransformedShaderModuleCacheKey {
-    uintptr_t layoutPtr;
-    std::string entryPoint;
-    PipelineConstantEntries constants;
-    std::optional<uint32_t> maxSubgroupSizeForFullSubgroups;
-    bool emitPointSize;
-
-    bool operator==(const TransformedShaderModuleCacheKey& other) const;
-};
-
-struct TransformedShaderModuleCacheKeyHashFunc {
-    size_t operator()(const TransformedShaderModuleCacheKey& key) const;
-};
-
 class Device;
 class PipelineLayout;
 
 class ShaderModule final : public ShaderModuleBase {
   public:
-    struct ModuleAndSpirv {
-        VkShaderModule module;
-        const uint32_t* spirv;
-        size_t wordCount;
-        std::string remappedEntryPoint;
-        bool hasInputAttachment;
-    };
-
     static ResultOrError<Ref<ShaderModule>> Create(
         Device* device,
         const UnpackedPtr<ShaderModuleDescriptor>& descriptor,
-        const std::vector<tint::wgsl::Extension>& internalExtensions,
-        ShaderModuleParseResult* parseResult,
-        OwnedCompilationMessages* compilationMessages);
+        const std::vector<tint::wgsl::Extension>& internalExtensions);
 
-    ResultOrError<ModuleAndSpirv> GetHandleAndSpirv(
-        SingleShaderStage stage,
-        const ProgrammableStage& programmableStage,
-        const PipelineLayout* layout,
-        bool clampFragDepth,
-        bool emitPointSize,
-        std::optional<uint32_t> maxSubgroupSizeForFullSubgroups);
+    // Caller is responsible for destroying the `VkShaderModule` returned.
+    struct ModuleAndSpirv {
+        VkShaderModule module;
+        std::vector<uint32_t> spirv;
+        bool hasInputAttachment;
+        Extent3D workgroupSize;
+        std::optional<uint32_t> explicitSubgroupSize;
+    };
+    struct CompileParameters {
+        // Kept without defaults as they must be provided.
+        raw_ptr<const ProgrammableStage> stage;
+        raw_ptr<const PipelineLayout> layout;
+        ImmediateConstantMask immediateMask;
+        raw_ptr<const absl::flat_hash_set<APIBindPoint>> ycbcrExternalTextures;
+
+        bool emitPointSize = false;
+        bool polyfillPixelCenter = false;
+        bool needsMultisampledFramebufferFetch = false;
+    };
+
+    ResultOrError<ModuleAndSpirv> GetHandleAndSpirv(const CompileParameters& p);
 
   private:
     ShaderModule(Device* device,
                  const UnpackedPtr<ShaderModuleDescriptor>& descriptor,
                  std::vector<tint::wgsl::Extension> internalExtensions);
     ~ShaderModule() override;
-    MaybeError Initialize(ShaderModuleParseResult* parseResult,
-                          OwnedCompilationMessages* compilationMessages);
-    void DestroyImpl() override;
-
-    // New handles created by GetHandleAndSpirv at pipeline creation time.
-    class ConcurrentTransformedShaderModuleCache;
-    std::unique_ptr<ConcurrentTransformedShaderModuleCache> mTransformedShaderModuleCache;
 };
 
 }  // namespace vulkan

@@ -79,8 +79,8 @@ struct WrapperStruct {
 template <typename T>
 static constexpr size_t AlignOfInStruct = alignof(WrapperStruct<T>);
 
-static constexpr size_t kNativeVkHandleAlignment = AlignOfInStruct<VkSomeHandle>;
-static constexpr size_t kUint64Alignment = AlignOfInStruct<uint64_t>;
+inline constexpr size_t kNativeVkHandleAlignment = AlignOfInStruct<VkSomeHandle>;
+inline constexpr size_t kUint64Alignment = AlignOfInStruct<uint64_t>;
 
 // Simple handle types that supports "nullptr_t" as a 0 value.
 template <typename Tag, typename HandleType>
@@ -95,8 +95,7 @@ class alignas(detail::kNativeVkHandleAlignment) VkHandle {
     VkHandle& operator=(const VkHandle<Tag, HandleType>&) = default;
 
     // Comparisons between handles
-    bool operator==(VkHandle<Tag, HandleType> other) const { return mHandle == other.mHandle; }
-    bool operator!=(VkHandle<Tag, HandleType> other) const { return mHandle != other.mHandle; }
+    bool operator==(const VkHandle<Tag, HandleType>& other) const = default;
 
     // Comparisons between handles and VK_NULL_HANDLE
     bool operator==(std::nullptr_t) const { return mHandle == 0; }
@@ -125,6 +124,11 @@ HandleType* AsVkArray(detail::VkHandle<Tag, HandleType>* handle) {
     return reinterpret_cast<HandleType*>(handle);
 }
 
+template <typename Tag, typename HandleType>
+const HandleType* AsVkArray(const detail::VkHandle<Tag, HandleType>* handle) {
+    return reinterpret_cast<const HandleType*>(handle);
+}
+
 }  // namespace dawn::native::vulkan
 
 #define VK_DEFINE_NON_DISPATCHABLE_HANDLE(object)                       \
@@ -149,7 +153,9 @@ HandleType* AsVkArray(detail::VkHandle<Tag, HandleType>* handle) {
 #endif  // DAWN_PLATFORM_IS(WINDOWS)
 
 #if defined(DAWN_USE_X11)
+#ifndef VK_USE_PLATFORM_XLIB_KHR
 #define VK_USE_PLATFORM_XLIB_KHR
+#endif
 #ifndef VK_USE_PLATFORM_XCB_KHR
 #define VK_USE_PLATFORM_XCB_KHR
 #endif
@@ -186,6 +192,6 @@ HandleType* AsVkArray(detail::VkHandle<Tag, HandleType>* handle) {
 
 // Redefine VK_NULL_HANDLE for better type safety where possible.
 #undef VK_NULL_HANDLE
-static constexpr std::nullptr_t VK_NULL_HANDLE = nullptr;
+inline constexpr std::nullptr_t VK_NULL_HANDLE = nullptr;
 
 #endif  // SRC_DAWN_COMMON_VULKAN_PLATFORM_H_

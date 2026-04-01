@@ -80,14 +80,14 @@ class CommandEncoder final : public ApiObjectBase {
                                                      BufferBase* destination,
                                                      uint64_t destinationOffset,
                                                      uint64_t size);
-    void APICopyBufferToTexture(const ImageCopyBuffer* source,
-                                const ImageCopyTexture* destination,
+    void APICopyBufferToTexture(const TexelCopyBufferInfo* source,
+                                const TexelCopyTextureInfo* destination,
                                 const Extent3D* copySize);
-    void APICopyTextureToBuffer(const ImageCopyTexture* source,
-                                const ImageCopyBuffer* destination,
+    void APICopyTextureToBuffer(const TexelCopyTextureInfo* source,
+                                const TexelCopyBufferInfo* destination,
                                 const Extent3D* copySize);
-    void APICopyTextureToTexture(const ImageCopyTexture* source,
-                                 const ImageCopyTexture* destination,
+    void APICopyTextureToTexture(const TexelCopyTextureInfo* source,
+                                 const TexelCopyTextureInfo* destination,
                                  const Extent3D* copySize);
     void APIClearBuffer(BufferBase* destination, uint64_t destinationOffset, uint64_t size);
 
@@ -132,11 +132,12 @@ class CommandEncoder final : public ApiObjectBase {
 
     [[nodiscard]] InternalUsageScope MakeInternalUsageScope();
 
+
   private:
     CommandEncoder(DeviceBase* device, const UnpackedPtr<CommandEncoderDescriptor>& descriptor);
     CommandEncoder(DeviceBase* device, ObjectBase::ErrorTag tag, StringView label);
 
-    void DestroyImpl() override;
+    void DestroyImpl(DestroyReason reason) override;
 
     MaybeError ValidateFinish() const;
 

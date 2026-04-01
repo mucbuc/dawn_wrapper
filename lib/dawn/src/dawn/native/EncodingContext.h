@@ -62,76 +62,6 @@ class EncodingContext {
 
     CommandIterator AcquireCommands();
 
-    // Functions to handle encoder errors
-    void HandleError(std::unique_ptr<ErrorData> error);
-
-    inline bool ConsumedError(MaybeError maybeError) {
-        if (DAWN_UNLIKELY(maybeError.IsError())) {
-            HandleError(maybeError.AcquireError());
-            return true;
-        }
-        return false;
-    }
-
-    template <typename... Args>
-    inline bool ConsumedError(MaybeError maybeError, const char* formatStr, const Args&... args) {
-        if (DAWN_UNLIKELY(maybeError.IsError())) {
-            std::unique_ptr<ErrorData> error = maybeError.AcquireError();
-            if (error->GetType() == InternalErrorType::Validation) {
-                std::string out;
-                absl::UntypedFormatSpec format(formatStr);
-                if (absl::FormatUntyped(&out, format, {absl::FormatArg(args)...})) {
-                    error->AppendContext(std::move(out));
-                } else {
-                    error->AppendContext(
-                        absl::StrFormat("[Failed to format error message: \"%s\"].", formatStr));
-                }
-            }
-            HandleError(std::move(error));
-            return true;
-        }
-        return false;
-    }
-
-    inline MaybeError ValidateCanEncodeOn(const ApiObjectBase* encoder) {
-        if (DAWN_UNLIKELY(encoder != mCurrentEncoder)) {
-            switch (mStatus) {
-                case Status::ErrorAtCreation:
-                    return DAWN_VALIDATION_ERROR("Recording in an error %s.", encoder);
-                case Status::ErrorInRecording:
-                    return DAWN_VALIDATION_ERROR("Recording in an already invalidated %s.",
-                                                 encoder);
-                case Status::Destroyed:
-                    return DAWN_VALIDATION_ERROR("Recording in a destroyed %s.", encoder);
-
-                case Status::Finished:
-                    // The encoder has been finished, select the correct error message.
-                    DAWN_INVALID_IF(encoder->GetType() == ObjectType::CommandEncoder ||
-                                        encoder->GetType() == ObjectType::RenderBundleEncoder,
-                                    "%s is already finished.", encoder);
-                    return DAWN_VALIDATION_ERROR("Parent encoder of %s is already finished.",
-                                                 encoder);
-
-                case Status::Open:
-                    // This could happen when an error child encoder is created on an otherwise
-                    // valid EncodingContext that then doesn't get notified of the current encoder
-                    // change.
-                    DAWN_INVALID_IF(encoder->IsError(), "Recording in an error %s.", encoder);
-
-                    // This happens when the CommandEncoder is used while a pass is open.
-                    DAWN_INVALID_IF(encoder == mTopLevelEncoder,
-                                    "Recording in %s which is locked while %s is open.", encoder,
-                                    mCurrentEncoder);
-
-                    // The remaining case is when an encoder is ended but we still try to encode
-                    // commands in it.
-                    return DAWN_VALIDATION_ERROR(
-                        "Commands cannot be recorded in %s which has already been ended.", encoder);
-            }
-        }
-        return {};
-    }
-
     template <typename EncodeFunction>
     inline bool TryEncode(const ApiObjectBase* encoder, EncodeFunction&& encodeFunction) {
         if (ConsumedError(ValidateCanEncodeOn(encoder))) {
@@ -181,6 +111,76 @@ class EncodingContext {
     void PopDebugGroupLabel();
 
   private:
+    // Functions to handle encoder errors
+    void HandleError(std::unique_ptr<ErrorData> error);
+
+    inline bool ConsumedError(MaybeError maybeError) {
+        if (maybeError.IsError()) [[unlikely]] {
+            HandleError(maybeError.AcquireError());
+            return true;
+        }
+        return false;
+    }
+
+    template <typename... Args>
+    inline bool ConsumedError(MaybeError maybeError, const char* formatStr, const Args&... args) {
+        if (maybeError.IsError()) [[unlikely]] {
+            std::unique_ptr<ErrorData> error = maybeError.AcquireError();
+            if (error->GetType() == InternalErrorType::Validation) {
+                std::string out;
+                absl::UntypedFormatSpec format(formatStr);
+                if (absl::FormatUntyped(&out, format, {absl::FormatArg(args)...})) {
+                    error->AppendContext(std::move(out));
+                } else {
+                    error->AppendContext(
+                        absl::StrFormat("[Failed to format error message: \"%s\"].", formatStr));
+                }
+            }
+            HandleError(std::move(error));
+            return true;
+        }
+        return false;
+    }
+
+    inline MaybeError ValidateCanEncodeOn(const ApiObjectBase* encoder) {
+        if (encoder != mCurrentEncoder) [[unlikely]] {
+            switch (mStatus) {
+                case Status::ErrorAtCreation:
+                    return DAWN_VALIDATION_ERROR("Recording in an error %s.", encoder);
+                case Status::ErrorInRecording:
+                    return DAWN_VALIDATION_ERROR("Recording in an already invalidated %s.",
+                                                 encoder);
+                case Status::Destroyed:
+                    return DAWN_VALIDATION_ERROR("Recording in a destroyed %s.", encoder);
+
+                case Status::Finished:
+                    // The encoder has been finished, select the correct error message.
+                    DAWN_INVALID_IF(encoder->GetType() == ObjectType::CommandEncoder ||
+                                        encoder->GetType() == ObjectType::RenderBundleEncoder,
+                                    "%s is already finished.", encoder);
+                    return DAWN_VALIDATION_ERROR("Parent encoder of %s is already finished.",
+                                                 encoder);
+
+                case Status::Open:
+                    // This could happen when an error child encoder is created on an otherwise
+                    // valid EncodingContext that then doesn't get notified of the current encoder
+                    // change.
+                    DAWN_INVALID_IF(encoder->IsError(), "Recording in an error %s.", encoder);
+
+                    // This happens when the CommandEncoder is used while a pass is open.
+                    DAWN_INVALID_IF(encoder == mTopLevelEncoder,
+                                    "Recording in %s which is locked while %s is open.", encoder,
+                                    mCurrentEncoder);
+
+                    // The remaining case is when an encoder is ended but we still try to encode
+                    // commands in it.
+                    return DAWN_VALIDATION_ERROR(
+                        "Commands cannot be recorded in %s which has already been ended.", encoder);
+            }
+        }
+        return {};
+    }
+
     enum class Status {
         Open,
         Finished,

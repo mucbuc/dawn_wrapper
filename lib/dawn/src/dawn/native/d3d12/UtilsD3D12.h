@@ -30,9 +30,11 @@
 
 #include <string>
 
+#include "dawn/native/BlockInfo.h"
 #include "dawn/native/Commands.h"
 #include "dawn/native/d3d/UtilsD3D.h"
 #include "dawn/native/d3d12/BufferD3D12.h"
+#include "dawn/native/d3d12/ResourceAllocatorManagerD3D12.h"
 #include "dawn/native/d3d12/TextureD3D12.h"
 #include "dawn/native/d3d12/d3d12_platform.h"
 #include "dawn/native/dawn_platform.h"
@@ -48,7 +50,8 @@ D3D12_TEXTURE_COPY_LOCATION ComputeTextureCopyLocationForTexture(const Texture* 
                                                                  uint32_t layer,
                                                                  Aspect aspect);
 
-D3D12_BOX ComputeD3D12BoxFromOffsetAndSize(const Origin3D& offset, const Extent3D& copySize);
+D3D12_BOX ComputeD3D12BoxFromOffsetAndSize(const TexelOrigin3D& offset,
+                                           const TexelExtent3D& copySize);
 
 enum class BufferTextureCopyDirection {
     B2T,
@@ -58,19 +61,27 @@ enum class BufferTextureCopyDirection {
 void RecordBufferTextureCopyWithBufferHandle(BufferTextureCopyDirection direction,
                                              ID3D12GraphicsCommandList* commandList,
                                              ID3D12Resource* bufferResource,
-                                             const uint64_t offset,
-                                             const uint32_t bytesPerRow,
-                                             const uint32_t rowsPerImage,
+                                             uint64_t offset,
+                                             BlockCount blocksPerRow,
+                                             BlockCount rowsPerImage,
                                              const TextureCopy& textureCopy,
-                                             const Extent3D& copySize);
+                                             const BlockExtent3D& copySize);
 
 void RecordBufferTextureCopy(BufferTextureCopyDirection direction,
                              ID3D12GraphicsCommandList* commandList,
                              const BufferCopy& bufferCopy,
                              const TextureCopy& textureCopy,
-                             const Extent3D& copySize);
+                             const BlockExtent3D& copySize);
 
 void SetDebugName(Device* device, ID3D12Object* object, const char* prefix, std::string label = "");
+
+constexpr DXGI_FORMAT GetNullRTVDXGIFormatForD3D12RenderPass() {
+    return DXGI_FORMAT_R8G8B8A8_UNORM;
+}
+
+D3D12_HEAP_TYPE GetD3D12HeapType(ResourceHeapKind resourceHeapKind);
+
+D3D12_HEAP_PROPERTIES GetD3D12HeapProperties(ResourceHeapKind resourceHeapKind);
 
 }  // namespace dawn::native::d3d12
 

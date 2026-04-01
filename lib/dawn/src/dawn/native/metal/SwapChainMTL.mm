@@ -27,12 +27,12 @@
 
 #include "dawn/native/metal/SwapChainMTL.h"
 
+#import <QuartzCore/CAMetalLayer.h>
+
 #include "dawn/native/ChainUtils.h"
 #include "dawn/native/Surface.h"
 #include "dawn/native/metal/DeviceMTL.h"
 #include "dawn/native/metal/TextureMTL.h"
-
-#import <QuartzCore/CAMetalLayer.h>
 
 namespace dawn::native::metal {
 
@@ -113,9 +113,8 @@ ResultOrError<SwapChainTextureInfo> SwapChain::GetCurrentTextureImpl() {
 
         SwapChainTextureInfo info;
         info.texture = mTexture;
-        info.status = wgpu::SurfaceGetCurrentTextureStatus::Success;
+        info.status = wgpu::SurfaceGetCurrentTextureStatus::SuccessOptimal;
         // TODO(dawn:2320): Check for optimality
-        info.suboptimal = false;
         return info;
     }
 }

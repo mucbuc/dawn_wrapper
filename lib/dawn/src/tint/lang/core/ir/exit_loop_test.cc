@@ -44,7 +44,15 @@ TEST_F(IR_ExitLoopTest, Usage) {
 
     EXPECT_THAT(arg1->UsagesUnsorted(), testing::UnorderedElementsAre(Usage{e, 0u}));
     EXPECT_THAT(arg2->UsagesUnsorted(), testing::UnorderedElementsAre(Usage{e, 1u}));
-    EXPECT_EQ(loop->Result(0), nullptr);
+}
+
+TEST_F(IR_ExitLoopTest, Result) {
+    auto* arg1 = b.Constant(1_u);
+    auto* arg2 = b.Constant(2_u);
+    auto* loop = b.Loop();
+    auto* e = b.ExitLoop(loop, arg1, arg2);
+
+    EXPECT_TRUE(e->Results().IsEmpty());
 }
 
 TEST_F(IR_ExitLoopTest, Destroy) {
@@ -69,7 +77,7 @@ TEST_F(IR_ExitLoopTest, Clone) {
     EXPECT_EQ(new_loop, new_exit->Loop());
 
     auto args = new_exit->Args();
-    ASSERT_EQ(2u, args.Length());
+    ASSERT_EQ(2u, args.size());
 
     auto new_arg1 = args[0]->As<Constant>()->Value();
     ASSERT_TRUE(new_arg1->Is<core::constant::Scalar<u32>>());
@@ -88,7 +96,7 @@ TEST_F(IR_ExitLoopTest, CloneNoArgs) {
     auto* new_exit = clone_ctx.Clone(e);
 
     EXPECT_EQ(new_loop, new_exit->Loop());
-    EXPECT_TRUE(new_exit->Args().IsEmpty());
+    EXPECT_TRUE(new_exit->Args().empty());
 }
 
 }  // namespace

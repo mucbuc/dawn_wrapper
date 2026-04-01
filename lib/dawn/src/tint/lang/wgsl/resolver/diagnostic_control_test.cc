@@ -26,7 +26,6 @@
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "src/tint/lang/wgsl/resolver/resolver.h"
-
 #include "src/tint/lang/wgsl/resolver/resolver_helper_test.h"
 
 using namespace tint::core::number_suffixes;  // NOLINT
@@ -45,7 +44,8 @@ TEST_F(ResolverDiagnosticControlTest, UnreachableCode_DefaultSeverity) {
 }
 
 TEST_F(ResolverDiagnosticControlTest, UnreachableCode_ErrorViaDirective) {
-    DiagnosticDirective(wgsl::DiagnosticSeverity::kError, "chromium", "unreachable_code");
+    DiagnosticDirective(wgsl::DiagnosticSeverity::kError,
+                        DiagnosticRuleName("chromium", "unreachable_code"));
 
     auto stmts = Vector{Return(), Return()};
     Func("foo", {}, ty.void_(), stmts);
@@ -55,7 +55,8 @@ TEST_F(ResolverDiagnosticControlTest, UnreachableCode_ErrorViaDirective) {
 }
 
 TEST_F(ResolverDiagnosticControlTest, UnreachableCode_WarningViaDirective) {
-    DiagnosticDirective(wgsl::DiagnosticSeverity::kWarning, "chromium", "unreachable_code");
+    DiagnosticDirective(wgsl::DiagnosticSeverity::kWarning,
+                        DiagnosticRuleName("chromium", "unreachable_code"));
 
     auto stmts = Vector{Return(), Return()};
     Func("foo", {}, ty.void_(), stmts);
@@ -65,7 +66,8 @@ TEST_F(ResolverDiagnosticControlTest, UnreachableCode_WarningViaDirective) {
 }
 
 TEST_F(ResolverDiagnosticControlTest, UnreachableCode_InfoViaDirective) {
-    DiagnosticDirective(wgsl::DiagnosticSeverity::kInfo, "chromium", "unreachable_code");
+    DiagnosticDirective(wgsl::DiagnosticSeverity::kInfo,
+                        DiagnosticRuleName("chromium", "unreachable_code"));
 
     auto stmts = Vector{Return(), Return()};
     Func("foo", {}, ty.void_(), stmts);
@@ -75,7 +77,8 @@ TEST_F(ResolverDiagnosticControlTest, UnreachableCode_InfoViaDirective) {
 }
 
 TEST_F(ResolverDiagnosticControlTest, UnreachableCode_OffViaDirective) {
-    DiagnosticDirective(wgsl::DiagnosticSeverity::kOff, "chromium", "unreachable_code");
+    DiagnosticDirective(wgsl::DiagnosticSeverity::kOff,
+                        DiagnosticRuleName("chromium", "unreachable_code"));
 
     auto stmts = Vector{Return(), Return()};
     Func("foo", {}, ty.void_(), stmts);
@@ -85,8 +88,8 @@ TEST_F(ResolverDiagnosticControlTest, UnreachableCode_OffViaDirective) {
 }
 
 TEST_F(ResolverDiagnosticControlTest, UnreachableCode_ErrorViaAttribute) {
-    auto* attr =
-        DiagnosticAttribute(wgsl::DiagnosticSeverity::kError, "chromium", "unreachable_code");
+    auto* attr = DiagnosticAttribute(wgsl::DiagnosticSeverity::kError,
+                                     DiagnosticRuleName("chromium", "unreachable_code"));
 
     auto stmts = Vector{Return(), Return()};
     Func("foo", {}, ty.void_(), stmts, Vector{attr});
@@ -96,8 +99,8 @@ TEST_F(ResolverDiagnosticControlTest, UnreachableCode_ErrorViaAttribute) {
 }
 
 TEST_F(ResolverDiagnosticControlTest, UnreachableCode_WarningViaAttribute) {
-    auto* attr =
-        DiagnosticAttribute(wgsl::DiagnosticSeverity::kWarning, "chromium", "unreachable_code");
+    auto* attr = DiagnosticAttribute(wgsl::DiagnosticSeverity::kWarning,
+                                     DiagnosticRuleName("chromium", "unreachable_code"));
 
     auto stmts = Vector{Return(), Return()};
     Func("foo", {}, ty.void_(), stmts, Vector{attr});
@@ -107,8 +110,8 @@ TEST_F(ResolverDiagnosticControlTest, UnreachableCode_WarningViaAttribute) {
 }
 
 TEST_F(ResolverDiagnosticControlTest, UnreachableCode_InfoViaAttribute) {
-    auto* attr =
-        DiagnosticAttribute(wgsl::DiagnosticSeverity::kInfo, "chromium", "unreachable_code");
+    auto* attr = DiagnosticAttribute(wgsl::DiagnosticSeverity::kInfo,
+                                     DiagnosticRuleName("chromium", "unreachable_code"));
 
     auto stmts = Vector{Return(), Return()};
     Func("foo", {}, ty.void_(), stmts, Vector{attr});
@@ -118,8 +121,8 @@ TEST_F(ResolverDiagnosticControlTest, UnreachableCode_InfoViaAttribute) {
 }
 
 TEST_F(ResolverDiagnosticControlTest, UnreachableCode_OffViaAttribute) {
-    auto* attr =
-        DiagnosticAttribute(wgsl::DiagnosticSeverity::kOff, "chromium", "unreachable_code");
+    auto* attr = DiagnosticAttribute(wgsl::DiagnosticSeverity::kOff,
+                                     DiagnosticRuleName("chromium", "unreachable_code"));
 
     auto stmts = Vector{Return(), Return()};
     Func("foo", {}, ty.void_(), stmts, Vector{attr});
@@ -135,9 +138,10 @@ TEST_F(ResolverDiagnosticControlTest, UnreachableCode_ErrorViaDirective_Overridd
     //   return;
     //   return; // Should produce a warning
     // }
-    DiagnosticDirective(wgsl::DiagnosticSeverity::kError, "chromium", "unreachable_code");
-    auto* attr =
-        DiagnosticAttribute(wgsl::DiagnosticSeverity::kWarning, "chromium", "unreachable_code");
+    DiagnosticDirective(wgsl::DiagnosticSeverity::kError,
+                        DiagnosticRuleName("chromium", "unreachable_code"));
+    auto* attr = DiagnosticAttribute(wgsl::DiagnosticSeverity::kWarning,
+                                     DiagnosticRuleName("chromium", "unreachable_code"));
 
     auto stmts = Vector{Return(), Return()};
     Func("foo", {}, ty.void_(), stmts, Vector{attr});
@@ -162,8 +166,8 @@ TEST_F(ResolverDiagnosticControlTest, FunctionAttributeScope) {
     //   return; // Should produce an info
     // }
     {
-        auto* attr =
-            DiagnosticAttribute(wgsl::DiagnosticSeverity::kOff, "chromium", "unreachable_code");
+        auto* attr = DiagnosticAttribute(wgsl::DiagnosticSeverity::kOff,
+                                         DiagnosticRuleName("chromium", "unreachable_code"));
         Func("foo", {}, ty.void_(),
              Vector{
                  Return(),
@@ -179,8 +183,8 @@ TEST_F(ResolverDiagnosticControlTest, FunctionAttributeScope) {
              });
     }
     {
-        auto* attr =
-            DiagnosticAttribute(wgsl::DiagnosticSeverity::kInfo, "chromium", "unreachable_code");
+        auto* attr = DiagnosticAttribute(wgsl::DiagnosticSeverity::kInfo,
+                                         DiagnosticRuleName("chromium", "unreachable_code"));
         Func("zoo", {}, ty.void_(),
              Vector{
                  Return(),
@@ -216,7 +220,8 @@ TEST_F(ResolverDiagnosticControlTest, BlockAttributeScope) {
     // }
 
     auto attr = [&](auto severity) {
-        return Vector{DiagnosticAttribute(severity, "chromium", "unreachable_code")};
+        return Vector{
+            DiagnosticAttribute(severity, DiagnosticRuleName("chromium", "unreachable_code"))};
     };
     Func("foo", {}, ty.void_(),
          Vector{
@@ -281,7 +286,7 @@ TEST_F(ResolverDiagnosticControlTest, UnrecognizedChromiumRuleName_Directive) {
     EXPECT_EQ(r()->error(),
               R"(12:34 warning: unrecognized diagnostic rule 'chromium.unreachable_cod'
 Did you mean 'chromium.unreachable_code'?
-Possible values: 'chromium.unreachable_code')");
+Possible values: 'chromium.subgroup_matrix_uniformity', 'chromium.unreachable_code')");
 }
 
 TEST_F(ResolverDiagnosticControlTest, UnrecognizedChromiumRuleName_Attribute) {
@@ -293,7 +298,7 @@ TEST_F(ResolverDiagnosticControlTest, UnrecognizedChromiumRuleName_Attribute) {
     EXPECT_EQ(r()->error(),
               R"(12:34 warning: unrecognized diagnostic rule 'chromium.unreachable_cod'
 Did you mean 'chromium.unreachable_code'?
-Possible values: 'chromium.unreachable_code')");
+Possible values: 'chromium.subgroup_matrix_uniformity', 'chromium.unreachable_code')");
 }
 
 TEST_F(ResolverDiagnosticControlTest, UnrecognizedOtherRuleName_Directive) {
@@ -340,17 +345,19 @@ TEST_F(ResolverDiagnosticControlTest, Conflict_SameUnknownNameDifferentSeverity_
     EXPECT_EQ(r()->error(),
               R"(12:34 warning: unrecognized diagnostic rule 'chromium.unreachable_codes'
 Did you mean 'chromium.unreachable_code'?
-Possible values: 'chromium.unreachable_code'
+Possible values: 'chromium.subgroup_matrix_uniformity', 'chromium.unreachable_code'
 56:78 warning: unrecognized diagnostic rule 'chromium.unreachable_codes'
 Did you mean 'chromium.unreachable_code'?
-Possible values: 'chromium.unreachable_code'
+Possible values: 'chromium.subgroup_matrix_uniformity', 'chromium.unreachable_code'
 56:78 error: conflicting diagnostic directive
 12:34 note: severity of 'chromium.unreachable_codes' set to 'off' here)");
 }
 
 TEST_F(ResolverDiagnosticControlTest, Conflict_DifferentUnknownNameDifferentSeverity_Directive) {
-    DiagnosticDirective(wgsl::DiagnosticSeverity::kError, "chromium", "unreachable_codes");
-    DiagnosticDirective(wgsl::DiagnosticSeverity::kOff, "chromium", "unreachable_codex");
+    DiagnosticDirective(wgsl::DiagnosticSeverity::kError,
+                        DiagnosticRuleName("chromium", "unreachable_codes"));
+    DiagnosticDirective(wgsl::DiagnosticSeverity::kOff,
+                        DiagnosticRuleName("chromium", "unreachable_codex"));
     EXPECT_TRUE(r()->Resolve()) << r()->error();
 }
 
@@ -394,19 +401,19 @@ TEST_F(ResolverDiagnosticControlTest, Conflict_SameUnknownNameDifferentSeverity_
     EXPECT_EQ(r()->error(),
               R"(12:34 warning: unrecognized diagnostic rule 'chromium.unreachable_codes'
 Did you mean 'chromium.unreachable_code'?
-Possible values: 'chromium.unreachable_code'
+Possible values: 'chromium.subgroup_matrix_uniformity', 'chromium.unreachable_code'
 56:78 warning: unrecognized diagnostic rule 'chromium.unreachable_codes'
 Did you mean 'chromium.unreachable_code'?
-Possible values: 'chromium.unreachable_code'
+Possible values: 'chromium.subgroup_matrix_uniformity', 'chromium.unreachable_code'
 56:78 error: conflicting diagnostic attribute
 12:34 note: severity of 'chromium.unreachable_codes' set to 'off' here)");
 }
 
 TEST_F(ResolverDiagnosticControlTest, Conflict_DifferentUnknownNameDifferentSeverity_Attribute) {
-    auto* attr1 =
-        DiagnosticAttribute(wgsl::DiagnosticSeverity::kError, "chromium", "unreachable_codes");
-    auto* attr2 =
-        DiagnosticAttribute(wgsl::DiagnosticSeverity::kOff, "chromium", "unreachable_codex");
+    auto* attr1 = DiagnosticAttribute(wgsl::DiagnosticSeverity::kError,
+                                      DiagnosticRuleName("chromium", "unreachable_codes"));
+    auto* attr2 = DiagnosticAttribute(wgsl::DiagnosticSeverity::kOff,
+                                      DiagnosticRuleName("chromium", "unreachable_codex"));
     Func("foo", {}, ty.void_(), {}, Vector{attr1, attr2});
     EXPECT_TRUE(r()->Resolve()) << r()->error();
 }

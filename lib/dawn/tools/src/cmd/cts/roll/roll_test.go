@@ -28,13 +28,25 @@
 package roll
 
 import (
+	"context"
+	"fmt"
 	"testing"
 
 	"dawn.googlesource.com/dawn/tools/src/buildbucket"
 	"dawn.googlesource.com/dawn/tools/src/cmd/cts/common"
+	"dawn.googlesource.com/dawn/tools/src/cts/expectations"
+	"dawn.googlesource.com/dawn/tools/src/cts/result"
 	"dawn.googlesource.com/dawn/tools/src/git"
+	"dawn.googlesource.com/dawn/tools/src/oswrapper"
 	"github.com/google/go-cmp/cmp"
+	"github.com/stretchr/testify/require"
 )
+
+// The following functions and those that call it cannot currently be tested due
+// to using exec.
+//   - generateFiles
+//   - gnTSDepList
+//   - genTestList
 
 func MustParseHash(s string) git.Hash {
 	hash, err := git.ParseHash("d5e605a556408eaeeda64fb9d33c3f596fd90b70")
@@ -42,6 +54,59 @@ func MustParseHash(s string) git.Hash {
 		panic(err)
 	}
 	return hash
+}
+
+func TestUpdateExpectationUpdateTimestamp(t *testing.T) {
+	// Test case where the timestamp already exists and should be updated.
+	t.Run("TimestampExists", func(t *testing.T) {
+		content := &expectations.Content{
+			Chunks: []expectations.Chunk{
+				{Comments: []string{"# Some comment", "# Last rolled: 2022-01-01 12:00:00PM"}},
+				{Expectations: []expectations.Expectation{{Bug: "crbug.com/123", Query: "test1", Tags: result.NewTags("tag1"), Status: []string{"Failure"}}}},
+			},
+		}
+		updateExpectationUpdateTimestamp(content)
+		require.Len(t, content.Chunks, 2)
+		require.Len(t, content.Chunks[0].Comments, 2)
+		require.Equal(t, "# Some comment", content.Chunks[0].Comments[0])
+		require.Contains(t, content.Chunks[0].Comments[1], "# Last rolled: ")
+	})
+
+	// Test case where the timestamp does not exist and should be added.
+	t.Run("TimestampDoesNotExist_WithOtherChunks", func(t *testing.T) {
+		content := &expectations.Content{
+			Chunks: []expectations.Chunk{
+				{Comments: []string{"# Some other comment"}},
+				{Expectations: []expectations.Expectation{{Bug: "crbug.com/123", Query: "test1", Tags: result.NewTags("tag1"), Status: []string{"Failure"}}}},
+			},
+		}
+		updateExpectationUpdateTimestamp(content)
+		require.Len(t, content.Chunks, 4)
+		require.Len(t, content.Chunks[2].Comments, 1)
+		require.Contains(t, content.Chunks[2].Comments[0], "# Last rolled: ")
+	})
+
+	// Test case where the timestamp does not exist and there's only one chunk.
+	t.Run("TimestampDoesNotExist_WithOneChunk", func(t *testing.T) {
+		content := &expectations.Content{
+			Chunks: []expectations.Chunk{
+				{Expectations: []expectations.Expectation{{Bug: "crbug.com/123", Query: "test1", Tags: result.NewTags("tag1"), Status: []string{"Failure"}}}},
+			},
+		}
+		updateExpectationUpdateTimestamp(content)
+		require.Len(t, content.Chunks, 3)
+		require.Len(t, content.Chunks[2].Comments, 1)
+		require.Contains(t, content.Chunks[2].Comments[0], "# Last rolled: ")
+	})
+
+	// Test case where the content is empty.
+	t.Run("EmptyContent", func(t *testing.T) {
+		content := &expectations.Content{}
+		updateExpectationUpdateTimestamp(content)
+		require.Len(t, content.Chunks, 1)
+		require.Len(t, content.Chunks[0].Comments, 1)
+		require.Contains(t, content.Chunks[0].Comments[0], "# Last rolled: ")
+	})
 }
 
 func rollCommitMessageFor(ctsGitURL string) string {
@@ -136,4 +201,113 @@ Change-Id: I4aa059c6c183e622975b74dbdfdfe0b12341ae15
 	if diff := cmp.Diff(msg, expect); diff != "" {
 		t.Errorf("rollCommitMessage: %v", diff)
 	}
+}
+
+func TestRoller_GenResourceFilesList_NonExistentDirectory(t *testing.T) {
+	wrapper := oswrapper.CreateFSTestOSWrapper()
+	r := roller{
+		ctsDir: "/non_existent",
+	}
+
+	_, err := r.genResourceFilesList(context.Background(), wrapper)
+	// TODO(crbug.com/436025865): Add a leading / when FSTestOSWrapper properly
+	// reports absolute paths in errors.
+	require.ErrorContains(t, err, "open non_existent/src/resources: file does not exist")
+}
+
+func TestRoller_GenResourceFilesList_Success(t *testing.T) {
+	wrapper := oswrapper.CreateFSTestOSWrapper()
+	err := wrapper.MkdirAll("/root/src/resources/subdir_1", 0o700)
+	require.NoErrorf(t, err, "Error creating directory: %v", err)
+	err = wrapper.MkdirAll("/root/src/resources/subdir_2", 0o700)
+	require.NoErrorf(t, err, "Error creating cirectory: %v", err)
+
+	f, err := wrapper.Create("/root/src/resources/subdir_1/file_1.txt")
+	require.NoErrorf(t, err, "Error creating file: %v", err)
+	defer f.Close()
+	f, err = wrapper.Create("/root/src/resources/subdir_1/file_2.txt")
+	require.NoErrorf(t, err, "Error creating file: %v", err)
+	defer f.Close()
+	f, err = wrapper.Create("/root/src/resources/subdir_2/file_1.txt")
+	require.NoErrorf(t, err, "Error creating file: %v", err)
+	defer f.Close()
+
+	r := roller{
+		ctsDir: "/root",
+	}
+	fileList, err := r.genResourceFilesList(context.Background(), wrapper)
+	require.NoErrorf(t, err, "Error generating resource file list: %v", err)
+	expectedList := `subdir_1/file_1.txt
+subdir_1/file_2.txt
+subdir_2/file_1.txt
+`
+	require.Equal(t, expectedList, fileList)
+}
+
+func TestRoller_GenWebTestSources_NonExistentDirectory(t *testing.T) {
+	wrapper := oswrapper.CreateFSTestOSWrapper()
+	r := roller{
+		ctsDir: "/non_existent",
+	}
+
+	_, err := r.genWebTestSources(context.Background(), wrapper)
+	// TODO(crbug.com/436025865): Add a leading / when FSTestOSWrapper properly
+	// reports absolute paths in errors.
+	require.ErrorContains(t, err, "open non_existent/src/webgpu: file does not exist")
+}
+
+func _setupGenWebTestSourcesFilesystem(wrapper oswrapper.FSTestOSWrapper, htmlContent string, t *testing.T) {
+	directories := []string{"subdir_1", "subdir_2"}
+	files := []string{"file_1.html", "file_2.txt", "file_3.html"}
+	for _, directory := range directories {
+		directory_path := fmt.Sprintf("/root/src/webgpu/%s", directory)
+		err := wrapper.MkdirAll(directory_path, 0o700)
+		require.NoErrorf(t, err, "Error creating directory: %v", err)
+		for _, filename := range files {
+			f, err := wrapper.Create(fmt.Sprintf("%s/%s", directory_path, filename))
+			require.NoErrorf(t, err, "Error creating file: %v", err)
+			defer f.Close()
+			_, err = f.Write([]byte(htmlContent))
+			require.NoErrorf(t, err, "Error writing to file: %v", err)
+		}
+	}
+}
+
+func TestRoller_GenWebTestSources_MissingHtmlContent(t *testing.T) {
+	htmlContent := ""
+	wrapper := oswrapper.CreateFSTestOSWrapper()
+	_setupGenWebTestSourcesFilesystem(wrapper, htmlContent, t)
+
+	r := roller{
+		ctsDir: "/root",
+	}
+	_, err := r.genWebTestSources(context.Background(), wrapper)
+	require.ErrorContains(t, err, "Unable to find starting HTML tag")
+}
+
+func TestRoller_GenWebTestSources_Success(t *testing.T) {
+	htmlContent := `<!-- Comment -->
+<html name=foo>
+</html>`
+
+	wrapper := oswrapper.CreateFSTestOSWrapper()
+	_setupGenWebTestSourcesFilesystem(wrapper, htmlContent, t)
+
+	r := roller{
+		ctsDir: "/root",
+	}
+	fileMap, err := r.genWebTestSources(context.Background(), wrapper)
+	require.NoErrorf(t, err, "Error generating web test sources: %v", err)
+
+	expectedHtmlContent := `<!-- Comment -->
+<html name=foo>
+  <base ref="/gen/third_party/dawn/webgpu-cts/src/webgpu" />
+</html>`
+	expectedMapContent := map[string]string{
+		"webgpu-cts/webtests/subdir_1/file_1.html": expectedHtmlContent,
+		"webgpu-cts/webtests/subdir_1/file_3.html": expectedHtmlContent,
+		"webgpu-cts/webtests/subdir_2/file_1.html": expectedHtmlContent,
+		"webgpu-cts/webtests/subdir_2/file_3.html": expectedHtmlContent,
+	}
+	require.Equal(t, expectedMapContent, fileMap)
 }

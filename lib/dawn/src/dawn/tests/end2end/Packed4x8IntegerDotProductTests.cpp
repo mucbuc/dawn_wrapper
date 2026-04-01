@@ -63,7 +63,8 @@ TEST_P(Packed4x8IntegerDotProductTests, Dot4x8Packed) {
         }
 )";
 
-    ASSERT_TRUE(instance.HasWGSLLanguageFeature(wgpu::WGSLFeatureName::Packed4x8IntegerDotProduct));
+    ASSERT_TRUE(
+        instance.HasWGSLLanguageFeature(wgpu::WGSLLanguageFeatureName::Packed4x8IntegerDotProduct));
 
     wgpu::BufferDescriptor bufferDesc;
     bufferDesc.size = 4 * sizeof(uint32_t);
@@ -134,7 +135,8 @@ TEST_P(Packed4x8IntegerDotProductTests, Pack4x8) {
         }
 )";
 
-    ASSERT_TRUE(instance.HasWGSLLanguageFeature(wgpu::WGSLFeatureName::Packed4x8IntegerDotProduct));
+    ASSERT_TRUE(
+        instance.HasWGSLLanguageFeature(wgpu::WGSLLanguageFeatureName::Packed4x8IntegerDotProduct));
 
     wgpu::BufferDescriptor bufferDesc;
     bufferDesc.size = 8 * sizeof(uint32_t);
@@ -205,7 +207,8 @@ TEST_P(Packed4x8IntegerDotProductTests, Unpack4x8) {
         }
 )";
 
-    ASSERT_TRUE(instance.HasWGSLLanguageFeature(wgpu::WGSLFeatureName::Packed4x8IntegerDotProduct));
+    ASSERT_TRUE(
+        instance.HasWGSLLanguageFeature(wgpu::WGSLLanguageFeatureName::Packed4x8IntegerDotProduct));
 
     wgpu::BufferDescriptor bufferDesc;
     bufferDesc.size = sizeof(uint32_t) * 4 * 8;
@@ -251,7 +254,8 @@ DAWN_INSTANTIATE_TEST(Packed4x8IntegerDotProductTests,
                       D3D12Backend({"d3d12_polyfill_pack_unpack_4x8"}),
                       MetalBackend(),
                       VulkanBackend(),
-                      VulkanBackend({"polyfill_packed_4x8_dot_product"}));
+                      VulkanBackend({"polyfill_packed_4x8_dot_product"}),
+                      WebGPUBackend());
 
 }  // anonymous namespace
 }  // namespace dawn

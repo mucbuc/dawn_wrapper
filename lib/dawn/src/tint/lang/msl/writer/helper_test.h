@@ -35,6 +35,7 @@
 #include "src/tint/lang/core/ir/builder.h"
 #include "src/tint/lang/core/ir/validator.h"
 #include "src/tint/lang/msl/validate/validate.h"
+#include "src/tint/lang/msl/writer/printer/printer.h"
 #include "src/tint/lang/msl/writer/writer.h"
 
 namespace tint::msl::writer {
@@ -71,34 +72,46 @@ class MslWriterTestHelperBase : public BASE {
     core::type::Manager& ty{mod.Types()};
 
   protected:
-    /// Validation errors
-    std::string err_;
-
     /// Generated MSL
     Output output_;
 
     /// Run the writer on the IR module and validate the result.
     /// @param options the writer options
     /// @returns true if generation and validation succeeded
-    bool Generate(
+    Result<SuccessType> Generate(
         Options options = {},
-        [[maybe_unused]] validate::MslVersion msl_version = validate::MslVersion::kMsl_2_2) {
-        auto result = writer::Generate(mod, options);
-        if (result != Success) {
-            err_ = result.Failure().reason.Str();
-            return false;
+        validate::MslVersion msl_version = validate::MslVersion::kMsl_2_3) {
+        if (options.entry_point_name.empty()) {
+            options.entry_point_name = "entry";
         }
+
+        auto result = writer::Generate(mod, options);
+        TINT_CHECK_RESULT(result);
         output_ = result.Get();
 
-#if TINT_BUILD_IS_MAC
-        auto msl_validation = validate::ValidateUsingMetal(output_.msl, msl_version);
-        if (msl_validation.failed) {
-            err_ = msl_validation.output;
-            return false;
-        }
-#endif
+        return Validate(msl_version);
+    }
 
-        return true;
+    /// Run the printer on the MSL IR module and validate the result.
+    /// @param options the writer options
+    /// @returns true if generation and validation succeeded
+    Result<SuccessType> Print(Options options = {},
+                              validate::MslVersion msl_version = validate::MslVersion::kMsl_2_3) {
+        auto result = writer::Print(mod, options);
+        TINT_CHECK_RESULT(result);
+        output_ = result.Get();
+
+        return Validate(msl_version);
+    }
+
+    /// Validate the output.
+    /// @param msl_version the MSL version to validate against
+    /// @returns true if validation succeeded
+    Result<SuccessType> Validate([[maybe_unused]] validate::MslVersion msl_version) {
+#if TINT_BUILD_IS_MAC
+        TINT_CHECK_RESULT(validate::ValidateUsingMetal(output_.msl, msl_version));
+#endif
+        return Success;
     }
 
     /// @returns the metal header string

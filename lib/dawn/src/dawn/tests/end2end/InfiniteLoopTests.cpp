@@ -31,7 +31,6 @@
 #include <vector>
 
 #include "dawn/tests/DawnTest.h"
-
 #include "dawn/utils/WGPUHelpers.h"
 
 namespace dawn {
@@ -148,7 +147,7 @@ struct InfiniteLoopTests : public DawnTestWithParams<InfiniteLoopTestParams> {
         }
         DAWN_UNREACHABLE();
     }
-    // Returns code for the the infinite loop.
+    // Returns code for the infinite loop.
     std::string LoopStr() {
         switch (GetParam().mLoopKind) {
             case LoopKind::kLoop:

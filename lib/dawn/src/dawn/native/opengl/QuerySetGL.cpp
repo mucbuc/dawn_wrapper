@@ -27,30 +27,54 @@
 
 #include "dawn/native/opengl/QuerySetGL.h"
 
+#include <utility>
+
 #include "dawn/native/opengl/DeviceGL.h"
+#include "dawn/native/opengl/UtilsGL.h"
 
 namespace dawn::native::opengl {
 
-QuerySet::QuerySet(Device* device, const QuerySetDescriptor* descriptor)
-    : QuerySetBase(device, descriptor), mQueries(descriptor->count) {
-    if (mQueries.size() > 0) {
-        const OpenGLFunctions& gl = device->GetGL();
-        gl.GenQueries(descriptor->count, mQueries.data());
+// static
+ResultOrError<Ref<QuerySet>> QuerySet::Create(Device* device,
+                                              const QuerySetDescriptor* descriptor) {
+    Ref<QuerySet> querySet = AcquireRef(new QuerySet(device, descriptor));
+
+    if (querySet->mQueries.size() > 0) {
+        DAWN_TRY(device->EnqueueGL(
+            [querySet, count = descriptor->count](const OpenGLFunctions& gl) -> MaybeError {
+                DAWN_GL_TRY(gl, GenQueries(count, querySet->mQueries.data()));
+                return {};
+            }));
     }
+
+    return std::move(querySet);
 }
+
+QuerySet::QuerySet(Device* device, const QuerySetDescriptor* descriptor)
+    : QuerySetBase(device, descriptor), mQueries(descriptor->count) {}
 
 QuerySet::~QuerySet() = default;
 
-void QuerySet::DestroyImpl() {
-    const OpenGLFunctions& gl = ToBackend(GetDevice())->GetGL();
+void QuerySet::DestroyImpl(DestroyReason reason) {
+    auto device = ToBackend(GetDevice());
+
     if (mQueries.size() > 0) {
-        gl.DeleteQueries(mQueries.size(), mQueries.data());
+        IgnoreErrors(device->EnqueueDestroyGL(
+            this, &QuerySet::GetQueries, reason,
+            [](const OpenGLFunctions& gl, const std::vector<GLuint>& queries) -> MaybeError {
+                DAWN_GL_TRY_IGNORE_ERRORS(gl, DeleteQueries(queries.size(), queries.data()));
+                return {};
+            }));
     }
-    QuerySetBase::DestroyImpl();
+    QuerySetBase::DestroyImpl(reason);
 }
 
 GLuint QuerySet::Get(uint32_t index) const {
     return mQueries[index];
+}
+
+std::vector<GLuint> QuerySet::GetQueries() const {
+    return mQueries;
 }
 
 }  // namespace dawn::native::opengl

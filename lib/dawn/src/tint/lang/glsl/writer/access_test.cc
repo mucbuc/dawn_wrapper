@@ -25,9 +25,8 @@
 // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#include "src/tint/lang/glsl/writer/helper_test.h"
-
 #include "gmock/gmock.h"
+#include "src/tint/lang/glsl/writer/helper_test.h"
 
 using namespace tint::core::number_suffixes;  // NOLINT
 using namespace tint::core::fluent_types;     // NOLINT
@@ -36,7 +35,7 @@ namespace tint::glsl::writer {
 namespace {
 
 TEST_F(GlslWriterTest, AccessArray) {
-    auto* func = b.ComputeFunction("a");
+    auto* func = b.ComputeFunction("main");
 
     b.Append(func->Block(), [&] {
         auto* v = b.Var("v", b.Zero<array<f32, 3>>());
@@ -44,7 +43,8 @@ TEST_F(GlslWriterTest, AccessArray) {
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.glsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.glsl;
     EXPECT_EQ(output_.glsl, GlslHeader() + R"(
 layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
 void main() {
@@ -63,7 +63,7 @@ TEST_F(GlslWriterTest, AccessStruct) {
     };
     auto* strct = ty.Struct(b.ir.symbols.New("S"), std::move(members));
 
-    auto* f = b.ComputeFunction("a");
+    auto* f = b.ComputeFunction("main");
 
     b.Append(f->Block(), [&] {
         auto* v = b.Var("v", b.Zero(strct));
@@ -71,7 +71,8 @@ TEST_F(GlslWriterTest, AccessStruct) {
         b.Return(f);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.glsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.glsl;
     EXPECT_EQ(output_.glsl, GlslHeader() + R"(
 
 struct S {
@@ -88,7 +89,7 @@ void main() {
 }
 
 TEST_F(GlslWriterTest, AccessVector) {
-    auto* func = b.ComputeFunction("a");
+    auto* func = b.ComputeFunction("main");
 
     b.Append(func->Block(), [&] {
         auto* v = b.Var("v", b.Zero<vec3<f32>>());
@@ -96,7 +97,8 @@ TEST_F(GlslWriterTest, AccessVector) {
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.glsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.glsl;
     EXPECT_EQ(output_.glsl, GlslHeader() + R"(
 layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
 void main() {
@@ -107,7 +109,7 @@ void main() {
 }
 
 TEST_F(GlslWriterTest, AccessMatrix) {
-    auto* func = b.ComputeFunction("a");
+    auto* func = b.ComputeFunction("main");
 
     b.Append(func->Block(), [&] {
         auto* v = b.Var("v", b.Zero<mat4x4<f32>>());
@@ -116,7 +118,8 @@ TEST_F(GlslWriterTest, AccessMatrix) {
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.glsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.glsl;
     EXPECT_EQ(output_.glsl, GlslHeader() + R"(
 layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
 void main() {
@@ -127,21 +130,20 @@ void main() {
 }
 
 TEST_F(GlslWriterTest, AccessStoreVectorElementConstantIndex) {
-    auto* func = b.Function("foo", ty.void_());
+    auto* func = b.ComputeFunction("main");
     b.Append(func->Block(), [&] {
         auto* vec_var = b.Var("vec", ty.ptr<function, vec4<i32>>());
         b.StoreVectorElement(vec_var, 1_u, b.Constant(42_i));
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.glsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.glsl;
     EXPECT_EQ(output_.glsl, GlslHeader() + R"(
-void foo() {
-  ivec4 vec = ivec4(0);
-  vec[1u] = 42;
-}
 layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
 void main() {
+  ivec4 vec = ivec4(0);
+  vec.y = 42;
 }
 )");
 }
@@ -156,7 +158,14 @@ TEST_F(GlslWriterTest, AccessStoreVectorElementDynamicIndex) {
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.glsl;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Call(func, b.Zero(ty.i32()));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.glsl;
     EXPECT_EQ(output_.glsl, GlslHeader() + R"(
 void foo(int idx) {
   ivec4 vec = ivec4(0);
@@ -164,6 +173,7 @@ void foo(int idx) {
 }
 layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
 void main() {
+  foo(0);
 }
 )");
 }
@@ -172,7 +182,7 @@ TEST_F(GlslWriterTest, AccessNested) {
     Vector members_a{
         ty.Get<core::type::StructMember>(b.ir.symbols.New("d"), ty.i32(), 0u, 0u, 4u, 4u,
                                          core::IOAttributes{}),
-        ty.Get<core::type::StructMember>(b.ir.symbols.New("e"), ty.array<f32, 3>(), 1u, 4u, 4u, 4u,
+        ty.Get<core::type::StructMember>(b.ir.symbols.New("e"), ty.array<f32, 3>(), 1u, 4u, 4u, 12u,
                                          core::IOAttributes{}),
     };
     auto* a_strct = ty.Struct(b.ir.symbols.New("A"), std::move(members_a));
@@ -182,12 +192,12 @@ TEST_F(GlslWriterTest, AccessNested) {
                                          core::IOAttributes{}),
         ty.Get<core::type::StructMember>(b.ir.symbols.New("b"), ty.f32(), 1u, 4u, 4u, 4u,
                                          core::IOAttributes{}),
-        ty.Get<core::type::StructMember>(b.ir.symbols.New("c"), a_strct, 2u, 8u, 8u, 8u,
+        ty.Get<core::type::StructMember>(b.ir.symbols.New("c"), a_strct, 2u, 8u, 8u, 16u,
                                          core::IOAttributes{}),
     };
     auto* s_strct = ty.Struct(b.ir.symbols.New("S"), std::move(members_s));
 
-    auto* f = b.ComputeFunction("a");
+    auto* f = b.ComputeFunction("main");
 
     b.Append(f->Block(), [&] {
         auto* v = b.Var("v", b.Zero(s_strct));
@@ -195,7 +205,8 @@ TEST_F(GlslWriterTest, AccessNested) {
         b.Return(f);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.glsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.glsl;
     EXPECT_EQ(output_.glsl, GlslHeader() + R"(
 
 struct A {
@@ -218,15 +229,16 @@ void main() {
 }
 
 TEST_F(GlslWriterTest, AccessSwizzle) {
-    auto* f = b.ComputeFunction("a");
+    auto* f = b.ComputeFunction("main");
 
     b.Append(f->Block(), [&] {
         auto* v = b.Var("v", b.Zero<vec3<f32>>());
-        b.Let("b", b.Swizzle(ty.f32(), v, {1u}));
+        b.Let("b", b.Swizzle(ty.f32(), b.Load(v), {1u}));
         b.Return(f);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.glsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.glsl;
     EXPECT_EQ(output_.glsl, GlslHeader() + R"(
 layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
 void main() {
@@ -237,15 +249,16 @@ void main() {
 }
 
 TEST_F(GlslWriterTest, AccessSwizzleMulti) {
-    auto* f = b.ComputeFunction("a");
+    auto* f = b.ComputeFunction("main");
 
     b.Append(f->Block(), [&] {
         auto* v = b.Var("v", b.Zero<vec4<f32>>());
-        b.Let("b", b.Swizzle(ty.vec4<f32>(), v, {3u, 2u, 1u, 0u}));
+        b.Let("b", b.Swizzle(ty.vec4f(), b.Load(v), {3u, 2u, 1u, 0u}));
         b.Return(f);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.glsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.glsl;
     EXPECT_EQ(output_.glsl, GlslHeader() + R"(
 layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
 void main() {
@@ -260,7 +273,7 @@ TEST_F(GlslWriterTest, AccessStorageVector) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         b.Let("a", b.Load(var));
         b.Let("b", b.LoadVectorElement(var, 0_u));
@@ -270,12 +283,13 @@ TEST_F(GlslWriterTest, AccessStorageVector) {
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.glsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.glsl;
     EXPECT_EQ(output_.glsl, GlslHeader() + R"(precision highp float;
 precision highp int;
 
 layout(binding = 0, std430)
-buffer v_block_1_ssbo {
+buffer f_v_block_ssbo {
   vec4 inner;
 } v_1;
 void main() {
@@ -293,7 +307,7 @@ TEST_F(GlslWriterTest, AccessStorageVectorF16) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         b.Let("a", b.Load(var));
         b.Let("b", b.LoadVectorElement(var, 0_u));
@@ -303,13 +317,14 @@ TEST_F(GlslWriterTest, AccessStorageVectorF16) {
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.glsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.glsl;
     EXPECT_EQ(output_.glsl, GlslHeader() + R"(#extension GL_AMD_gpu_shader_half_float: require
 precision highp float;
 precision highp int;
 
 layout(binding = 0, std430)
-buffer v_block_1_ssbo {
+buffer f_v_block_ssbo {
   f16vec4 inner;
 } v_1;
 void main() {
@@ -327,7 +342,7 @@ TEST_F(GlslWriterTest, AccessStorageMatrix) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         b.Let("a", b.Load(var));
         b.Let("b", b.Load(b.Access(ty.ptr<storage, vec4<f32>, core::Access::kRead>(), var, 3_u)));
@@ -336,12 +351,13 @@ TEST_F(GlslWriterTest, AccessStorageMatrix) {
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.glsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.glsl;
     EXPECT_EQ(output_.glsl, GlslHeader() + R"(precision highp float;
 precision highp int;
 
 layout(binding = 0, std430)
-buffer v_block_1_ssbo {
+buffer f_v_block_ssbo {
   mat4 inner;
 } v_1;
 void main() {
@@ -357,19 +373,20 @@ TEST_F(GlslWriterTest, AccessStorageArray) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         b.Let("a", b.Load(var));
         b.Let("b", b.Load(b.Access(ty.ptr<storage, vec3<f32>, core::Access::kRead>(), var, 3_u)));
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.glsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.glsl;
     EXPECT_EQ(output_.glsl, GlslHeader() + R"(precision highp float;
 precision highp int;
 
 layout(binding = 0, std430)
-buffer v_block_1_ssbo {
+buffer f_v_block_ssbo {
   vec3 inner[5];
 } v_1;
 void main() {
@@ -389,14 +406,15 @@ TEST_F(GlslWriterTest, AccessStorageStruct) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         b.Let("a", b.Load(var));
         b.Let("b", b.Load(b.Access(ty.ptr<storage, f32, core::Access::kRead>(), var, 1_u)));
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.glsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.glsl;
     EXPECT_EQ(output_.glsl, GlslHeader() + R"(precision highp float;
 precision highp int;
 
@@ -407,7 +425,7 @@ struct SB {
 };
 
 layout(binding = 0, std430)
-buffer v_block_1_ssbo {
+buffer f_v_block_ssbo {
   SB inner;
 } v_1;
 void main() {
@@ -437,7 +455,7 @@ TEST_F(GlslWriterTest, AccessStorageNested) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         b.Let("a", b.Load(var));
         b.Let("b", b.LoadVectorElement(b.Access(ty.ptr<storage, vec3<f32>, core::Access::kRead>(),
@@ -446,7 +464,8 @@ TEST_F(GlslWriterTest, AccessStorageNested) {
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.glsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.glsl;
     EXPECT_EQ(output_.glsl, GlslHeader() + R"(precision highp float;
 precision highp int;
 
@@ -473,7 +492,7 @@ struct SB {
 };
 
 layout(binding = 0, std430)
-buffer v_block_1_ssbo {
+buffer f_v_block_ssbo {
   SB inner;
 } v_1;
 void main() {
@@ -488,7 +507,7 @@ TEST_F(GlslWriterTest, AccessStorageStoreVector) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         b.StoreVectorElement(var, 0_u, 2_f);
         b.StoreVectorElement(var, 1_u, 4_f);
@@ -497,19 +516,20 @@ TEST_F(GlslWriterTest, AccessStorageStoreVector) {
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.glsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.glsl;
     EXPECT_EQ(output_.glsl, GlslHeader() + R"(precision highp float;
 precision highp int;
 
 layout(binding = 0, std430)
-buffer v_block_1_ssbo {
+buffer f_v_block_ssbo {
   vec4 inner;
 } v_1;
 void main() {
-  v_1.inner[0u] = 2.0f;
-  v_1.inner[1u] = 4.0f;
-  v_1.inner[2u] = 8.0f;
-  v_1.inner[3u] = 16.0f;
+  v_1.inner.x = 2.0f;
+  v_1.inner.y = 4.0f;
+  v_1.inner.z = 8.0f;
+  v_1.inner.w = 16.0f;
 }
 )");
 }
@@ -531,23 +551,24 @@ TEST_F(GlslWriterTest, AccessDirectVariable) {
         b.Return(bar);
     });
 
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         b.Call(bar, var1);
         b.Call(bar, var2);
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.glsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.glsl;
     EXPECT_EQ(output_.glsl, GlslHeader() + R"(precision highp float;
 precision highp int;
 
 layout(binding = 0, std430)
-buffer v1_block_1_ssbo {
+buffer f_v1_block_ssbo {
   vec4 inner;
 } v;
 layout(binding = 1, std430)
-buffer v2_block_1_ssbo {
+buffer f_v2_block_ssbo {
   vec4 inner;
 } v_1;
 void bar() {
@@ -577,16 +598,17 @@ TEST_F(GlslWriterTest, AccessChainFromUnnamedAccessChain) {
     var->SetBindingPoint(0, 0);
     b.ir.root_block->Append(var);
 
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         auto* x = b.Access(ty.ptr(storage, sb, core::Access::kReadWrite), var, 2_u);
-        auto* y = b.Access(ty.ptr(storage, Inner, core::Access::kReadWrite), x->Result(0), 1_u);
-        b.Let("b", b.Load(b.Access(ty.ptr(storage, ty.u32(), core::Access::kReadWrite),
-                                   y->Result(0), 1_u)));
+        auto* y = b.Access(ty.ptr(storage, Inner, core::Access::kReadWrite), x->Result(), 1_u);
+        b.Let("b", b.Load(b.Access(ty.ptr(storage, ty.u32(), core::Access::kReadWrite), y->Result(),
+                                   1_u)));
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.glsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.glsl;
     EXPECT_EQ(output_.glsl, GlslHeader() + R"(precision highp float;
 precision highp int;
 
@@ -602,7 +624,7 @@ struct SB {
 };
 
 layout(binding = 0, std430)
-buffer v_block_1_ssbo {
+buffer f_v_block_ssbo {
   SB inner[4];
 } v_1;
 void main() {
@@ -624,18 +646,19 @@ TEST_F(GlslWriterTest, AccessChainFromLetAccessChain) {
     var->SetBindingPoint(0, 0);
     b.ir.root_block->Append(var);
 
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         auto* x = b.Let("x", var);
         auto* y = b.Let(
-            "y", b.Access(ty.ptr(storage, Inner, core::Access::kReadWrite), x->Result(0), 1_u));
+            "y", b.Access(ty.ptr(storage, Inner, core::Access::kReadWrite), x->Result(), 1_u));
         auto* z = b.Let(
-            "z", b.Access(ty.ptr(storage, ty.f32(), core::Access::kReadWrite), y->Result(0), 0_u));
+            "z", b.Access(ty.ptr(storage, ty.f32(), core::Access::kReadWrite), y->Result(), 0_u));
         b.Let("a", b.Load(z));
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.glsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.glsl;
     EXPECT_EQ(output_.glsl, GlslHeader() + R"(precision highp float;
 precision highp int;
 
@@ -650,7 +673,7 @@ struct SB {
 };
 
 layout(binding = 0, std430)
-buffer v_block_1_ssbo {
+buffer f_v_block_ssbo {
   SB inner;
 } v_1;
 void main() {
@@ -662,7 +685,7 @@ void main() {
 TEST_F(GlslWriterTest, AccessComplexDynamicAccessChain) {
     auto* S1 = ty.Struct(mod.symbols.New("S1"), {
                                                     {mod.symbols.New("a"), ty.i32()},
-                                                    {mod.symbols.New("b"), ty.vec3<f32>()},
+                                                    {mod.symbols.New("b"), ty.vec3f()},
                                                     {mod.symbols.New("c"), ty.i32()},
                                                 });
     auto* S2 = ty.Struct(mod.symbols.New("S2"), {
@@ -680,7 +703,7 @@ TEST_F(GlslWriterTest, AccessComplexDynamicAccessChain) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         auto* i = b.Load(b.Var("i", 4_i));
         auto* j = b.Load(b.Var("j", 1_u));
@@ -692,7 +715,8 @@ TEST_F(GlslWriterTest, AccessComplexDynamicAccessChain) {
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.glsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.glsl;
     EXPECT_EQ(output_.glsl, GlslHeader() + R"(precision highp float;
 precision highp int;
 
@@ -719,7 +743,7 @@ struct S2 {
 };
 
 layout(binding = 0, std430)
-buffer SB_1_ssbo {
+buffer f_SB_ssbo {
   int a_2;
   uint tint_pad_0;
   uint tint_pad_1;
@@ -735,8 +759,7 @@ void main() {
   int v_2 = k;
   uint v_3 = (uint(sb.b_2.length()) - 1u);
   uint v_4 = min(uint(v), v_3);
-  uint v_5 = min(v_1, 2u);
-  float x = sb.b_2[v_4].b_1[v_5].b[min(uint(v_2), 2u)];
+  float x = sb.b_2[v_4].b_1[min(v_1, 2u)].b[min(uint(v_2), 2u)];
 }
 )");
 }
@@ -744,7 +767,7 @@ void main() {
 TEST_F(GlslWriterTest, AccessComplexDynamicAccessChainSplit) {
     auto* S1 = ty.Struct(mod.symbols.New("S1"), {
                                                     {mod.symbols.New("a"), ty.i32()},
-                                                    {mod.symbols.New("b"), ty.vec3<f32>()},
+                                                    {mod.symbols.New("b"), ty.vec3f()},
                                                     {mod.symbols.New("c"), ty.i32()},
                                                 });
     auto* S2 = ty.Struct(mod.symbols.New("S2"), {
@@ -762,7 +785,7 @@ TEST_F(GlslWriterTest, AccessComplexDynamicAccessChainSplit) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         auto* j = b.Load(b.Var("j", 1_u));
         b.Let("x", b.LoadVectorElement(b.Access(ty.ptr<storage, vec3<f32>, read_write>(), var, 1_u,
@@ -771,7 +794,8 @@ TEST_F(GlslWriterTest, AccessComplexDynamicAccessChainSplit) {
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.glsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.glsl;
     EXPECT_EQ(output_.glsl, GlslHeader() + R"(precision highp float;
 precision highp int;
 
@@ -798,7 +822,7 @@ struct S2 {
 };
 
 layout(binding = 0, std430)
-buffer SB_1_ssbo {
+buffer f_SB_ssbo {
   int a_2;
   uint tint_pad_0;
   uint tint_pad_1;
@@ -809,8 +833,7 @@ void main() {
   uint j = 1u;
   uint v = j;
   uint v_1 = min(4u, (uint(sb.b_2.length()) - 1u));
-  uint v_2 = min(v, 2u);
-  float x = sb.b_2[v_1].b_1[v_2].b.z;
+  float x = sb.b_2[v_1].b_1[min(v, 2u)].b.z;
 }
 )");
 }
@@ -832,39 +855,27 @@ TEST_F(GlslWriterTest, AccessUniformChainFromUnnamedAccessChain) {
     var->SetBindingPoint(0, 0);
     b.ir.root_block->Append(var);
 
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         auto* x = b.Access(ty.ptr(uniform, sb, core::Access::kRead), var, 2_u);
-        auto* y = b.Access(ty.ptr(uniform, Inner, core::Access::kRead), x->Result(0), 1_u);
+        auto* y = b.Access(ty.ptr(uniform, Inner, core::Access::kRead), x->Result(), 1_u);
         b.Let("b",
-              b.Load(b.Access(ty.ptr(uniform, ty.u32(), core::Access::kRead), y->Result(0), 1_u)));
+              b.Load(b.Access(ty.ptr(uniform, ty.u32(), core::Access::kRead), y->Result(), 1_u)));
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.glsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.glsl;
     EXPECT_EQ(output_.glsl, GlslHeader() + R"(precision highp float;
 precision highp int;
 
-
-struct Inner {
-  float c;
-  uint d;
-};
-
-struct SB {
-  int a;
-  uint tint_pad_0;
-  uint tint_pad_1;
-  uint tint_pad_2;
-  Inner b;
-};
-
 layout(binding = 0, std140)
-uniform v_block_1_ubo {
-  SB inner[4];
+uniform f_v_block_ubo {
+  uvec4 inner[8];
 } v_1;
 void main() {
-  uint b = v_1.inner[2u].b.d;
+  uvec4 v_2 = v_1.inner[5u];
+  uint b = v_2.y;
 }
 )");
 }
@@ -884,40 +895,29 @@ TEST_F(GlslWriterTest, AccessUniformChainFromLetAccessChain) {
     var->SetBindingPoint(0, 0);
     b.ir.root_block->Append(var);
 
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         auto* x = b.Let("x", var);
         auto* y =
-            b.Let("y", b.Access(ty.ptr(uniform, Inner, core::Access::kRead), x->Result(0), 1_u));
+            b.Let("y", b.Access(ty.ptr(uniform, Inner, core::Access::kRead), x->Result(), 1_u));
         auto* z =
-            b.Let("z", b.Access(ty.ptr(uniform, ty.f32(), core::Access::kRead), y->Result(0), 0_u));
+            b.Let("z", b.Access(ty.ptr(uniform, ty.f32(), core::Access::kRead), y->Result(), 0_u));
         b.Let("a", b.Load(z));
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.glsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.glsl;
     EXPECT_EQ(output_.glsl, GlslHeader() + R"(precision highp float;
 precision highp int;
 
-
-struct Inner {
-  float c;
-};
-
-struct SB {
-  int a;
-  uint tint_pad_0;
-  uint tint_pad_1;
-  uint tint_pad_2;
-  Inner b;
-};
-
 layout(binding = 0, std140)
-uniform v_block_1_ubo {
-  SB inner;
+uniform f_v_block_ubo {
+  uvec4 inner[2];
 } v_1;
 void main() {
-  float a = v_1.inner.b.c;
+  uvec4 v_2 = v_1.inner[1u];
+  float a = uintBitsToFloat(v_2.x);
 }
 )");
 }
@@ -927,22 +927,24 @@ TEST_F(GlslWriterTest, AccessUniformScalar) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         b.Let("a", b.Load(var));
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.glsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.glsl;
     EXPECT_EQ(output_.glsl, GlslHeader() + R"(precision highp float;
 precision highp int;
 
 layout(binding = 0, std140)
-uniform v_block_1_ubo {
-  float inner;
+uniform f_v_block_ubo {
+  uvec4 inner[1];
 } v_1;
 void main() {
-  float a = v_1.inner;
+  uvec4 v_2 = v_1.inner[0u];
+  float a = uintBitsToFloat(v_2.x);
 }
 )");
 }
@@ -952,23 +954,28 @@ TEST_F(GlslWriterTest, AccessUniformScalarF16) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         b.Let("a", b.Load(var));
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.glsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.glsl;
     EXPECT_EQ(output_.glsl, GlslHeader() + R"(#extension GL_AMD_gpu_shader_half_float: require
 precision highp float;
 precision highp int;
 
 layout(binding = 0, std140)
-uniform v_block_1_ubo {
-  float16_t inner;
+uniform f_v_block_ubo {
+  uvec4 inner[1];
 } v_1;
+f16vec2 tint_bitcast_to_f16(uint src) {
+  return unpackFloat2x16(src);
+}
 void main() {
-  float16_t a = v_1.inner;
+  uvec4 v_2 = v_1.inner[0u];
+  float16_t a = tint_bitcast_to_f16(v_2.x).x;
 }
 )");
 }
@@ -978,7 +985,7 @@ TEST_F(GlslWriterTest, AccessUniformVector) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         b.Let("a", b.Load(var));
         b.Let("b", b.LoadVectorElement(var, 0_u));
@@ -988,20 +995,25 @@ TEST_F(GlslWriterTest, AccessUniformVector) {
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.glsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.glsl;
     EXPECT_EQ(output_.glsl, GlslHeader() + R"(precision highp float;
 precision highp int;
 
 layout(binding = 0, std140)
-uniform v_block_1_ubo {
-  vec4 inner;
+uniform f_v_block_ubo {
+  uvec4 inner[1];
 } v_1;
 void main() {
-  vec4 a = v_1.inner;
-  float b = v_1.inner.x;
-  float c = v_1.inner.y;
-  float d = v_1.inner.z;
-  float e = v_1.inner.w;
+  vec4 a = uintBitsToFloat(v_1.inner[0u]);
+  uvec4 v_2 = v_1.inner[0u];
+  float b = uintBitsToFloat(v_2.x);
+  uvec4 v_3 = v_1.inner[0u];
+  float c = uintBitsToFloat(v_3.y);
+  uvec4 v_4 = v_1.inner[0u];
+  float d = uintBitsToFloat(v_4.z);
+  uvec4 v_5 = v_1.inner[0u];
+  float e = uintBitsToFloat(v_5.w);
 }
 )");
 }
@@ -1011,7 +1023,7 @@ TEST_F(GlslWriterTest, AccessUniformVectorF16) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         auto* x = b.Var("x", 1_u);
         b.Let("a", b.Load(var));
@@ -1022,22 +1034,34 @@ TEST_F(GlslWriterTest, AccessUniformVectorF16) {
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.glsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.glsl;
     EXPECT_EQ(output_.glsl, GlslHeader() + R"(#extension GL_AMD_gpu_shader_half_float: require
 precision highp float;
 precision highp int;
 
 layout(binding = 0, std140)
-uniform v_block_1_ubo {
-  f16vec4 inner;
+uniform f_v_block_ubo {
+  uvec4 inner[1];
 } v_1;
+f16vec2 tint_bitcast_to_f16(uint src) {
+  return unpackFloat2x16(src);
+}
+f16vec4 tint_bitcast_to_f16_1(uvec2 src) {
+  return f16vec4(unpackFloat2x16(src.x), unpackFloat2x16(src.y));
+}
 void main() {
   uint x = 1u;
-  f16vec4 a = v_1.inner;
-  float16_t b = v_1.inner.x;
-  float16_t c = v_1.inner[min(x, 3u)];
-  float16_t d = v_1.inner.z;
-  float16_t e = v_1.inner.w;
+  f16vec4 a = tint_bitcast_to_f16_1(v_1.inner[0u].xy);
+  uvec4 v_2 = v_1.inner[0u];
+  float16_t b = tint_bitcast_to_f16(v_2.x).x;
+  uint v_3 = (min(x, 3u) * 2u);
+  uvec4 v_4 = v_1.inner[(v_3 / 16u)];
+  float16_t c = tint_bitcast_to_f16(v_4[((v_3 & 15u) >> 2u)])[mix(1u, 0u, ((v_3 % 4u) == 0u))];
+  uvec4 v_5 = v_1.inner[0u];
+  float16_t d = tint_bitcast_to_f16(v_5.y).x;
+  uvec4 v_6 = v_1.inner[0u];
+  float16_t e = tint_bitcast_to_f16(v_6.y).y;
 }
 )");
 }
@@ -1047,7 +1071,7 @@ TEST_F(GlslWriterTest, AccessUniformMatrix) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         b.Let("a", b.Load(var));
         b.Let("b", b.Load(b.Access(ty.ptr<uniform, vec4<f32>, core::Access::kRead>(), var, 3_u)));
@@ -1056,18 +1080,23 @@ TEST_F(GlslWriterTest, AccessUniformMatrix) {
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.glsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.glsl;
     EXPECT_EQ(output_.glsl, GlslHeader() + R"(precision highp float;
 precision highp int;
 
 layout(binding = 0, std140)
-uniform v_block_1_ubo {
-  mat4 inner;
+uniform f_v_block_ubo {
+  uvec4 inner[4];
 } v_1;
+mat4 v_2(uint start_byte_offset) {
+  return mat4(uintBitsToFloat(v_1.inner[(start_byte_offset / 16u)]), uintBitsToFloat(v_1.inner[((16u + start_byte_offset) / 16u)]), uintBitsToFloat(v_1.inner[((32u + start_byte_offset) / 16u)]), uintBitsToFloat(v_1.inner[((48u + start_byte_offset) / 16u)]));
+}
 void main() {
-  mat4 a = v_1.inner;
-  vec4 b = v_1.inner[3u];
-  float c = v_1.inner[1u].z;
+  mat4 a = v_2(0u);
+  vec4 b = uintBitsToFloat(v_1.inner[3u]);
+  uvec4 v_3 = v_1.inner[1u];
+  float c = uintBitsToFloat(v_3.z);
 }
 )");
 }
@@ -1077,7 +1106,7 @@ TEST_F(GlslWriterTest, AccessUniformMatrix2x3) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         b.Let("a", b.Load(var));
         b.Let("b", b.Load(b.Access(ty.ptr<uniform, vec3<f32>, core::Access::kRead>(), var, 1_u)));
@@ -1086,20 +1115,23 @@ TEST_F(GlslWriterTest, AccessUniformMatrix2x3) {
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.glsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.glsl;
     EXPECT_EQ(output_.glsl, GlslHeader() + R"(precision highp float;
 precision highp int;
 
 layout(binding = 0, std140)
-uniform v_block_std140_1_ubo {
-  vec3 inner_col0;
-  uint tint_pad_0;
-  vec3 inner_col1;
+uniform f_v_block_ubo {
+  uvec4 inner[2];
 } v_1;
+mat2x3 v_2(uint start_byte_offset) {
+  return mat2x3(uintBitsToFloat(v_1.inner[(start_byte_offset / 16u)].xyz), uintBitsToFloat(v_1.inner[((16u + start_byte_offset) / 16u)].xyz));
+}
 void main() {
-  mat2x3 a = mat2x3(v_1.inner_col0, v_1.inner_col1);
-  vec3 b = mat2x3(v_1.inner_col0, v_1.inner_col1)[1u];
-  float c = mat2x3(v_1.inner_col0, v_1.inner_col1)[1u][2u];
+  mat2x3 a = v_2(0u);
+  vec3 b = uintBitsToFloat(v_1.inner[1u].xyz);
+  uvec4 v_3 = v_1.inner[1u];
+  float c = uintBitsToFloat(v_3.z);
 }
 )");
 }
@@ -1109,28 +1141,41 @@ TEST_F(GlslWriterTest, AccessUniformMat2x3F16) {
     var->SetBindingPoint(0, 0);
     b.ir.root_block->Append(var);
 
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         b.Let("a", b.Load(var));
-        b.Let("b", b.Load(b.Access(ty.ptr(uniform, ty.vec3<f16>()), var, 1_u)));
-        b.Let("c", b.LoadVectorElement(b.Access(ty.ptr(uniform, ty.vec3<f16>()), var, 1_u), 2_u));
+        b.Let("b", b.Load(b.Access(ty.ptr(uniform, ty.vec3h()), var, 1_u)));
+        b.Let("c", b.LoadVectorElement(b.Access(ty.ptr(uniform, ty.vec3h()), var, 1_u), 2_u));
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.glsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.glsl;
     EXPECT_EQ(output_.glsl, GlslHeader() + R"(#extension GL_AMD_gpu_shader_half_float: require
 precision highp float;
 precision highp int;
 
 layout(binding = 0, std140)
-uniform v_block_std140_1_ubo {
-  f16vec3 inner_col0;
-  f16vec3 inner_col1;
+uniform f_v_block_ubo {
+  uvec4 inner[1];
 } v_1;
+f16vec2 tint_bitcast_to_f16(uint src) {
+  return unpackFloat2x16(src);
+}
+f16vec4 tint_bitcast_to_f16_1(uvec2 src) {
+  return f16vec4(unpackFloat2x16(src.x), unpackFloat2x16(src.y));
+}
+f16mat2x3 v_2(uint start_byte_offset) {
+  uvec4 v_3 = v_1.inner[(start_byte_offset / 16u)];
+  f16vec3 v_4 = tint_bitcast_to_f16_1(mix(v_3.xy, v_3.zw, bvec2((((start_byte_offset & 15u) >> 2u) == 2u)))).xyz;
+  uvec4 v_5 = v_1.inner[((8u + start_byte_offset) / 16u)];
+  return f16mat2x3(v_4, tint_bitcast_to_f16_1(mix(v_5.xy, v_5.zw, bvec2(((((8u + start_byte_offset) & 15u) >> 2u) == 2u)))).xyz);
+}
 void main() {
-  f16mat2x3 a = f16mat2x3(v_1.inner_col0, v_1.inner_col1);
-  f16vec3 b = f16mat2x3(v_1.inner_col0, v_1.inner_col1)[1u];
-  float16_t c = f16mat2x3(v_1.inner_col0, v_1.inner_col1)[1u][2u];
+  f16mat2x3 a = v_2(0u);
+  f16vec3 b = tint_bitcast_to_f16_1(v_1.inner[0u].zw).xyz;
+  uvec4 v_6 = v_1.inner[0u];
+  float16_t c = tint_bitcast_to_f16(v_6.w).x;
 }
 )");
 }
@@ -1140,7 +1185,7 @@ TEST_F(GlslWriterTest, AccessUniformMatrix3x2) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         b.Let("a", b.Load(var));
         b.Let("b", b.Load(b.Access(ty.ptr<uniform, vec2<f32>, core::Access::kRead>(), var, 1_u)));
@@ -1149,20 +1194,28 @@ TEST_F(GlslWriterTest, AccessUniformMatrix3x2) {
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.glsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.glsl;
     EXPECT_EQ(output_.glsl, GlslHeader() + R"(precision highp float;
 precision highp int;
 
 layout(binding = 0, std140)
-uniform v_block_std140_1_ubo {
-  vec2 inner_col0;
-  vec2 inner_col1;
-  vec2 inner_col2;
+uniform f_v_block_ubo {
+  uvec4 inner[2];
 } v_1;
+mat3x2 v_2(uint start_byte_offset) {
+  uvec4 v_3 = v_1.inner[(start_byte_offset / 16u)];
+  vec2 v_4 = uintBitsToFloat(mix(v_3.xy, v_3.zw, bvec2((((start_byte_offset & 15u) >> 2u) == 2u))));
+  uvec4 v_5 = v_1.inner[((8u + start_byte_offset) / 16u)];
+  vec2 v_6 = uintBitsToFloat(mix(v_5.xy, v_5.zw, bvec2(((((8u + start_byte_offset) & 15u) >> 2u) == 2u))));
+  uvec4 v_7 = v_1.inner[((16u + start_byte_offset) / 16u)];
+  return mat3x2(v_4, v_6, uintBitsToFloat(mix(v_7.xy, v_7.zw, bvec2(((((16u + start_byte_offset) & 15u) >> 2u) == 2u)))));
+}
 void main() {
-  mat3x2 a = mat3x2(v_1.inner_col0, v_1.inner_col1, v_1.inner_col2);
-  vec2 b = mat3x2(v_1.inner_col0, v_1.inner_col1, v_1.inner_col2)[1u];
-  float c = mat3x2(v_1.inner_col0, v_1.inner_col1, v_1.inner_col2)[1u][1u];
+  mat3x2 a = v_2(0u);
+  vec2 b = uintBitsToFloat(v_1.inner[0u].zw);
+  uvec4 v_8 = v_1.inner[0u];
+  float c = uintBitsToFloat(v_8.w);
 }
 )");
 }
@@ -1172,7 +1225,7 @@ TEST_F(GlslWriterTest, AccessUniformMatrix2x2) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         b.Let("a", b.Load(var));
         b.Let("b", b.Load(b.Access(ty.ptr<uniform, vec2<f32>, core::Access::kRead>(), var, 1_u)));
@@ -1181,19 +1234,26 @@ TEST_F(GlslWriterTest, AccessUniformMatrix2x2) {
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.glsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.glsl;
     EXPECT_EQ(output_.glsl, GlslHeader() + R"(precision highp float;
 precision highp int;
 
 layout(binding = 0, std140)
-uniform v_block_std140_1_ubo {
-  vec2 inner_col0;
-  vec2 inner_col1;
+uniform f_v_block_ubo {
+  uvec4 inner[1];
 } v_1;
+mat2 v_2(uint start_byte_offset) {
+  uvec4 v_3 = v_1.inner[(start_byte_offset / 16u)];
+  vec2 v_4 = uintBitsToFloat(mix(v_3.xy, v_3.zw, bvec2((((start_byte_offset & 15u) >> 2u) == 2u))));
+  uvec4 v_5 = v_1.inner[((8u + start_byte_offset) / 16u)];
+  return mat2(v_4, uintBitsToFloat(mix(v_5.xy, v_5.zw, bvec2(((((8u + start_byte_offset) & 15u) >> 2u) == 2u)))));
+}
 void main() {
-  mat2 a = mat2(v_1.inner_col0, v_1.inner_col1);
-  vec2 b = mat2(v_1.inner_col0, v_1.inner_col1)[1u];
-  float c = mat2(v_1.inner_col0, v_1.inner_col1)[1u][1u];
+  mat2 a = v_2(0u);
+  vec2 b = uintBitsToFloat(v_1.inner[0u].zw);
+  uvec4 v_6 = v_1.inner[0u];
+  float c = uintBitsToFloat(v_6.w);
 }
 )");
 }
@@ -1203,7 +1263,7 @@ TEST_F(GlslWriterTest, AccessUniformMatrix2x2F16) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         b.Let("a", b.Load(var));
         b.Let("b", b.Load(b.Access(ty.ptr<uniform, vec2<f16>, core::Access::kRead>(), var, 1_u)));
@@ -1212,20 +1272,28 @@ TEST_F(GlslWriterTest, AccessUniformMatrix2x2F16) {
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.glsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.glsl;
     EXPECT_EQ(output_.glsl, GlslHeader() + R"(#extension GL_AMD_gpu_shader_half_float: require
 precision highp float;
 precision highp int;
 
 layout(binding = 0, std140)
-uniform v_block_std140_1_ubo {
-  f16vec2 inner_col0;
-  f16vec2 inner_col1;
+uniform f_v_block_ubo {
+  uvec4 inner[1];
 } v_1;
+f16vec2 tint_bitcast_to_f16(uint src) {
+  return unpackFloat2x16(src);
+}
+f16mat2 v_2(uint start_byte_offset) {
+  f16vec2 v_3 = tint_bitcast_to_f16(v_1.inner[(start_byte_offset / 16u)][((start_byte_offset & 15u) >> 2u)]);
+  return f16mat2(v_3, tint_bitcast_to_f16(v_1.inner[((4u + start_byte_offset) / 16u)][(((4u + start_byte_offset) & 15u) >> 2u)]));
+}
 void main() {
-  f16mat2 a = f16mat2(v_1.inner_col0, v_1.inner_col1);
-  f16vec2 b = f16mat2(v_1.inner_col0, v_1.inner_col1)[1u];
-  float16_t c = f16mat2(v_1.inner_col0, v_1.inner_col1)[1u][1u];
+  f16mat2 a = v_2(0u);
+  f16vec2 b = tint_bitcast_to_f16(v_1.inner[0u].y);
+  uvec4 v_4 = v_1.inner[0u];
+  float16_t c = tint_bitcast_to_f16(v_4.y).y;
 }
 )");
 }
@@ -1235,24 +1303,43 @@ TEST_F(GlslWriterTest, AccessUniformArray) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         b.Let("a", b.Load(var));
         b.Let("b", b.Load(b.Access(ty.ptr<uniform, vec3<f32>, core::Access::kRead>(), var, 3_u)));
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.glsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.glsl;
     EXPECT_EQ(output_.glsl, GlslHeader() + R"(precision highp float;
 precision highp int;
 
 layout(binding = 0, std140)
-uniform v_block_1_ubo {
-  vec3 inner[5];
+uniform f_v_block_ubo {
+  uvec4 inner[5];
 } v_1;
+vec3[5] v_2(uint start_byte_offset) {
+  vec3 a[5] = vec3[5](vec3(0.0f), vec3(0.0f), vec3(0.0f), vec3(0.0f), vec3(0.0f));
+  {
+    uint v_3 = 0u;
+    v_3 = 0u;
+    while(true) {
+      uint v_4 = v_3;
+      if ((v_4 >= 5u)) {
+        break;
+      }
+      a[v_4] = uintBitsToFloat(v_1.inner[((start_byte_offset + (v_4 * 16u)) / 16u)].xyz);
+      {
+        v_3 = (v_4 + 1u);
+      }
+    }
+  }
+  return a;
+}
 void main() {
-  vec3 a[5] = v_1.inner;
-  vec3 b = v_1.inner[3u];
+  vec3 a[5] = v_2(0u);
+  vec3 b = uintBitsToFloat(v_1.inner[3u].xyz);
 }
 )");
 }
@@ -1262,25 +1349,48 @@ TEST_F(GlslWriterTest, AccessUniformArrayF16) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         b.Let("a", b.Load(var));
         b.Let("b", b.Load(b.Access(ty.ptr<uniform, vec3<f16>, core::Access::kRead>(), var, 3_u)));
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.glsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.glsl;
     EXPECT_EQ(output_.glsl, GlslHeader() + R"(#extension GL_AMD_gpu_shader_half_float: require
 precision highp float;
 precision highp int;
 
 layout(binding = 0, std140)
-uniform v_block_1_ubo {
-  f16vec3 inner[5];
+uniform f_v_block_ubo {
+  uvec4 inner[3];
 } v_1;
+f16vec4 tint_bitcast_to_f16(uvec2 src) {
+  return f16vec4(unpackFloat2x16(src.x), unpackFloat2x16(src.y));
+}
+f16vec3[5] v_2(uint start_byte_offset) {
+  f16vec3 a[5] = f16vec3[5](f16vec3(0.0hf), f16vec3(0.0hf), f16vec3(0.0hf), f16vec3(0.0hf), f16vec3(0.0hf));
+  {
+    uint v_3 = 0u;
+    v_3 = 0u;
+    while(true) {
+      uint v_4 = v_3;
+      if ((v_4 >= 5u)) {
+        break;
+      }
+      uvec4 v_5 = v_1.inner[((start_byte_offset + (v_4 * 8u)) / 16u)];
+      a[v_4] = tint_bitcast_to_f16(mix(v_5.xy, v_5.zw, bvec2(((((start_byte_offset + (v_4 * 8u)) & 15u) >> 2u) == 2u)))).xyz;
+      {
+        v_3 = (v_4 + 1u);
+      }
+    }
+  }
+  return a;
+}
 void main() {
-  f16vec3 a[5] = v_1.inner;
-  f16vec3 b = v_1.inner[3u];
+  f16vec3 a[5] = v_2(0u);
+  f16vec3 b = tint_bitcast_to_f16(v_1.inner[1u].zw).xyz;
 }
 )");
 }
@@ -1290,24 +1400,43 @@ TEST_F(GlslWriterTest, AccessUniformArrayWhichCanHaveSizesOtherThenFive) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         b.Let("a", b.Load(var));
         b.Let("b", b.Load(b.Access(ty.ptr<uniform, vec3<f32>, core::Access::kRead>(), var, 3_u)));
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.glsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.glsl;
     EXPECT_EQ(output_.glsl, GlslHeader() + R"(precision highp float;
 precision highp int;
 
 layout(binding = 0, std140)
-uniform v_block_1_ubo {
-  vec3 inner[42];
+uniform f_v_block_ubo {
+  uvec4 inner[42];
 } v_1;
+vec3[42] v_2(uint start_byte_offset) {
+  vec3 a[42] = vec3[42](vec3(0.0f), vec3(0.0f), vec3(0.0f), vec3(0.0f), vec3(0.0f), vec3(0.0f), vec3(0.0f), vec3(0.0f), vec3(0.0f), vec3(0.0f), vec3(0.0f), vec3(0.0f), vec3(0.0f), vec3(0.0f), vec3(0.0f), vec3(0.0f), vec3(0.0f), vec3(0.0f), vec3(0.0f), vec3(0.0f), vec3(0.0f), vec3(0.0f), vec3(0.0f), vec3(0.0f), vec3(0.0f), vec3(0.0f), vec3(0.0f), vec3(0.0f), vec3(0.0f), vec3(0.0f), vec3(0.0f), vec3(0.0f), vec3(0.0f), vec3(0.0f), vec3(0.0f), vec3(0.0f), vec3(0.0f), vec3(0.0f), vec3(0.0f), vec3(0.0f), vec3(0.0f), vec3(0.0f));
+  {
+    uint v_3 = 0u;
+    v_3 = 0u;
+    while(true) {
+      uint v_4 = v_3;
+      if ((v_4 >= 42u)) {
+        break;
+      }
+      a[v_4] = uintBitsToFloat(v_1.inner[((start_byte_offset + (v_4 * 16u)) / 16u)].xyz);
+      {
+        v_3 = (v_4 + 1u);
+      }
+    }
+  }
+  return a;
+}
 void main() {
-  vec3 a[42] = v_1.inner;
-  vec3 b = v_1.inner[3u];
+  vec3 a[42] = v_2(0u);
+  vec3 b = uintBitsToFloat(v_1.inner[3u].xyz);
 }
 )");
 }
@@ -1322,14 +1451,15 @@ TEST_F(GlslWriterTest, AccessUniformStruct) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         b.Let("a", b.Load(var));
         b.Let("b", b.Load(b.Access(ty.ptr<uniform, f32, core::Access::kRead>(), var, 1_u)));
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.glsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.glsl;
     EXPECT_EQ(output_.glsl, GlslHeader() + R"(precision highp float;
 precision highp int;
 
@@ -1340,12 +1470,19 @@ struct SB {
 };
 
 layout(binding = 0, std140)
-uniform v_block_1_ubo {
-  SB inner;
+uniform f_v_block_ubo {
+  uvec4 inner[1];
 } v_1;
+SB v_2(uint start_byte_offset) {
+  uvec4 v_3 = v_1.inner[(start_byte_offset / 16u)];
+  int v_4 = int(v_3[((start_byte_offset & 15u) >> 2u)]);
+  uvec4 v_5 = v_1.inner[((4u + start_byte_offset) / 16u)];
+  return SB(v_4, uintBitsToFloat(v_5[(((4u + start_byte_offset) & 15u) >> 2u)]));
+}
 void main() {
-  SB a = v_1.inner;
-  float b = v_1.inner.b;
+  SB a = v_2(0u);
+  uvec4 v_6 = v_1.inner[0u];
+  float b = uintBitsToFloat(v_6.y);
 }
 )");
 }
@@ -1360,14 +1497,15 @@ TEST_F(GlslWriterTest, AccessUniformStructF16) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         b.Let("a", b.Load(var));
         b.Let("b", b.Load(b.Access(ty.ptr<uniform, f16, core::Access::kRead>(), var, 1_u)));
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.glsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.glsl;
     EXPECT_EQ(output_.glsl, GlslHeader() + R"(#extension GL_AMD_gpu_shader_half_float: require
 precision highp float;
 precision highp int;
@@ -1379,12 +1517,22 @@ struct SB {
 };
 
 layout(binding = 0, std140)
-uniform v_block_1_ubo {
-  SB inner;
+uniform f_v_block_ubo {
+  uvec4 inner[1];
 } v_1;
+f16vec2 tint_bitcast_to_f16(uint src) {
+  return unpackFloat2x16(src);
+}
+SB v_2(uint start_byte_offset) {
+  uvec4 v_3 = v_1.inner[(start_byte_offset / 16u)];
+  int v_4 = int(v_3[((start_byte_offset & 15u) >> 2u)]);
+  uvec4 v_5 = v_1.inner[((4u + start_byte_offset) / 16u)];
+  return SB(v_4, tint_bitcast_to_f16(v_5[(((4u + start_byte_offset) & 15u) >> 2u)])[mix(1u, 0u, (((4u + start_byte_offset) % 4u) == 0u))]);
+}
 void main() {
-  SB a = v_1.inner;
-  float16_t b = v_1.inner.b;
+  SB a = v_2(0u);
+  uvec4 v_6 = v_1.inner[0u];
+  float16_t b = tint_bitcast_to_f16(v_6.y).x;
 }
 )");
 }
@@ -1409,7 +1557,7 @@ TEST_F(GlslWriterTest, AccessUniformStructNested) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         b.Let("a", b.Load(var));
         b.Let("b", b.LoadVectorElement(b.Access(ty.ptr<uniform, vec3<f32>, core::Access::kRead>(),
@@ -1418,36 +1566,11 @@ TEST_F(GlslWriterTest, AccessUniformStructNested) {
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.glsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.glsl;
     EXPECT_EQ(output_.glsl, GlslHeader() + R"(precision highp float;
 precision highp int;
 
-
-struct Inner_std140 {
-  vec3 s_col0;
-  uint tint_pad_0;
-  vec3 s_col1;
-  uint tint_pad_1;
-  vec3 s_col2;
-  uint tint_pad_2;
-  vec3 t[5];
-};
-
-struct Outer_std140 {
-  float x;
-  uint tint_pad_0;
-  uint tint_pad_1;
-  uint tint_pad_2;
-  Inner_std140 y;
-};
-
-struct SB_std140 {
-  int a;
-  uint tint_pad_0;
-  uint tint_pad_1;
-  uint tint_pad_2;
-  Outer_std140 b;
-};
 
 struct Inner {
   mat3 s;
@@ -1465,21 +1588,47 @@ struct SB {
 };
 
 layout(binding = 0, std140)
-uniform v_block_std140_1_ubo {
-  SB_std140 inner;
+uniform f_v_block_ubo {
+  uvec4 inner[10];
 } v_1;
-Inner tint_convert_Inner(Inner_std140 tint_input) {
-  return Inner(mat3(tint_input.s_col0, tint_input.s_col1, tint_input.s_col2), tint_input.t);
+vec3[5] v_2(uint start_byte_offset) {
+  vec3 a[5] = vec3[5](vec3(0.0f), vec3(0.0f), vec3(0.0f), vec3(0.0f), vec3(0.0f));
+  {
+    uint v_3 = 0u;
+    v_3 = 0u;
+    while(true) {
+      uint v_4 = v_3;
+      if ((v_4 >= 5u)) {
+        break;
+      }
+      a[v_4] = uintBitsToFloat(v_1.inner[((start_byte_offset + (v_4 * 16u)) / 16u)].xyz);
+      {
+        v_3 = (v_4 + 1u);
+      }
+    }
+  }
+  return a;
 }
-Outer tint_convert_Outer(Outer_std140 tint_input) {
-  return Outer(tint_input.x, tint_convert_Inner(tint_input.y));
+mat3 v_5(uint start_byte_offset) {
+  return mat3(uintBitsToFloat(v_1.inner[(start_byte_offset / 16u)].xyz), uintBitsToFloat(v_1.inner[((16u + start_byte_offset) / 16u)].xyz), uintBitsToFloat(v_1.inner[((32u + start_byte_offset) / 16u)].xyz));
 }
-SB tint_convert_SB(SB_std140 tint_input) {
-  return SB(tint_input.a, tint_convert_Outer(tint_input.b));
+Inner v_6(uint start_byte_offset) {
+  mat3 v_7 = v_5(start_byte_offset);
+  return Inner(v_7, v_2((48u + start_byte_offset)));
+}
+Outer v_8(uint start_byte_offset) {
+  uvec4 v_9 = v_1.inner[(start_byte_offset / 16u)];
+  return Outer(uintBitsToFloat(v_9[((start_byte_offset & 15u) >> 2u)]), v_6((16u + start_byte_offset)));
+}
+SB v_10(uint start_byte_offset) {
+  uvec4 v_11 = v_1.inner[(start_byte_offset / 16u)];
+  int v_12 = int(v_11[((start_byte_offset & 15u) >> 2u)]);
+  return SB(v_12, v_8((16u + start_byte_offset)));
 }
 void main() {
-  SB a = tint_convert_SB(v_1.inner);
-  float b = v_1.inner.b.y.t[3u].z;
+  SB a = v_10(0u);
+  uvec4 v_13 = v_1.inner[8u];
+  float b = uintBitsToFloat(v_13.z);
 }
 )");
 }
@@ -1489,18 +1638,19 @@ TEST_F(GlslWriterTest, AccessStoreScalar) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         b.Store(var, 2_f);
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.glsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.glsl;
     EXPECT_EQ(output_.glsl, GlslHeader() + R"(precision highp float;
 precision highp int;
 
 layout(binding = 0, std430)
-buffer v_block_1_ssbo {
+buffer f_v_block_ssbo {
   float inner;
 } v_1;
 void main() {
@@ -1514,19 +1664,20 @@ TEST_F(GlslWriterTest, AccessStoreScalarF16) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         b.Store(var, 2_h);
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.glsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.glsl;
     EXPECT_EQ(output_.glsl, GlslHeader() + R"(#extension GL_AMD_gpu_shader_half_float: require
 precision highp float;
 precision highp int;
 
 layout(binding = 0, std430)
-buffer v_block_1_ssbo {
+buffer f_v_block_ssbo {
   float16_t inner;
 } v_1;
 void main() {
@@ -1540,22 +1691,23 @@ TEST_F(GlslWriterTest, AccessStoreVectorElement) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         b.StoreVectorElement(var, 1_u, 2_f);
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.glsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.glsl;
     EXPECT_EQ(output_.glsl, GlslHeader() + R"(precision highp float;
 precision highp int;
 
 layout(binding = 0, std430)
-buffer v_block_1_ssbo {
+buffer f_v_block_ssbo {
   vec3 inner;
 } v_1;
 void main() {
-  v_1.inner[1u] = 2.0f;
+  v_1.inner.y = 2.0f;
 }
 )");
 }
@@ -1565,23 +1717,24 @@ TEST_F(GlslWriterTest, AccessStoreVectorElementF16) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         b.StoreVectorElement(var, 1_u, 2_h);
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.glsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.glsl;
     EXPECT_EQ(output_.glsl, GlslHeader() + R"(#extension GL_AMD_gpu_shader_half_float: require
 precision highp float;
 precision highp int;
 
 layout(binding = 0, std430)
-buffer v_block_1_ssbo {
+buffer f_v_block_ssbo {
   f16vec3 inner;
 } v_1;
 void main() {
-  v_1.inner[1u] = 2.0hf;
+  v_1.inner.y = 2.0hf;
 }
 )");
 }
@@ -1591,18 +1744,19 @@ TEST_F(GlslWriterTest, AccessStoreVector) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
-        b.Store(var, b.Composite(ty.vec3<f32>(), 2_f, 3_f, 4_f));
+        b.Store(var, b.Composite(ty.vec3f(), 2_f, 3_f, 4_f));
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.glsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.glsl;
     EXPECT_EQ(output_.glsl, GlslHeader() + R"(precision highp float;
 precision highp int;
 
 layout(binding = 0, std430)
-buffer v_block_1_ssbo {
+buffer f_v_block_ssbo {
   vec3 inner;
 } v_1;
 void main() {
@@ -1616,19 +1770,20 @@ TEST_F(GlslWriterTest, AccessStoreVectorF16) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
-        b.Store(var, b.Composite(ty.vec3<f16>(), 2_h, 3_h, 4_h));
+        b.Store(var, b.Composite(ty.vec3h(), 2_h, 3_h, 4_h));
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.glsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.glsl;
     EXPECT_EQ(output_.glsl, GlslHeader() + R"(#extension GL_AMD_gpu_shader_half_float: require
 precision highp float;
 precision highp int;
 
 layout(binding = 0, std430)
-buffer v_block_1_ssbo {
+buffer f_v_block_ssbo {
   f16vec3 inner;
 } v_1;
 void main() {
@@ -1642,23 +1797,24 @@ TEST_F(GlslWriterTest, AccessStoreMatrixElement) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         b.StoreVectorElement(
             b.Access(ty.ptr<storage, vec4<f32>, core::Access::kReadWrite>(), var, 1_u), 2_u, 5_f);
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.glsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.glsl;
     EXPECT_EQ(output_.glsl, GlslHeader() + R"(precision highp float;
 precision highp int;
 
 layout(binding = 0, std430)
-buffer v_block_1_ssbo {
+buffer f_v_block_ssbo {
   mat4 inner;
 } v_1;
 void main() {
-  v_1.inner[1u][2u] = 5.0f;
+  v_1.inner[1u].z = 5.0f;
 }
 )");
 }
@@ -1668,24 +1824,25 @@ TEST_F(GlslWriterTest, AccessStoreMatrixElementF16) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         b.StoreVectorElement(
             b.Access(ty.ptr<storage, vec2<f16>, core::Access::kReadWrite>(), var, 2_u), 1_u, 5_h);
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.glsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.glsl;
     EXPECT_EQ(output_.glsl, GlslHeader() + R"(#extension GL_AMD_gpu_shader_half_float: require
 precision highp float;
 precision highp int;
 
 layout(binding = 0, std430)
-buffer v_block_1_ssbo {
+buffer f_v_block_ssbo {
   f16mat3x2 inner;
 } v_1;
 void main() {
-  v_1.inner[2u][1u] = 5.0hf;
+  v_1.inner[2u].y = 5.0hf;
 }
 )");
 }
@@ -1695,19 +1852,20 @@ TEST_F(GlslWriterTest, AccessStoreMatrixColumn) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         b.Store(b.Access(ty.ptr<storage, vec4<f32>, core::Access::kReadWrite>(), var, 1_u),
                 b.Splat<vec4<f32>>(5_f));
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.glsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.glsl;
     EXPECT_EQ(output_.glsl, GlslHeader() + R"(precision highp float;
 precision highp int;
 
 layout(binding = 0, std430)
-buffer v_block_1_ssbo {
+buffer f_v_block_ssbo {
   mat4 inner;
 } v_1;
 void main() {
@@ -1721,20 +1879,21 @@ TEST_F(GlslWriterTest, AccessStoreMatrixColumnF16) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         b.Store(b.Access(ty.ptr<storage, vec3<f16>, core::Access::kReadWrite>(), var, 1_u),
                 b.Splat<vec3<f16>>(5_h));
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.glsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.glsl;
     EXPECT_EQ(output_.glsl, GlslHeader() + R"(#extension GL_AMD_gpu_shader_half_float: require
 precision highp float;
 precision highp int;
 
 layout(binding = 0, std430)
-buffer v_block_1_ssbo {
+buffer f_v_block_ssbo {
   f16mat2x3 inner;
 } v_1;
 void main() {
@@ -1748,18 +1907,19 @@ TEST_F(GlslWriterTest, AccessStoreMatrix) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         b.Store(var, b.Zero<mat4x4<f32>>());
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.glsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.glsl;
     EXPECT_EQ(output_.glsl, GlslHeader() + R"(precision highp float;
 precision highp int;
 
 layout(binding = 0, std430)
-buffer v_block_1_ssbo {
+buffer f_v_block_ssbo {
   mat4 inner;
 } v_1;
 void main() {
@@ -1773,19 +1933,20 @@ TEST_F(GlslWriterTest, AccessStoreMatrixF16) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         b.Store(var, b.Zero<mat4x4<f16>>());
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.glsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.glsl;
     EXPECT_EQ(output_.glsl, GlslHeader() + R"(#extension GL_AMD_gpu_shader_half_float: require
 precision highp float;
 precision highp int;
 
 layout(binding = 0, std430)
-buffer v_block_1_ssbo {
+buffer f_v_block_ssbo {
   f16mat4 inner;
 } v_1;
 void main() {
@@ -1799,18 +1960,19 @@ TEST_F(GlslWriterTest, AccessStoreArrayElement) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         b.Store(b.Access(ty.ptr<storage, f32, core::Access::kReadWrite>(), var, 3_u), 1_f);
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.glsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.glsl;
     EXPECT_EQ(output_.glsl, GlslHeader() + R"(precision highp float;
 precision highp int;
 
 layout(binding = 0, std430)
-buffer v_block_1_ssbo {
+buffer f_v_block_ssbo {
   float inner[5];
 } v_1;
 void main() {
@@ -1824,19 +1986,20 @@ TEST_F(GlslWriterTest, AccessStoreArrayElementF16) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         b.Store(b.Access(ty.ptr<storage, f16, core::Access::kReadWrite>(), var, 3_u), 1_h);
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.glsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.glsl;
     EXPECT_EQ(output_.glsl, GlslHeader() + R"(#extension GL_AMD_gpu_shader_half_float: require
 precision highp float;
 precision highp int;
 
 layout(binding = 0, std430)
-buffer v_block_1_ssbo {
+buffer f_v_block_ssbo {
   float16_t inner[5];
 } v_1;
 void main() {
@@ -1850,19 +2013,20 @@ TEST_F(GlslWriterTest, AccessStoreArray) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         auto* ary = b.Let("ary", b.Zero<array<vec3<f32>, 5>>());
         b.Store(var, ary);
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.glsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.glsl;
     EXPECT_EQ(output_.glsl, GlslHeader() + R"(precision highp float;
 precision highp int;
 
 layout(binding = 0, std430)
-buffer v_block_1_ssbo {
+buffer f_v_block_ssbo {
   vec3 inner[5];
 } v_1;
 void tint_store_and_preserve_padding(vec3 value_param[5]) {
@@ -1878,7 +2042,6 @@ void tint_store_and_preserve_padding(vec3 value_param[5]) {
       {
         v_2 = (v_3 + 1u);
       }
-      continue;
     }
   }
 }
@@ -1899,13 +2062,14 @@ TEST_F(GlslWriterTest, AccessStoreStructMember) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         b.Store(b.Access(ty.ptr<storage, f32, core::Access::kReadWrite>(), var, 1_u), 3_f);
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.glsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.glsl;
     EXPECT_EQ(output_.glsl, GlslHeader() + R"(precision highp float;
 precision highp int;
 
@@ -1916,7 +2080,7 @@ struct SB {
 };
 
 layout(binding = 0, std430)
-buffer v_block_1_ssbo {
+buffer f_v_block_ssbo {
   SB inner;
 } v_1;
 void main() {
@@ -1935,13 +2099,14 @@ TEST_F(GlslWriterTest, AccessStoreStructMemberF16) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         b.Store(b.Access(ty.ptr<storage, f16, core::Access::kReadWrite>(), var, 1_u), 3_h);
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.glsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.glsl;
     EXPECT_EQ(output_.glsl, GlslHeader() + R"(#extension GL_AMD_gpu_shader_half_float: require
 precision highp float;
 precision highp int;
@@ -1953,7 +2118,7 @@ struct SB {
 };
 
 layout(binding = 0, std430)
-buffer v_block_1_ssbo {
+buffer f_v_block_ssbo {
   SB inner;
 } v_1;
 void main() {
@@ -1982,13 +2147,14 @@ TEST_F(GlslWriterTest, AccessStoreStructNested) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         b.Store(b.Access(ty.ptr<storage, f32, core::Access::kReadWrite>(), var, 1_u, 0_u), 2_f);
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.glsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.glsl;
     EXPECT_EQ(output_.glsl, GlslHeader() + R"(precision highp float;
 precision highp int;
 
@@ -2015,7 +2181,7 @@ struct SB {
 };
 
 layout(binding = 0, std430)
-buffer v_block_1_ssbo {
+buffer f_v_block_ssbo {
   SB inner;
 } v_1;
 void main() {
@@ -2027,7 +2193,7 @@ void main() {
 TEST_F(GlslWriterTest, AccessStoreStruct) {
     auto* Inner = ty.Struct(mod.symbols.New("Inner"), {
                                                           {mod.symbols.New("s"), ty.f32()},
-                                                          {mod.symbols.New("t"), ty.vec3<f32>()},
+                                                          {mod.symbols.New("t"), ty.vec3f()},
                                                       });
     auto* Outer = ty.Struct(mod.symbols.New("Outer"), {
                                                           {mod.symbols.New("x"), ty.f32()},
@@ -2043,14 +2209,15 @@ TEST_F(GlslWriterTest, AccessStoreStruct) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         auto* s = b.Let("s", b.Zero(SB));
         b.Store(var, s);
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.glsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.glsl;
     EXPECT_EQ(output_.glsl, GlslHeader() + R"(precision highp float;
 precision highp int;
 
@@ -2081,7 +2248,7 @@ struct SB {
 };
 
 layout(binding = 0, std430)
-buffer v_block_1_ssbo {
+buffer f_v_block_ssbo {
   SB inner;
 } v_1;
 void tint_store_and_preserve_padding_2(Inner value_param) {
@@ -2123,14 +2290,15 @@ TEST_F(GlslWriterTest, AccessStoreStructComplex) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         auto* s = b.Let("s", b.Zero(SB));
         b.Store(var, s);
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.glsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.glsl;
     EXPECT_EQ(output_.glsl, GlslHeader() + R"(precision highp float;
 precision highp int;
 
@@ -2157,7 +2325,7 @@ struct SB {
 };
 
 layout(binding = 0, std430)
-buffer v_block_1_ssbo {
+buffer f_v_block_ssbo {
   SB inner;
 } v_1;
 void tint_store_and_preserve_padding_4(vec3 value_param[5]) {
@@ -2173,7 +2341,6 @@ void tint_store_and_preserve_padding_4(vec3 value_param[5]) {
       {
         v_2 = (v_3 + 1u);
       }
-      continue;
     }
   }
 }
@@ -2204,22 +2371,23 @@ void main() {
 TEST_F(GlslWriterTest, AccessChainReused) {
     auto* sb = ty.Struct(mod.symbols.New("SB"), {
                                                     {mod.symbols.New("a"), ty.i32()},
-                                                    {mod.symbols.New("b"), ty.vec3<f32>()},
+                                                    {mod.symbols.New("b"), ty.vec3f()},
                                                 });
 
     auto* var = b.Var("v", storage, sb, core::Access::kReadWrite);
     var->SetBindingPoint(0, 0);
     b.ir.root_block->Append(var);
 
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
-        auto* x = b.Access(ty.ptr(storage, ty.vec3<f32>(), core::Access::kReadWrite), var, 1_u);
+        auto* x = b.Access(ty.ptr(storage, ty.vec3f(), core::Access::kReadWrite), var, 1_u);
         b.Let("b", b.LoadVectorElement(x, 1_u));
         b.Let("c", b.LoadVectorElement(x, 2_u));
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.glsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.glsl;
     EXPECT_EQ(output_.glsl, GlslHeader() + R"(precision highp float;
 precision highp int;
 
@@ -2234,7 +2402,7 @@ struct SB {
 };
 
 layout(binding = 0, std430)
-buffer v_block_1_ssbo {
+buffer f_v_block_ssbo {
   SB inner;
 } v_1;
 void main() {
@@ -2247,42 +2415,35 @@ void main() {
 TEST_F(GlslWriterTest, AccessUniformChainReused) {
     auto* sb = ty.Struct(mod.symbols.New("SB"), {
                                                     {mod.symbols.New("c"), ty.f32()},
-                                                    {mod.symbols.New("d"), ty.vec3<f32>()},
+                                                    {mod.symbols.New("d"), ty.vec3f()},
                                                 });
 
     auto* var = b.Var("v", uniform, sb, core::Access::kRead);
     var->SetBindingPoint(0, 0);
     b.ir.root_block->Append(var);
 
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
-        auto* x = b.Access(ty.ptr(uniform, ty.vec3<f32>(), core::Access::kRead), var, 1_u);
+        auto* x = b.Access(ty.ptr(uniform, ty.vec3f(), core::Access::kRead), var, 1_u);
         b.Let("b", b.LoadVectorElement(x, 1_u));
         b.Let("c", b.LoadVectorElement(x, 2_u));
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.glsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.glsl;
     EXPECT_EQ(output_.glsl, GlslHeader() + R"(precision highp float;
 precision highp int;
 
-
-struct SB {
-  float c;
-  uint tint_pad_0;
-  uint tint_pad_1;
-  uint tint_pad_2;
-  vec3 d;
-  uint tint_pad_3;
-};
-
 layout(binding = 0, std140)
-uniform v_block_1_ubo {
-  SB inner;
+uniform f_v_block_ubo {
+  uvec4 inner[2];
 } v_1;
 void main() {
-  float b = v_1.inner.d.y;
-  float c = v_1.inner.d.z;
+  uvec4 v_2 = v_1.inner[1u];
+  float b = uintBitsToFloat(v_2.y);
+  uvec4 v_3 = v_1.inner[1u];
+  float c = uintBitsToFloat(v_3.z);
 }
 )");
 }
@@ -2292,9 +2453,9 @@ TEST_F(GlslWriterTest, AccessToLetWithFunctionParams) {
     b.Append(f->Block(), [&] { b.Return(f, 0_i); });
 
     auto* g = b.Function("g", ty.i32());
-    b.Append(g->Block(), [&] { b.Return(f, 0_i); });
+    b.Append(g->Block(), [&] { b.Return(g, 0_i); });
 
-    auto* foo = b.Function("foo", ty.void_());
+    auto* foo = b.ComputeFunction("main");
     b.Append(foo->Block(), [&] {
         auto* arr = b.Var("arr", ty.ptr<function, array<i32, 4>, read_write>());
         auto* c = b.Call(ty.i32(), f);
@@ -2306,7 +2467,8 @@ TEST_F(GlslWriterTest, AccessToLetWithFunctionParams) {
         b.Return(foo);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.glsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.glsl;
     EXPECT_EQ(output_.glsl, GlslHeader() + R"(
 int f() {
   return 0;
@@ -2314,14 +2476,12 @@ int f() {
 int g() {
   return 0;
 }
-void foo() {
+layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+void main() {
   int arr[4] = int[4](0, 0, 0, 0);
   uint v = min(uint(f()), 3u);
   int y = g();
   int x = arr[v];
-}
-layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
-void main() {
 }
 )");
 }
@@ -2331,13 +2491,13 @@ TEST_F(GlslWriterTest, AccessToLetWithNestedFunctionParams) {
     b.Append(f->Block(), [&] { b.Return(f, 0_i); });
 
     auto* g = b.Function("g", ty.i32());
-    b.Append(g->Block(), [&] { b.Return(f, 0_i); });
+    b.Append(g->Block(), [&] { b.Return(g, 0_i); });
 
-    auto* foo = b.Function("foo", ty.void_());
+    auto* foo = b.ComputeFunction("main");
     b.Append(foo->Block(), [&] {
         auto* arr = b.Var("arr", ty.ptr<function, array<i32, 4>, read_write>());
         auto* c = b.Call(ty.i32(), f);
-        auto* d = b.Add(ty.i32(), c, 1_i);
+        auto* d = b.Add(c, 1_i);
         auto* access = b.Access(ty.ptr<function, i32, read_write>(), arr, d);
         auto* p = b.Let("p", access);
         auto* c2 = b.Call(ty.i32(), g);
@@ -2346,7 +2506,8 @@ TEST_F(GlslWriterTest, AccessToLetWithNestedFunctionParams) {
         b.Return(foo);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.glsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.glsl;
     EXPECT_EQ(output_.glsl, GlslHeader() + R"(
 int f() {
   return 0;
@@ -2354,14 +2515,13 @@ int f() {
 int g() {
   return 0;
 }
-void foo() {
-  int arr[4] = int[4](0, 0, 0, 0);
-  uint v = min(uint((f() + 1)), 3u);
-  int y = g();
-  int x = arr[v];
-}
 layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
 void main() {
+  int arr[4] = int[4](0, 0, 0, 0);
+  uint v = uint(f());
+  uint v_1 = min(uint(int((v + uint(1)))), 3u);
+  int y = g();
+  int x = arr[v_1];
 }
 )");
 }

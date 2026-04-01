@@ -28,23 +28,29 @@
 #ifndef SRC_DAWN_NATIVE_VULKAN_BINDGROUPVK_H_
 #define SRC_DAWN_NATIVE_VULKAN_BINDGROUPVK_H_
 
-#include "dawn/native/BindGroup.h"
+#include <vector>
 
 #include "dawn/common/PlacementAllocated.h"
 #include "dawn/common/vulkan_platform.h"
+#include "dawn/native/BindGroup.h"
 #include "dawn/native/vulkan/DescriptorSetAllocation.h"
 
 namespace dawn::native::vulkan {
 
 class Device;
 
+// The sampled texture bindings in Vulkan need to be moved from whatever the binding was going to
+// be, to instead use the same slot as the static sampler they will be co-written with in the
+// VkDescriptorSet.
+using TextureToStaticSamplerMap = absl::flat_hash_map<BindingIndex, BindingIndex>;
+
 class BindGroup final : public BindGroupBase, public PlacementAllocated {
   public:
     static ResultOrError<Ref<BindGroup>> Create(Device* device,
-                                                const BindGroupDescriptor* descriptor);
+                                                const UnpackedPtr<BindGroupDescriptor>& descriptor);
 
     BindGroup(Device* device,
-              const BindGroupDescriptor* descriptor,
+              const UnpackedPtr<BindGroupDescriptor>& descriptor,
               DescriptorSetAllocation descriptorSetAllocation);
 
     VkDescriptorSet GetHandle() const;
@@ -52,7 +58,12 @@ class BindGroup final : public BindGroupBase, public PlacementAllocated {
   private:
     ~BindGroup() override;
 
-    void DestroyImpl() override;
+    MaybeError InitializeImpl() override;
+    void DestroyImpl(DestroyReason reason) override;
+    void DeleteThis() override;
+
+    void WriteDescriptorSet(VkDescriptorSet dsSet,
+                            const TextureToStaticSamplerMap& textureToStaticSampler);
 
     // Dawn API
     void SetLabelImpl() override;

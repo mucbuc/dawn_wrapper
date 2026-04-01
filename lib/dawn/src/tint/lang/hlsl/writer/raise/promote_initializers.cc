@@ -122,8 +122,8 @@ struct State {
         while (!const_worklist.IsEmpty()) {
             auto item = const_worklist.Pop();
 
-            tint::Slice<core::ir::Value* const> args = item->Args();
-            for (size_t i = 0; i < args.Length(); ++i) {
+            auto args = item->Args();
+            for (size_t i = 0; i < args.size(); ++i) {
                 auto ret = ProcessConstant(args[i], item, i);
                 if (ret.has_value()) {
                     const_worklist.Insert(0, *ret);
@@ -137,7 +137,7 @@ struct State {
                                                         core::ir::Construct* parent,
                                                         size_t idx) {
         auto* const_val = operand->As<core::ir::Constant>();
-        TINT_ASSERT(const_val);
+        TINT_IR_ASSERT(ir, const_val);
 
         if (!const_val->Type()->Is<core::type::Struct>()) {
             return std::nullopt;
@@ -148,7 +148,7 @@ struct State {
         Vector<core::ir::Value*, 4> new_args = GatherArgs(const_val);
 
         auto* construct = b.Construct(const_val->Type(), new_args);
-        let->SetValue(construct->Result(0));
+        let->SetValue(construct->Result());
 
         // Put the `let` in before the `construct` value that we're based off of
         let->InsertBefore(parent);
@@ -156,7 +156,7 @@ struct State {
         construct->InsertBefore(let);
 
         // Replace the argument in the originating `construct` with the new `let`.
-        parent->SetArg(idx, let->Result(0));
+        parent->SetArg(idx, let->Result());
 
         return {construct};
     }
@@ -183,7 +183,7 @@ struct State {
         // Turn the `constant` into a `construct` call and replace the value of the `let` that
         // was created.
         auto* construct = b.Construct(val->Type(), args);
-        let->SetValue(construct->Result(0));
+        let->SetValue(construct->Result());
         construct->InsertBefore(let);
 
         return {construct};
@@ -211,7 +211,7 @@ struct State {
 
         auto name = b.ir.NameOf(value);
         if (name.IsValid()) {
-            b.ir.SetName(let->Result(0), name);
+            b.ir.SetName(let->Result(), name);
             b.ir.ClearName(value);
         }
         return let;
@@ -230,7 +230,7 @@ struct State {
             values_in_lets.Add(value, let);
         }
 
-        inst->SetOperand(index, let->Result(0));
+        inst->SetOperand(index, let->Result());
         return let;
     }
 };
@@ -238,11 +238,8 @@ struct State {
 }  // namespace
 
 Result<SuccessType> PromoteInitializers(core::ir::Module& ir) {
-    auto result =
-        ValidateAndDumpIfNeeded(ir, "hlsl.PromoteInitializers", kPromoteInitializersCapabilities);
-    if (result != Success) {
-        return result;
-    }
+    TINT_CHECK_RESULT(core::ir::ValidateBeforeIfNeeded(ir, kPromoteInitializersCapabilities,
+                                                       "hlsl.PromoteInitializers"));
 
     State{ir}.Process();
 

@@ -85,6 +85,9 @@ type Parameter struct {
 	// The parameter usage (parameter name)
 	Usage string
 
+	// True if the parameter requires a const value
+	IsConst bool
+
 	// Index into IntrinsicTable.MatcherIndices, beginning the list of matchers required to match
 	// the parameter type.
 	// The matcher indices index into IntrinsicTable::TMatchers and IntrinsicTable::NMatchers.
@@ -150,6 +153,7 @@ type IntrinsicTableBuilder struct {
 
 type parameterBuilder struct {
 	usage                string
+	isConst              bool
 	matcherIndicesOffset *int
 }
 
@@ -266,6 +270,7 @@ func (b *overloadBuilder) processStage0() error {
 
 		b.parameterBuilders[i] = parameterBuilder{
 			usage:                p.Name,
+			isConst:              p.IsConst,
 			matcherIndicesOffset: b.lut.matcherIndices.Add(matcherIndices),
 		}
 	}
@@ -299,6 +304,7 @@ func (b *overloadBuilder) processStage1() error {
 	for i, pb := range b.parameterBuilders {
 		parameters[i] = Parameter{
 			Usage:                pb.usage,
+			IsConst:              pb.isConst,
 			MatcherIndicesOffset: loadOrMinusOne(pb.matcherIndicesOffset),
 		}
 	}
@@ -518,6 +524,10 @@ func ElementType(fqn sem.FullyQualifiedName) sem.FullyQualifiedName {
 		return fqn.TemplateArguments[2].(sem.FullyQualifiedName)
 	case "array":
 		return fqn.TemplateArguments[0].(sem.FullyQualifiedName)
+	case "runtime_array":
+		return fqn.TemplateArguments[0].(sem.FullyQualifiedName)
+	case "subgroup_matrix":
+		return fqn.TemplateArguments[1].(sem.FullyQualifiedName)
 	}
 	return fqn
 }
@@ -538,7 +548,11 @@ func DeepestElementType(fqn sem.FullyQualifiedName) sem.FullyQualifiedName {
 		return DeepestElementType(fqn.TemplateArguments[2].(sem.FullyQualifiedName))
 	case "array":
 		return DeepestElementType(fqn.TemplateArguments[0].(sem.FullyQualifiedName))
+	case "runtime_array":
+		return DeepestElementType(fqn.TemplateArguments[0].(sem.FullyQualifiedName))
 	case "ptr":
+		return DeepestElementType(fqn.TemplateArguments[1].(sem.FullyQualifiedName))
+	case "subgroup_matrix":
 		return DeepestElementType(fqn.TemplateArguments[1].(sem.FullyQualifiedName))
 	}
 	return fqn

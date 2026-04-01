@@ -29,7 +29,6 @@
 
 #include "src/tint/lang/core/ir/builder.h"
 #include "src/tint/lang/core/ir/validator.h"
-#include "src/tint/utils/result/result.h"
 
 namespace tint::hlsl::writer::raise {
 namespace {
@@ -83,13 +82,13 @@ struct State {
         // This will always be the last index in the chain.
 
         // The last index must be dynamic
-        if (IsConstant(to_access->Indices().Back())) {
+        if (IsConstant(to_access->Indices().back())) {
             return {};
         }
         // Get the root object type
         const auto* object_ty = to_access->Object()->Type()->As<core::type::Pointer>()->StoreType();
         const auto indicesButLast =
-            to_access->Indices().Truncate(to_access->Indices().Length() - 1);
+            to_access->Indices().subspan(0, to_access->Indices().size() - 1);
         for (auto* idx : indicesButLast) {
             object_ty = GetElementType(object_ty, idx);
         }
@@ -114,14 +113,14 @@ struct State {
         b.InsertBefore(store, [&] {
             // Create access to the matrix we're dynamically indexing
             core::ir::Value* matrix = to_access->Object();
-            if (!indicesButLast.IsEmpty()) {
+            if (!indicesButLast.empty()) {
                 // Matrix is in a struct or array, for example
                 matrix = b.Access(ty.ptr(to_ptr->AddressSpace(), mat_ty), to_access->Object(),
-                                  ToVector<4>(indicesButLast))
-                             ->Result(0);
+                                  Vector<core::ir::Value*, 4>{indicesButLast})
+                             ->Result();
             }
             // Switch over dynamic index, emitting a case for all possible column indices
-            auto* switch_ = b.Switch(to_access->Indices().Back());
+            auto* switch_ = b.Switch(to_access->Indices().back());
             for (uint32_t i = 0; i < mat_ty->Columns(); ++i) {
                 b.Append(b.Case(switch_, {b.Constant(u32(i))}), [&] {
                     auto* const vec_ty = to_ptr->StoreType();
@@ -143,7 +142,7 @@ struct State {
 
             store->Destroy();
         });
-        TINT_ASSERT(!new_stores.IsEmpty());
+        TINT_IR_ASSERT(ir, !new_stores.IsEmpty());
         return new_stores;
     }
 
@@ -174,9 +173,9 @@ struct State {
     // Replaces the vector element store with a full vector store that masks in the indexed
     // value. Example HLSL: vec = (idx.xxx == int3(0, 1, 2)) ? val.xxx : vec;
     void ReplaceStoreVectorElement(core::ir::StoreVectorElement* store) {
-        TINT_ASSERT(!IsConstant(store->Index()));
+        TINT_IR_ASSERT(ir, !IsConstant(store->Index()));
         auto* to_ptr = store->To()->Type()->As<core::type::Pointer>();
-        TINT_ASSERT(to_ptr);
+        TINT_IR_ASSERT(ir, to_ptr);
 
         b.InsertBefore(store, [&] {
             auto* vec_param = store->Operands()[0];
@@ -193,22 +192,23 @@ struct State {
             Vector<core::ir::Value*, 4> select_indices;
             switch (vec_ty->Width()) {
                 case 2:
-                    select_indices = b.Values(0_i, 1_i);
+                    select_indices = b.Values(0_u, 1_u);
                     break;
                 case 3:
-                    select_indices = b.Values(0_i, 1_i, 2_i);
+                    select_indices = b.Values(0_u, 1_u, 2_u);
                     break;
                 case 4:
-                    select_indices = b.Values(0_i, 1_i, 2_i, 3_i);
+                    select_indices = b.Values(0_u, 1_u, 2_u, 3_u);
                     break;
             }
 
             auto* false_val = b.Load(vec_param);
-            auto* true_val = b.Swizzle(vec_ty, value_param, swizzle_indices);
+            auto* true_val = b.Construct(vec_ty, value_param);
 
-            auto* lhs = b.Swizzle(vec_ty, index_param, swizzle_indices);
-            auto* rhs = b.Construct(vec_ty, select_indices);
-            auto* cond = b.Equal(ty.MatchWidth(ty.bool_(), vec_ty), lhs, rhs);
+            auto* uint_vec_ty = ty.MatchWidth(ty.u32(), vec_ty);
+            auto* lhs = b.Construct(uint_vec_ty, b.InsertConvertIfNeeded(ty.u32(), index_param));
+            auto* rhs = b.Construct(uint_vec_ty, select_indices);
+            auto* cond = b.Equal(lhs, rhs);
 
             // NOTE: Using Select means we depend on BuiltinPolyfill to run after this transform. We
             // could also just emit a Ternary instruction.
@@ -261,8 +261,8 @@ struct State {
         for (auto* inst : ir.Instructions()) {
             // Inline pointers
             if (auto* l = inst->As<core::ir::Let>()) {
-                if (l->Result(0)->Type()->Is<core::type::Pointer>()) {
-                    l->Result(0)->ReplaceAllUsesWith(l->Value());
+                if (l->Result()->Type()->Is<core::type::Pointer>()) {
+                    l->Result()->ReplaceAllUsesWith(l->Value());
                     l->Destroy();
                 }
             }
@@ -287,10 +287,9 @@ struct State {
 }  // namespace
 
 Result<SuccessType> ReplaceNonIndexableMatVecStores(core::ir::Module& ir) {
-    auto result = ValidateAndDumpIfNeeded(ir, "hlsl.ReplaceNonIndexableMatVecStores");
-    if (result != Success) {
-        return result.Failure();
-    }
+    TINT_CHECK_RESULT(core::ir::ValidateBeforeIfNeeded(
+        ir, core::ir::Capabilities{core::ir::Capability::kAllowDuplicateBindings},
+        "hlsl.ReplaceNonIndexableMatVecStores"));
 
     State{ir}.Process();
 

@@ -25,23 +25,15 @@
 // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#include "src/tint/lang/core/ir/transform/combine_access_instructions.h"
-
 #include "src/tint/cmd/fuzz/ir/fuzz.h"
+#include "src/tint/lang/core/ir/transform/combine_access_instructions.h"
 #include "src/tint/lang/core/ir/validator.h"
 
 namespace tint::core::ir::transform {
 namespace {
 
-void CombineAccessInstructionsFuzzer(Module& module) {
-    if (auto res = CombineAccessInstructions(module); res != Success) {
-        return;
-    }
-
-    Capabilities capabilities;
-    if (auto res = Validate(module, capabilities); res != Success) {
-        TINT_ICE() << "result of CombineAccessInstructions failed IR validation\n" << res.Failure();
-    }
+Result<SuccessType> CombineAccessInstructionsFuzzer(Module& ir, const fuzz::ir::Context&) {
+    return CombineAccessInstructions(ir);
 }
 
 }  // namespace

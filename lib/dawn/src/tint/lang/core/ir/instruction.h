@@ -32,7 +32,6 @@
 
 #include "src/tint/lang/core/ir/instruction_result.h"
 #include "src/tint/lang/core/ir/value.h"
-#include "src/tint/utils/containers/const_propagating_ptr.h"
 #include "src/tint/utils/containers/enum_set.h"
 #include "src/tint/utils/rtti/castable.h"
 
@@ -48,6 +47,14 @@ namespace tint::core::ir {
 class Instruction : public Castable<Instruction> {
   public:
     using Id = uint32_t;
+
+    /// Kinds of memory access the call will do.
+    enum class Access {
+        kLoad,
+        kStore,
+    };
+    /// Accesses is a set of of Access
+    using Accesses = EnumSet<Access>;
 
     /// Destructor
     ~Instruction() override;
@@ -77,6 +84,10 @@ class Instruction : public Castable<Instruction> {
     /// @param operands the new operands of the instruction
     virtual void SetOperands(VectorRef<ir::Value*> operands) = 0;
 
+    /// Replaces the results of the instruction with a single result
+    /// @param result the new result of the instruction
+    virtual void SetResult(ir::InstructionResult* result) = 0;
+
     /// Replaces the results of the instruction
     /// @param results the new results of the instruction
     virtual void SetResults(VectorRef<ir::InstructionResult*> results) = 0;
@@ -97,6 +108,9 @@ class Instruction : public Castable<Instruction> {
     /// @param ctx the CloneContext used to clone this instruction
     /// @returns a clone of this instruction
     virtual Instruction* Clone(CloneContext& ctx) = 0;
+
+    /// @returns the side effects for this instruction
+    virtual Accesses GetSideEffects() const { return Accesses{}; }
 
     /// @returns true if the Instruction has not been destroyed with Destroy()
     bool Alive() const { return !flags_.Contains(Flag::kDead); }
@@ -163,10 +177,26 @@ class Instruction : public Castable<Instruction> {
         return idx < res.Length() ? res[idx] : nullptr;
     }
 
+    /// @returns the instruction result
+    /// @note must only be called on instructions with exactly one result
+    InstructionResult* Result() {
+        auto res = Results();
+        TINT_ASSERT(res.Length() == 1u);
+        return res[0];
+    }
+
+    /// @returns the instruction result
+    /// @note must only be called on instructions with exactly one result
+    const InstructionResult* Result() const {
+        auto res = Results();
+        TINT_ASSERT(res.Length() == 1u);
+        return res[0];
+    }
+
     /// Pointer to the next instruction in the list
-    ConstPropagatingPtr<Instruction> next;
+    Instruction* next = nullptr;
     /// Pointer to the previous instruction in the list
-    ConstPropagatingPtr<Instruction> prev;
+    Instruction* prev = nullptr;
 
   protected:
     /// Flags applied to an Instruction
@@ -184,7 +214,7 @@ class Instruction : public Castable<Instruction> {
     Id id_;
 
     /// The block that owns this instruction
-    ConstPropagatingPtr<ir::Block> block_;
+    ir::Block* block_ = nullptr;
 
     /// Bitset of instruction flags
     tint::EnumSet<Flag> flags_;

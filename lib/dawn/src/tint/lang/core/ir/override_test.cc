@@ -25,12 +25,11 @@
 // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#include "src/tint/lang/core/ir/var.h"
-
 #include "gmock/gmock.h"
 #include "src/tint/lang/core/ir/builder.h"
 #include "src/tint/lang/core/ir/instruction.h"
 #include "src/tint/lang/core/ir/ir_helper_test.h"
+#include "src/tint/lang/core/ir/var.h"
 
 namespace tint::core::ir {
 namespace {
@@ -54,8 +53,8 @@ TEST_F(IR_OverrideDeathTest, Fail_NullType) {
 TEST_F(IR_OverrideTest, Results) {
     auto* var = b.Override(ty.i32());
     EXPECT_EQ(var->Results().Length(), 1u);
-    EXPECT_TRUE(var->Result(0)->Is<InstructionResult>());
-    EXPECT_EQ(var->Result(0)->Instruction(), var);
+    EXPECT_TRUE(var->Result()->Is<InstructionResult>());
+    EXPECT_EQ(var->Result()->Instruction(), var);
 }
 
 TEST_F(IR_OverrideTest, Initializer_Usage) {
@@ -78,9 +77,9 @@ TEST_F(IR_OverrideTest, Clone) {
     auto* new_v = clone_ctx.Clone(v);
 
     EXPECT_NE(v, new_v);
-    ASSERT_NE(nullptr, new_v->Result(0));
-    EXPECT_NE(v->Result(0), new_v->Result(0));
-    EXPECT_EQ(new_v->Result(0)->Type(), mod.Types().f32());
+    ASSERT_NE(nullptr, new_v->Result());
+    EXPECT_NE(v->Result(), new_v->Result());
+    EXPECT_EQ(new_v->Result()->Type(), mod.Types().f32());
 
     ASSERT_NE(nullptr, new_v->Initializer());
     auto new_val = new_v->Initializer()->As<Constant>()->Value();

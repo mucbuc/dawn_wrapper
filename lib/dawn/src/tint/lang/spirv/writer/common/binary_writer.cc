@@ -25,10 +25,17 @@
 // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/439062058): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include "src/tint/lang/spirv/writer/common/binary_writer.h"
 
 #include <cstring>
 #include <string>
+
+#include "src/tint/utils/memory/bitcast.h"
 
 namespace tint::spirv::writer {
 namespace {
@@ -50,9 +57,9 @@ void BinaryWriter::WriteInstruction(const Instruction& inst) {
     ProcessInstruction(inst);
 }
 
-void BinaryWriter::WriteHeader(uint32_t bound, uint32_t version) {
+void BinaryWriter::WriteHeader(uint32_t bound, uint32_t version, uint32_t spirv_version) {
     out_.push_back(spv::MagicNumber);
-    out_.push_back(0x00010300);  // Version 1.3
+    out_.push_back(spirv_version);
     out_.push_back(kGeneratorId | version);
     out_.push_back(bound);
     out_.push_back(0);
@@ -72,16 +79,13 @@ void BinaryWriter::ProcessOp(const Operand& op) {
         return;
     }
     if (auto* f = std::get_if<float>(&op)) {
-        // Allocate space for the float
-        out_.push_back(0);
-        uint8_t* ptr = reinterpret_cast<uint8_t*>(out_.data() + (out_.size() - 1));
-        memcpy(ptr, f, 4);
+        out_.push_back(tint::Bitcast<uint32_t>(*f));
         return;
     }
     if (auto* str = std::get_if<std::string>(&op)) {
         auto idx = out_.size();
         out_.resize(out_.size() + OperandLength(op), 0);
-        memcpy(out_.data() + idx, str->c_str(), str->size() + 1);
+        memcpy(&out_[idx], str->c_str(), str->size() + 1);
         return;
     }
 }

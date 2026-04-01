@@ -45,17 +45,17 @@ class ShaderVisibleDescriptorAllocator;
 class BindGroup final : public BindGroupBase, public PlacementAllocated {
   public:
     static ResultOrError<Ref<BindGroup>> Create(Device* device,
-                                                const BindGroupDescriptor* descriptor);
+                                                const UnpackedPtr<BindGroupDescriptor>& descriptor);
 
     BindGroup(Device* device,
-              const BindGroupDescriptor* descriptor,
-              uint32_t viewSizeIncrement,
+              const UnpackedPtr<BindGroupDescriptor>& descriptor,
               const CPUDescriptorHeapAllocation& viewAllocation);
 
-    // Returns true if the BindGroup was successfully populated.
-    bool PopulateViews(MutexProtected<ShaderVisibleDescriptorAllocator>& viewAllocator);
-    bool PopulateSamplers(Device* device,
-                          MutexProtected<ShaderVisibleDescriptorAllocator>& samplerAllocator);
+    // Returns true if the BindGroup was successfully populated (now or on a previous call)
+    // in the current allocator's heap. If false is returned, caller should
+    // AllocateAndSwitchShaderVisibleHeap and populate again.
+    bool PopulateViews(ShaderVisibleDescriptorAllocator* viewAllocator);
+    bool PopulateSamplers(ShaderVisibleDescriptorAllocator* samplerAllocator);
 
     D3D12_GPU_DESCRIPTOR_HANDLE GetBaseViewDescriptor() const;
     D3D12_GPU_DESCRIPTOR_HANDLE GetBaseSamplerDescriptor() const;
@@ -68,7 +68,9 @@ class BindGroup final : public BindGroupBase, public PlacementAllocated {
   private:
     ~BindGroup() override;
 
-    void DestroyImpl() override;
+    MaybeError InitializeImpl() override;
+    void DestroyImpl(DestroyReason reason) override;
+    void DeleteThis() override;
 
     Ref<SamplerHeapCacheEntry> mSamplerAllocationEntry;
 

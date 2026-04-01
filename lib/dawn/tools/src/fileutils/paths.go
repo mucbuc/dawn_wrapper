@@ -29,11 +29,12 @@ package fileutils
 
 import (
 	"fmt"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	"dawn.googlesource.com/dawn/tools/src/oswrapper"
 )
 
 // ThisLine returns the filepath and line number of the calling function
@@ -56,20 +57,20 @@ func ThisDir() string {
 
 // DawnRoot returns the path to the dawn project's root directory or empty
 // string if not found.
-func DawnRoot() string {
-	return pathOfFileInParentDirs(ThisDir(), "DEPS")
+func DawnRoot(fsReader oswrapper.FilesystemReader) string {
+	return pathOfFileInParentDirs(ThisDir(), "DEPS", fsReader)
 }
 
 // pathOfFileInParentDirs looks for file with `name` in paths starting from
 // `path`, and up into parent directories, returning the clean path in which the
 // file is found, or empty string if not found.
-func pathOfFileInParentDirs(path string, name string) string {
+func pathOfFileInParentDirs(path string, name string, fsReader oswrapper.FilesystemReader) string {
 	sep := string(filepath.Separator)
 	path, _ = filepath.Abs(path)
 	numDirs := strings.Count(path, sep) + 1
 	for i := 0; i < numDirs; i++ {
 		test := filepath.Join(path, name)
-		if _, err := os.Stat(test); err == nil {
+		if _, err := fsReader.Stat(test); err == nil {
 			return filepath.Clean(path)
 		}
 
@@ -79,35 +80,41 @@ func pathOfFileInParentDirs(path string, name string) string {
 }
 
 // ExpandHome returns the string with all occurrences of '~' replaced with the
-// user's home directory. The the user's home directory cannot be found, then
+// user's home directory. If the user's home directory cannot be found, then
 // the input string is returned.
-func ExpandHome(path string) string {
+func ExpandHome(path string, environProvider oswrapper.EnvironProvider) string {
 	if strings.ContainsRune(path, '~') {
-		if home, err := os.UserHomeDir(); err == nil {
+		if home, err := environProvider.UserHomeDir(); err == nil {
 			return strings.ReplaceAll(path, "~", home)
 		}
 	}
 	return path
 }
 
+// TODO(crbug.com/416755658): Add unittest coverage once exec is handled via
+// dependency injection.
 // NodePath looks for the node binary, first in dawn's third_party directory,
 // falling back to PATH.
-func NodePath() string {
-	if dawnRoot := DawnRoot(); dawnRoot != "" {
-		node := filepath.Join(dawnRoot, "third_party/node")
-		if info, err := os.Stat(node); err == nil && info.IsDir() {
+func NodePath(fsReader oswrapper.FilesystemReader) string {
+	if dawnRoot := DawnRoot(fsReader); dawnRoot != "" {
+		node := filepath.Join(dawnRoot, "third_party", "node")
+		if info, err := fsReader.Stat(node); err == nil && info.IsDir() {
 			path := ""
 			switch fmt.Sprintf("%v/%v", runtime.GOOS, runtime.GOARCH) { // See `go tool dist list`
 			case "darwin/amd64":
-				path = filepath.Join(node, "node-darwin-x64/bin/node")
+				path = filepath.Join(node, "mac-amd64", "bin", "node")
 			case "darwin/arm64":
-				path = filepath.Join(node, "node-darwin-arm64/bin/node")
+				path = filepath.Join(node, "mac-arm64", "bin", "node")
 			case "linux/amd64":
-				path = filepath.Join(node, "node-linux-x64/bin/node")
+				path = filepath.Join(node, "linux-amd64", "bin", "node")
+			case "linux/arm64":
+				path = filepath.Join(node, "linux-arm64", "bin", "node")
 			case "windows/amd64":
-				path = filepath.Join(node, "node.exe")
+				path = filepath.Join(node, "windows-amd64", "node.exe")
+			case "windows/arm64":
+				path = filepath.Join(node, "windows-arm64", "node.exe")
 			}
-			if _, err := os.Stat(path); err == nil {
+			if _, err := fsReader.Stat(path); err == nil {
 				return path
 			}
 		}
@@ -122,10 +129,10 @@ func NodePath() string {
 
 // BuildPath looks for the binary output directory at '<dawn>/out/active'.
 // Returns the path if found, otherwise an empty string.
-func BuildPath() string {
-	if dawnRoot := DawnRoot(); dawnRoot != "" {
-		bin := filepath.Join(dawnRoot, "out/active")
-		if info, err := os.Stat(bin); err == nil && info.IsDir() {
+func BuildPath(fsReader oswrapper.FilesystemReader) string {
+	if dawnRoot := DawnRoot(fsReader); dawnRoot != "" {
+		bin := filepath.Join(dawnRoot, "out", "active")
+		if info, err := fsReader.Stat(bin); err == nil && info.IsDir() {
 			return bin
 		}
 	}
@@ -133,8 +140,8 @@ func BuildPath() string {
 }
 
 // IsDir returns true if the path resolves to a directory
-func IsDir(path string) bool {
-	s, err := os.Stat(path)
+func IsDir(path string, fsReader oswrapper.FilesystemReader) bool {
+	s, err := fsReader.Stat(path)
 	if err != nil {
 		return false
 	}
@@ -142,8 +149,8 @@ func IsDir(path string) bool {
 }
 
 // IsFile returns true if the path resolves to a file
-func IsFile(path string) bool {
-	s, err := os.Stat(path)
+func IsFile(path string, fsReader oswrapper.FilesystemReader) bool {
+	s, err := fsReader.Stat(path)
 	if err != nil {
 		return false
 	}
@@ -174,4 +181,24 @@ func CommonRootDir(pathA, pathB string) string {
 		}
 	}
 	return common
+}
+
+// IsEmptyDir returns true if the directory at 'dir' contains no files or
+// subdirectories. Returns an error if the path does not exist or is not a
+// directory.
+func IsEmptyDir(dir string, fsReader oswrapper.FilesystemReader) (bool, error) {
+	info, err := fsReader.Stat(dir)
+	if err != nil {
+		return false, fmt.Errorf("failed to stat '%s': %w", dir, err)
+	}
+	if !info.IsDir() {
+		return false, fmt.Errorf("path is not a directory: %s", dir)
+	}
+
+	entries, err := fsReader.ReadDir(dir)
+	if err != nil {
+		return false, fmt.Errorf("failed to read directory '%s': %w", dir, err)
+	}
+
+	return len(entries) == 0, nil
 }

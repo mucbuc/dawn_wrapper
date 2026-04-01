@@ -28,7 +28,6 @@
 #include "src/tint/lang/msl/writer/raise/simd_ballot.h"
 
 #include "gtest/gtest.h"
-
 #include "src/tint/lang/core/fluent_types.h"
 #include "src/tint/lang/core/ir/transform/helper_test.h"
 #include "src/tint/lang/core/number.h"
@@ -44,6 +43,8 @@ using MslWriter_SimdBallotTest = core::ir::transform::TransformTest;
 TEST_F(MslWriter_SimdBallotTest, SimdBallot_WithUserDeclaredSubgroupSize) {
     auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     auto* subgroup_size = b.FunctionParam("user_subgroup_size", ty.u32());
+    subgroup_size->SetLocation(0);
+    subgroup_size->SetInterpolation(core::Interpolation{core::InterpolationType::kFlat});
     func->SetParams({subgroup_size});
     b.Append(func->Block(), [&] {  //
         b.Call<vec4<u32>>(core::BuiltinFn::kSubgroupBallot, true);
@@ -51,7 +52,7 @@ TEST_F(MslWriter_SimdBallotTest, SimdBallot_WithUserDeclaredSubgroupSize) {
     });
 
     auto* src = R"(
-%foo = @fragment func(%user_subgroup_size:u32):void {
+%foo = @fragment func(%user_subgroup_size:u32 [@location(0), @interpolate(flat)]):void {
   $B1: {
     %3:vec4<u32> = subgroupBallot true
     ret
@@ -62,10 +63,10 @@ TEST_F(MslWriter_SimdBallotTest, SimdBallot_WithUserDeclaredSubgroupSize) {
 
     auto* expect = R"(
 $B1: {  # root
-  %tint_subgroup_size_mask:ptr<private, vec2<u32>, read_write> = var
+  %tint_subgroup_size_mask:ptr<private, vec2<u32>, read_write> = var undef
 }
 
-%foo = @fragment func(%user_subgroup_size:u32, %tint_subgroup_size:u32 [@subgroup_size]):void {
+%foo = @fragment func(%user_subgroup_size:u32 [@location(0), @interpolate(flat)], %tint_subgroup_size:u32 [@subgroup_size]):void {
   $B2: {
     %5:bool = gt %tint_subgroup_size, 32u
     %6:u32 = sub 32u, %tint_subgroup_size
@@ -115,7 +116,7 @@ TEST_F(MslWriter_SimdBallotTest, SimdBallot_WithoutUserDeclaredSubgroupSize) {
 
     auto* expect = R"(
 $B1: {  # root
-  %tint_subgroup_size_mask:ptr<private, vec2<u32>, read_write> = var
+  %tint_subgroup_size_mask:ptr<private, vec2<u32>, read_write> = var undef
 }
 
 %foo = @fragment func(%tint_subgroup_size:u32 [@subgroup_size]):void {
@@ -150,7 +151,7 @@ $B1: {  # root
 }
 
 TEST_F(MslWriter_SimdBallotTest, SimdBallot_InHelperFunction) {
-    auto* foo = b.Function("foo", ty.vec4<u32>());
+    auto* foo = b.Function("foo", ty.vec4u());
     auto* pred = b.FunctionParam("pred", ty.bool_());
     foo->SetParams({pred});
     b.Append(foo->Block(), [&] {  //
@@ -158,18 +159,10 @@ TEST_F(MslWriter_SimdBallotTest, SimdBallot_InHelperFunction) {
         b.Return(foo, result);
     });
 
-    auto* ep1 = b.Function("ep1", ty.void_(), core::ir::Function::PipelineStage::kFragment);
-    auto* subgroup_size = b.FunctionParam("user_subgroup_size", ty.u32());
-    ep1->SetParams({subgroup_size});
-    b.Append(ep1->Block(), [&] {  //
-        b.Call<vec4<u32>>(foo, true);
-        b.Return(ep1);
-    });
-
-    auto* ep2 = b.Function("ep2", ty.void_(), core::ir::Function::PipelineStage::kFragment);
-    b.Append(ep2->Block(), [&] {  //
+    auto* ep = b.Function("ep", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    b.Append(ep->Block(), [&] {  //
         b.Call<vec4<u32>>(foo, false);
-        b.Return(ep2);
+        b.Return(ep);
     });
 
     auto* src = R"(
@@ -179,15 +172,9 @@ TEST_F(MslWriter_SimdBallotTest, SimdBallot_InHelperFunction) {
     ret %3
   }
 }
-%ep1 = @fragment func(%user_subgroup_size:u32):void {
+%ep = @fragment func():void {
   $B2: {
-    %6:vec4<u32> = call %foo, true
-    ret
-  }
-}
-%ep2 = @fragment func():void {
-  $B3: {
-    %8:vec4<u32> = call %foo, false
+    %5:vec4<u32> = call %foo, false
     ret
   }
 }
@@ -196,7 +183,7 @@ TEST_F(MslWriter_SimdBallotTest, SimdBallot_InHelperFunction) {
 
     auto* expect = R"(
 $B1: {  # root
-  %tint_subgroup_size_mask:ptr<private, vec2<u32>, read_write> = var
+  %tint_subgroup_size_mask:ptr<private, vec2<u32>, read_write> = var undef
 }
 
 %foo = func(%pred:bool):vec4<u32> {
@@ -205,43 +192,28 @@ $B1: {  # root
     ret %4
   }
 }
-%ep1 = @fragment func(%user_subgroup_size:u32, %tint_subgroup_size:u32 [@subgroup_size]):void {
+%ep = @fragment func(%tint_subgroup_size:u32 [@subgroup_size]):void {
   $B3: {
-    %9:bool = gt %tint_subgroup_size, 32u
-    %10:u32 = sub 32u, %tint_subgroup_size
-    %11:u32 = shr 4294967295u, %10
-    %12:u32 = select %11, 4294967295u, %9
-    %13:u32 = sub 64u, %tint_subgroup_size
-    %14:u32 = shr 4294967295u, %13
-    %15:u32 = select 0u, %14, %9
-    store_vector_element %tint_subgroup_size_mask, 0u, %12
-    store_vector_element %tint_subgroup_size_mask, 1u, %15
-    %16:vec4<u32> = call %foo, true
-    ret
-  }
-}
-%ep2 = @fragment func(%tint_subgroup_size_1:u32 [@subgroup_size]):void {  # %tint_subgroup_size_1: 'tint_subgroup_size'
-  $B4: {
-    %19:bool = gt %tint_subgroup_size_1, 32u
-    %20:u32 = sub 32u, %tint_subgroup_size_1
-    %21:u32 = shr 4294967295u, %20
-    %22:u32 = select %21, 4294967295u, %19
-    %23:u32 = sub 64u, %tint_subgroup_size_1
-    %24:u32 = shr 4294967295u, %23
-    %25:u32 = select 0u, %24, %19
-    store_vector_element %tint_subgroup_size_mask, 0u, %22
-    store_vector_element %tint_subgroup_size_mask, 1u, %25
-    %26:vec4<u32> = call %foo, false
+    %8:bool = gt %tint_subgroup_size, 32u
+    %9:u32 = sub 32u, %tint_subgroup_size
+    %10:u32 = shr 4294967295u, %9
+    %11:u32 = select %10, 4294967295u, %8
+    %12:u32 = sub 64u, %tint_subgroup_size
+    %13:u32 = shr 4294967295u, %12
+    %14:u32 = select 0u, %13, %8
+    store_vector_element %tint_subgroup_size_mask, 0u, %11
+    store_vector_element %tint_subgroup_size_mask, 1u, %14
+    %15:vec4<u32> = call %foo, false
     ret
   }
 }
 %tint_subgroup_ballot = func(%pred_1:bool):vec4<u32> {  # %pred_1: 'pred'
-  $B5: {
-    %28:vec2<u32> = msl.simd_ballot %pred_1
-    %29:vec2<u32> = load %tint_subgroup_size_mask
-    %30:vec2<u32> = and %28, %29
-    %31:vec4<u32> = construct %30, 0u, 0u
-    ret %31
+  $B4: {
+    %17:vec2<u32> = msl.simd_ballot %pred_1
+    %18:vec2<u32> = load %tint_subgroup_size_mask
+    %19:vec2<u32> = and %17, %18
+    %20:vec4<u32> = construct %19, 0u, 0u
+    ret %20
   }
 }
 )";
@@ -276,7 +248,7 @@ TEST_F(MslWriter_SimdBallotTest, SimdBallot_MultipleCalls) {
 
     auto* expect = R"(
 $B1: {  # root
-  %tint_subgroup_size_mask:ptr<private, vec2<u32>, read_write> = var
+  %tint_subgroup_size_mask:ptr<private, vec2<u32>, read_write> = var undef
 }
 
 %foo = @fragment func(%tint_subgroup_size:u32 [@subgroup_size]):void {

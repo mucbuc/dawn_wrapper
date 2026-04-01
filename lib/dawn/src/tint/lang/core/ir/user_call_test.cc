@@ -54,8 +54,8 @@ TEST_F(IR_UserCallTest, Results) {
     auto* e = b.Call(mod.Types().void_(), func, Vector{arg1, arg2});
 
     EXPECT_EQ(e->Results().Length(), 1u);
-    EXPECT_TRUE(e->Result(0)->Is<InstructionResult>());
-    EXPECT_EQ(e->Result(0)->Instruction(), e);
+    EXPECT_TRUE(e->Result()->Is<InstructionResult>());
+    EXPECT_EQ(e->Result()->Instruction(), e);
 }
 
 TEST_F(IR_UserCallDeathTest, Fail_NullType) {
@@ -76,13 +76,13 @@ TEST_F(IR_UserCallTest, Clone) {
     auto* new_e = clone_ctx.Clone(e);
 
     EXPECT_NE(e, new_e);
-    EXPECT_NE(nullptr, new_e->Result(0));
-    EXPECT_NE(e->Result(0), new_e->Result(0));
+    EXPECT_NE(nullptr, new_e->Result());
+    EXPECT_NE(e->Result(), new_e->Result());
 
     EXPECT_EQ(new_func, new_e->Target());
 
     auto args = new_e->Args();
-    EXPECT_EQ(2u, args.Length());
+    EXPECT_EQ(2u, args.size());
 
     auto new_arg1 = args[0]->As<Constant>()->Value();
     ASSERT_TRUE(new_arg1->Is<core::constant::Scalar<u32>>());
@@ -99,7 +99,7 @@ TEST_F(IR_UserCallTest, CloneWithoutArgs) {
 
     auto* new_e = clone_ctx.Clone(e);
 
-    EXPECT_EQ(0u, new_e->Args().Length());
+    EXPECT_EQ(0u, new_e->Args().size());
 }
 
 }  // namespace

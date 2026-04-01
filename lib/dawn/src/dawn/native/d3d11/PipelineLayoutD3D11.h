@@ -28,11 +28,11 @@
 #ifndef SRC_DAWN_NATIVE_D3D11_PIPELINELAYOUTD3D11_H_
 #define SRC_DAWN_NATIVE_D3D11_PIPELINELAYOUTD3D11_H_
 
-#include "dawn/native/PipelineLayout.h"
-
 #include "dawn/common/ityp_array.h"
 #include "dawn/common/ityp_vector.h"
 #include "dawn/native/BindingInfo.h"
+#include "dawn/native/PerStage.h"
+#include "dawn/native/PipelineLayout.h"
 #include "dawn/native/d3d/d3d_platform.h"
 
 namespace dawn::native::d3d11 {
@@ -59,15 +59,18 @@ class PipelineLayout final : public PipelineLayoutBase {
     static constexpr uint32_t kReservedConstantsBindGroupIndex = kMaxBindGroups;
     static constexpr uint32_t kFirstIndexOffsetBindingNumber = 0u;
 
+    static constexpr uint32_t kInvalidSlot = 0xffffffff;
+
     static ResultOrError<Ref<PipelineLayout>> Create(
         Device* device,
         const UnpackedPtr<PipelineLayoutDescriptor>& descriptor);
 
-    using BindingIndexInfo = PerBindGroup<ityp::vector<BindingIndex, uint32_t>>;
-    const BindingIndexInfo& GetBindingIndexInfo() const;
+    // BindingTableIndexMap is a mapping from BindingIndex to D3D binding table's index.
+    using BindingTableIndexMap = PerBindGroup<ityp::vector<BindingIndex, PerStage<uint32_t>>>;
+    const BindingTableIndexMap& GetBindingTableIndexMap() const;
 
-    uint32_t GetUnusedUAVBindingCount() const { return mUnusedUAVBindingCount; }
-    uint32_t GetTotalUAVBindingCount() const { return mTotalUAVBindingCount; }
+    uint32_t GetUAVStartIndex(SingleShaderStage stage) const { return mUAVStartIndex[stage]; }
+    uint32_t GetUAVCount(SingleShaderStage stage) const { return mUAVCount[stage]; }
     uint32_t GetPLSSlotCount() const {
         return static_cast<uint32_t>(GetStorageAttachmentSlots().size());
     }
@@ -82,10 +85,10 @@ class PipelineLayout final : public PipelineLayoutBase {
 
     MaybeError Initialize(Device* device);
 
-    BindingIndexInfo mIndexInfo;
+    BindingTableIndexMap mBindingTableIndexMap;
 
-    uint32_t mUnusedUAVBindingCount = 0u;
-    uint32_t mTotalUAVBindingCount = 0u;
+    PerStage<uint32_t> mUAVStartIndex = PerStage<uint32_t>(0u);
+    PerStage<uint32_t> mUAVCount = PerStage<uint32_t>(0u);
     BindGroupMask mUAVBindGroups = 0;
 };
 

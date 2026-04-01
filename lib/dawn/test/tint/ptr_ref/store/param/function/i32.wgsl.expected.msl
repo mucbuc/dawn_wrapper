@@ -1,13 +1,12 @@
 #include <metal_stdlib>
-
 using namespace metal;
+
 void func(thread int* const pointer) {
-  *(pointer) = 42;
+  (*pointer) = 42;
 }
 
-kernel void tint_symbol() {
+[[max_total_threads_per_threadgroup(1)]]
+kernel void v() {
   int F = 0;
-  func(&(F));
-  return;
+  func((&F));
 }
-

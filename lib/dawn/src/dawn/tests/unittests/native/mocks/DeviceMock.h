@@ -64,12 +64,15 @@ class DeviceMock : public DeviceBase {
                 (override));
 
     MOCK_METHOD(MaybeError,
-                CopyFromStagingToBufferImpl,
+                CopyFromStagingToBuffer,
                 (BufferBase*, uint64_t, BufferBase*, uint64_t, uint64_t),
                 (override));
     MOCK_METHOD(MaybeError,
                 CopyFromStagingToTextureImpl,
-                (const BufferBase*, const TextureDataLayout&, const TextureCopy&, const Extent3D&),
+                (BufferBase * source,
+                 const TexelCopyBufferLayout& src,
+                 const TextureCopy& dst,
+                 const Extent3D& copySizePixels),
                 (override));
 
     MOCK_METHOD(uint32_t, GetOptimalBytesPerRowAlignment, (), (const, override));
@@ -79,11 +82,11 @@ class DeviceMock : public DeviceBase {
 
     MOCK_METHOD(ResultOrError<Ref<BindGroupBase>>,
                 CreateBindGroupImpl,
-                (const BindGroupDescriptor*),
+                (const UnpackedPtr<BindGroupDescriptor>&),
                 (override));
     MOCK_METHOD(ResultOrError<Ref<BindGroupLayoutInternalBase>>,
                 CreateBindGroupLayoutImpl,
-                (const BindGroupLayoutDescriptor*),
+                (const UnpackedPtr<BindGroupLayoutDescriptor>&),
                 (override));
     MOCK_METHOD(ResultOrError<Ref<BufferBase>>,
                 CreateBufferImpl,
@@ -109,6 +112,10 @@ class DeviceMock : public DeviceBase {
                 CreateUninitializedRenderPipelineImpl,
                 (const UnpackedPtr<RenderPipelineDescriptor>&),
                 (override));
+    MOCK_METHOD(ResultOrError<Ref<ResourceTableBase>>,
+                CreateResourceTableImpl,
+                (const ResourceTableDescriptor*),
+                (override));
     MOCK_METHOD(ResultOrError<Ref<SamplerBase>>,
                 CreateSamplerImpl,
                 (const SamplerDescriptor*),
@@ -116,9 +123,7 @@ class DeviceMock : public DeviceBase {
     MOCK_METHOD(ResultOrError<Ref<ShaderModuleBase>>,
                 CreateShaderModuleImpl,
                 (const UnpackedPtr<ShaderModuleDescriptor>&,
-                 const std::vector<tint::wgsl::Extension>&,
-                 ShaderModuleParseResult*,
-                 OwnedCompilationMessages*),
+                 const std::vector<tint::wgsl::Extension>&),
                 (override));
     MOCK_METHOD(ResultOrError<Ref<SwapChainBase>>,
                 CreateSwapChainImpl,
@@ -135,7 +140,7 @@ class DeviceMock : public DeviceBase {
 
     MOCK_METHOD(MaybeError, TickImpl, (), (override));
 
-    MOCK_METHOD(void, DestroyImpl, (), (override));
+    MOCK_METHOD(void, DestroyImpl, (DestroyReason), (override));
 };
 
 }  // namespace dawn::native

@@ -30,21 +30,22 @@
 #include <memory>
 #include <string>
 
+#include "spirv-tools/libspirv.hpp"
 #include "src/tint/api/tint.h"
 #include "src/tint/cmd/common/helper.h"
 #include "src/tint/lang/core/ir/binary/decode.h"
 #include "src/tint/lang/core/ir/disassembler.h"
+#include "src/tint/lang/core/ir/validator.h"
 #include "src/tint/lang/spirv/writer/writer.h"
 #include "src/tint/lang/wgsl/writer/writer.h"
-#include "src/tint/utils/cli/cli.h"
+#include "src/tint/utils/command/args.h"
+#include "src/tint/utils/command/cli.h"
 #include "src/tint/utils/containers/transform.h"
 #include "src/tint/utils/macros/defer.h"
 #include "src/tint/utils/text/color_mode.h"
 #include "src/tint/utils/text/string.h"
 #include "src/tint/utils/text/styled_text.h"
 #include "src/tint/utils/text/styled_text_printer.h"
-
-#include "spirv-tools/libspirv.hpp"
 
 TINT_BEGIN_DISABLE_PROTOBUF_WARNINGS();
 #include "src/tint/utils/protos/ir_fuzz/ir_fuzz.pb.h"
@@ -103,17 +104,15 @@ enum class Format : uint8_t {
 /// @param filename the filename to inspect
 /// @returns the inferred format for the filename suffix
 Format InferFormat(const std::string& filename) {
-    if (tint::HasSuffix(filename, ".spv")) {
+    if (filename.ends_with(".spv")) {
         return Format::kSpirv;
     }
-    if (tint::HasSuffix(filename, ".spvasm")) {
+    if (filename.ends_with(".spvasm")) {
         return Format::kSpvAsm;
     }
-
-    if (tint::HasSuffix(filename, ".wgsl")) {
+    if (filename.ends_with(".wgsl")) {
         return Format::kWgsl;
     }
-
     return Format::kUnknown;
 }
 
@@ -125,6 +124,7 @@ struct Options {
 
     Format format = Format::kUnknown;
 
+    bool validate = false;
     bool dump_wgsl = false;
     bool dump_spirv = false;
 };
@@ -165,6 +165,10 @@ If not provided, will be inferred from output filename extension:
         ShortName{"o"}, Parameter{"name"});
     TINT_DEFER(opts->output_filename = output.value.value_or(""));
 
+    auto& validate = options.Add<BoolOption>("validate", "Runs the IR validator on the source IR",
+                                             ShortName{"V"}, Default{false});
+    TINT_DEFER(opts->validate = *validate.value);
+
     auto& dump_wgsl = options.Add<BoolOption>(
         "dump-wgsl", "Writes the WGSL form of input to stdout, may fail due to validation errors",
         Alias{"emit-wgsl"}, Default{false});
@@ -201,7 +205,7 @@ Options:
     auto args = result.Get();
     if (args.Length() > 1) {
         std::cerr << "More than one input arg specified: "
-                  << tint::Join(Transform(args, tint::Quote), ", ") << "\n";
+                  << tint::Join(Transform(args, tint::cmd::Quote), ", ") << "\n";
         return false;
     }
 
@@ -267,7 +271,8 @@ bool EmitWGSL(const Options& options, tint::core::ir::Module& module) {
         return true;
     }
 
-    tint::wgsl::writer::ProgramOptions writer_options;
+    tint::wgsl::writer::Options writer_options;
+    writer_options.allowed_features = tint::wgsl::AllowedFeatures::Everything();
     auto output = tint::wgsl::writer::WgslFromIR(module, writer_options);
     if (output != tint::Success) {
         std::cerr << "Failed to convert IR to WGSL Program: " << output.Failure() << "\n";
@@ -362,6 +367,29 @@ bool Run(const Options& options) {
     {
         auto module = tint::core::ir::binary::Decode(fuzz_pb.Get().module());
         EmitIR(options, module.Get());
+
+        if (options.validate) {
+            auto res = tint::core::ir::Validate(
+                module.Get(),
+                tint::core::ir::Capabilities{
+                    tint::core::ir::Capability::kAllow8BitIntegers,
+                    tint::core::ir::Capability::kAllow64BitIntegers,
+                    tint::core::ir::Capability::kAllowClipDistancesOnF32ScalarAndVector,
+                    tint::core::ir::Capability::kAllowHandleVarsWithoutBindings,
+                    tint::core::ir::Capability::kAllowModuleScopeLets,
+                    tint::core::ir::Capability::kAllowOverrides,
+                    tint::core::ir::Capability::kAllowRefTypes,
+                    tint::core::ir::Capability::kAllowVectorElementPointer,
+                    tint::core::ir::Capability::kMslAllowEntryPointInterface,
+                    tint::core::ir::Capability::kAllowPhonyInstructions,
+                    tint::core::ir::Capability::kAllowAnyLetType,
+                });
+            if (res == tint::Success) {
+                std::cout << "IR module is valid.\n";
+            } else {
+                std::cerr << res.Failure();
+            }
+        }
     }
 
     {
@@ -384,18 +412,10 @@ bool Run(const Options& options) {
 }  // namespace
 
 int main(int argc, const char** argv) {
-    tint::Vector<std::string_view, 8> arguments;
-    for (int i = 1; i < argc; i++) {
-        std::string_view arg(argv[i]);
-        if (!arg.empty()) {
-            arguments.Push(argv[i]);
-        }
-    }
-
+    tint::Vector<std::string_view, 8> arguments = tint::args::Vectorize(argc, argv);
     Options options;
 
     tint::Initialize();
-    tint::SetInternalCompilerErrorReporter(&tint::cmd::TintInternalCompilerErrorReporter);
 
     if (!ParseArgs(arguments, &options)) {
         return EXIT_FAILURE;

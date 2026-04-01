@@ -29,7 +29,6 @@
 
 #include "src/tint/lang/core/ir/builder.h"
 #include "src/tint/lang/core/ir/validator.h"
-#include "src/tint/utils/result/result.h"
 
 namespace tint::hlsl::writer::raise {
 namespace {
@@ -112,13 +111,13 @@ struct State {
                 b.InsertBefore(store, [&] {
                     // Create an access to the array in the struct to copy from
                     auto* array_access = b.Access(ty.ptr(to_ptr->AddressSpace(), type), object,
-                                                  ToVector<4>(indices.Slice().Truncate(i + 1)));
+                                                  ToVector<4>(indices.AsSpan().subspan(0, i + 1)));
                     // Copy the struct array to a local variable
                     auto* local_array = b.Var("tint_array_copy", b.Load(array_access));
                     // Store the previous store's From to the local array at the same index
                     auto* local_array_value_access =
                         b.Access(ty.ptr<function>(to_ptr->StoreType()), local_array,
-                                 ToVector<4>(indices.Slice().Offset(i + 1)));
+                                 ToVector<4>(indices.AsSpan().subspan(i + 1)));
                     b.Store(local_array_value_access, store->From());
                     // Finally, copy back the data from the local array to the struct array
                     b.Store(array_access, b.Load(local_array));
@@ -138,8 +137,8 @@ struct State {
         for (auto* inst : ir.Instructions()) {
             // Inline pointers
             if (auto* l = inst->As<core::ir::Let>()) {
-                if (l->Result(0)->Type()->Is<core::type::Pointer>()) {
-                    l->Result(0)->ReplaceAllUsesWith(l->Value());
+                if (l->Result()->Type()->Is<core::type::Pointer>()) {
+                    l->Result()->ReplaceAllUsesWith(l->Value());
                     l->Destroy();
                 }
             }
@@ -158,10 +157,9 @@ struct State {
 }  // namespace
 
 Result<SuccessType> LocalizeStructArrayAssignment(core::ir::Module& ir) {
-    auto result = ValidateAndDumpIfNeeded(ir, "hlsl.LocalizeStructArrayAssignment");
-    if (result != Success) {
-        return result.Failure();
-    }
+    TINT_CHECK_RESULT(ValidateBeforeIfNeeded(
+        ir, core::ir::Capabilities{core::ir::Capability::kAllowDuplicateBindings},
+        "hlsl.LocalizeStructArrayAssignment"));
 
     State{ir}.Process();
 

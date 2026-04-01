@@ -29,6 +29,7 @@
 #define SRC_TINT_UTILS_RTTI_CASTABLE_H_
 
 #include <stdint.h>
+
 #include <functional>
 #include <tuple>
 #include <type_traits>
@@ -38,7 +39,7 @@
 #include "src/tint/utils/math/crc32.h"
 #include "src/tint/utils/math/hash.h"
 #include "src/tint/utils/rtti/ignore.h"
-#include "src/tint/utils/traits/traits.h"
+#include "src/tint/utils/rtti/traits.h"
 
 #if defined(__clang__)
 /// Temporarily disable certain warnings when using Castable API
@@ -73,7 +74,8 @@ namespace tint {
 /// True if all template types that are not Ignore derive from CastableBase
 template <typename... TYPES>
 static constexpr bool IsCastable =
-    ((tint::traits::IsTypeOrDerived<TYPES, CastableBase> || std::is_same_v<TYPES, Ignore>)&&...) &&
+    ((tint::traits::IsTypeOrDerived<TYPES, CastableBase> || std::is_same_v<TYPES, Ignore>) &&
+     ...) &&
     !(std::is_same_v<TYPES, Ignore> && ...);
 
 /// Helper macro to instantiate the TypeInfo<T> template for `CLASS`.
@@ -478,7 +480,9 @@ class Castable : public BASE {
     /// @see CastFlags
     template <typename TO, int FLAGS = 0>
     inline TO* As() {
-        return tint::As<TO, FLAGS>(this);
+        return tint::TypeInfo::Is<TO, CLASS, FLAGS>(&this->TypeInfo())
+                   ? static_cast<TO*>(static_cast<CastableBase*>(this))
+                   : nullptr;
     }
 
     /// @returns this object dynamically cast to the type `TO` or `nullptr` if
@@ -486,7 +490,9 @@ class Castable : public BASE {
     /// @see CastFlags
     template <typename TO, int FLAGS = 0>
     inline const TO* As() const {
-        return tint::As<const TO, FLAGS>(this);
+        return tint::TypeInfo::Is<const TO, CLASS, FLAGS>(&this->TypeInfo())
+                   ? static_cast<const TO*>(static_cast<const CastableBase*>(this))
+                   : nullptr;
     }
 };
 

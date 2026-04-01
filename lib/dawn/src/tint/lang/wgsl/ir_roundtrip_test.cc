@@ -28,7 +28,6 @@
 // GEN_BUILD:CONDITION(tint_build_wgsl_reader && tint_build_wgsl_writer)
 
 #include "gtest/gtest.h"
-
 #include "src/tint/lang/core/ir/disassembler.h"
 #include "src/tint/lang/wgsl/reader/program_to_ir/program_to_ir.h"
 #include "src/tint/lang/wgsl/reader/reader.h"
@@ -70,19 +69,19 @@ class IRToProgramRoundtripTest : public testing::Test {
         Source::File file("test.wgsl", std::string(input));
         auto ir_module = wgsl::reader::WgslToIR(&file, options);
         if (ir_module != Success) {
+            result.err = ir_module.Failure().reason;
             return result;
         }
-
         result.ir_pre_raise = core::ir::Disassembler(ir_module.Get()).Plain();
 
         if (auto res = tint::wgsl::writer::Raise(ir_module.Get()); res != Success) {
-            result.err = res.Failure().reason.Str();
+            result.err = res.Failure().reason;
             return result;
         }
 
         result.ir_post_raise = core::ir::Disassembler(ir_module.Get()).Plain();
 
-        writer::ProgramOptions program_options;
+        writer::Options program_options;
         program_options.allowed_features = AllowedFeatures::Everything();
         auto output_program = wgsl::writer::IRToProgram(ir_module.Get(), program_options);
         if (!output_program.IsValid()) {
@@ -91,7 +90,7 @@ class IRToProgramRoundtripTest : public testing::Test {
             return result;
         }
 
-        auto output = wgsl::writer::Generate(output_program, {});
+        auto output = wgsl::writer::Generate(output_program);
         if (output != Success) {
             std::stringstream ss;
             ss << "wgsl::Generate() errored: " << output.Failure();
@@ -261,7 +260,9 @@ enable dual_source_blending;
 struct S {
   a : i32,
   @location(0u) @blend_src(0u)
-  b : u32,
+  b0 : u32,
+  @location(0u) @blend_src(1u)
+  b1 : u32,
   c : f32,
 }
 
@@ -426,23 +427,6 @@ TEST_F(IRToProgramRoundtripTest, CoreBuiltinCall_PtrArg) {
 
 fn foo() -> u32 {
   return arrayLength(&(v));
-}
-)");
-}
-
-TEST_F(IRToProgramRoundtripTest, CoreBuiltinCall_DisableDerivativeUniformity) {
-    RUN_TEST(R"(
-fn f(in : f32) {
-  let x = dpdx(in);
-  let y = dpdy(in);
-}
-)",
-             R"(
-diagnostic(off, derivative_uniformity);
-
-fn f(in : f32) {
-  let x = dpdx(in);
-  let y = dpdy(in);
 }
 )");
 }
@@ -1695,8 +1679,7 @@ fn e(i : i32) -> i32 {
 fn f() {
   var v : array<array<array<i32, 5u>, 5u>, 5u>;
   let v_1 = &(v[e(1i)][e(2i)][e(3i)]);
-  let v_2 = v[e(4i)][e(5i)][e(6i)];
-  *(v_1) = (*(v_1) + v_2);
+  *(v_1) = (*(v_1) + v[e(4i)][e(5i)][e(6i)]);
 })");
 }
 
@@ -1723,8 +1706,7 @@ fn f() {
   let v_2 = e(2i);
   let v_3 = e(6i);
   let v_1 = &(v[e(1i)][v_2][e(3i)]);
-  let v_4 = v[e(4i)][e(5i)][v_3];
-  *(v_1) = (*(v_1) + v_4);
+  *(v_1) = (*(v_1) + v[e(4i)][e(5i)][v_3]);
 })");
 }
 
@@ -1755,8 +1737,7 @@ fn f() {
   let v_4 = e(2i);
   let v_5 = e(6i);
   let v_1 = &(v[e(1i)][v_4][v_3]);
-  let v_6 = v[e(4i)][v_2][v_5];
-  *(v_1) = (*(v_1) + v_6);
+  *(v_1) = (*(v_1) + v[e(4i)][v_2][v_5]);
 })");
 }
 
@@ -1780,8 +1761,7 @@ fn f() {
   var v : array<mat3x4<f32>, 5u>;
   let v_1 = &(v[e(1i)][e(2i)]);
   let v_2 = e(3i);
-  let v_3 = v[e(4i)][e(5i)][e(6i)];
-  (*(v_1))[v_2] = ((*(v_1))[v_2] + v_3);
+  (*(v_1))[v_2] = ((*(v_1))[v_2] + v[e(4i)][e(5i)][e(6i)]);
 })");
 }
 
@@ -1809,8 +1789,7 @@ fn f() {
   let v_3 = e(6i);
   let v_1 = &(v[e(1i)][v_2]);
   let v_4 = e(3i);
-  let v_5 = v[e(4i)][e(5i)][v_3];
-  (*(v_1))[v_4] = ((*(v_1))[v_4] + v_5);
+  (*(v_1))[v_4] = ((*(v_1))[v_4] + v[e(4i)][e(5i)][v_3]);
 })");
 }
 
@@ -1841,8 +1820,7 @@ fn f() {
   let v_4 = e(2i);
   let v_5 = e(6i);
   let v_1 = &(v[e(1i)][v_4]);
-  let v_6 = v[e(4i)][v_2][v_5];
-  (*(v_1))[v_3] = ((*(v_1))[v_3] + v_6);
+  (*(v_1))[v_3] = ((*(v_1))[v_3] + v[e(4i)][v_2][v_5]);
 })");
 }
 
@@ -2005,6 +1983,8 @@ var<private> v : array<i32, 4u> = array<i32, 4u>();
 TEST_F(IRToProgramRoundtripTest, ModuleScopeVar_Private_array_Zero) {
     RUN_TEST(R"(
 var<private> v : array<i32, 4u> = array<i32, 4u>(0i, 0i, 0i, 0i);
+)",
+             R"(
 var<private> v : array<i32, 4u> = array<i32, 4u>();
 )");
 }
@@ -2086,8 +2066,10 @@ var<private> v : vec3<f32> = vec3<f32>();
 
 TEST_F(IRToProgramRoundtripTest, ModuleScopeVar_Private_vec3f_Zero) {
     RUN_TEST(R"(
-var<private> v : vec3<f32> = vec3<f32>(0f);",
-             "var<private> v : vec3<f32> = vec3<f32>();
+var<private> v : vec3<f32> = vec3<f32>(0f);
+)",
+             R"(
+var<private> v : vec3<f32> = vec3<f32>();
 )");
 }
 
@@ -2112,6 +2094,8 @@ var<private> v : mat2x3<f32> = mat2x3<f32>();
 TEST_F(IRToProgramRoundtripTest, ModuleScopeVar_Private_mat2x3f_Scalars_SameValue) {
     RUN_TEST(R"(
 var<private> v : mat2x3<f32> = mat2x3<f32>(4.0f, 4.0f, 4.0f, 4.0f, 4.0f, 4.0f);
+)",
+             R"(
 var<private> v : mat2x3<f32> = mat2x3<f32>(vec3<f32>(4.0f), vec3<f32>(4.0f));
 )");
 }
@@ -2119,6 +2103,8 @@ var<private> v : mat2x3<f32> = mat2x3<f32>(vec3<f32>(4.0f), vec3<f32>(4.0f));
 TEST_F(IRToProgramRoundtripTest, ModuleScopeVar_Private_mat2x3f_Scalars) {
     RUN_TEST(R"(
 var<private> v : mat2x3<f32> = mat2x3<f32>(1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f);
+)",
+             R"(
 var<private> v : mat2x3<f32> = mat2x3<f32>(vec3<f32>(1.0f, 2.0f, 3.0f), vec3<f32>(4.0f, 5.0f, 6.0f));
 )");
 }
@@ -2133,6 +2119,8 @@ var<private> v : mat2x3<f32> = mat2x3<f32>(vec3<f32>(1.0f, 2.0f, 3.0f), vec3<f32
 TEST_F(IRToProgramRoundtripTest, ModuleScopeVar_Private_mat2x3f_Columns_SameValue) {
     RUN_TEST(R"(
 var<private> v : mat2x3<f32> = mat2x3<f32>(vec3<f32>(4.0f, 4.0f, 4.0f), vec3<f32>(4.0f, 4.0f, 4.0f));
+)",
+             R"(
 var<private> v : mat2x3<f32> = mat2x3<f32>(vec3<f32>(4.0f), vec3<f32>(4.0f));
 )");
 }
@@ -2305,6 +2293,17 @@ fn f() -> f32 {
   } else {
     return 2.0f;
   }
+}
+)",
+             R"(
+fn f() -> f32 {
+  var cond : bool = true;
+  if (cond) {
+    return 1.0f;
+  } else {
+    return 2.0f;
+  }
+  return f32();
 }
 )");
 }
@@ -2627,6 +2626,7 @@ fn f() -> i32 {
       }
     }
   }
+  return i32();
 }
 )");
 }
@@ -2753,6 +2753,44 @@ fn n() {
 fn f() {
   var i : i32 = 0i;
   for(n(); (i < 10i); i = (i + 1i)) {
+  }
+}
+)");
+}
+
+TEST_F(IRToProgramRoundtripTest, Loop_WithRequiredContinues) {
+    RUN_TEST(R"(
+var<private> v : u32;
+
+var<private> v_1 : bool;
+
+var<private> v_2 : bool;
+
+fn f() {
+  let v_3 = v_1;
+  let v_4 = v_2;
+  loop {
+    var v_5 : u32;
+    if (v_3) {
+      break;
+    } else {
+      if (v_4) {
+        v_5 = 0u;
+        continue;
+      } else {
+        v_5 = 1u;
+      }
+      if (true) {
+        v_5 = 2u;
+        continue;
+      }
+      v_5 = 3u;
+      continue;
+    }
+
+    continuing {
+      v = v_5;
+    }
   }
 }
 )");
@@ -3301,6 +3339,24 @@ fn f() -> i32 {
     }
   }
 }
+)",
+             R"(
+fn f() -> i32 {
+  var i : i32;
+  switch(i) {
+    case 0i: {
+      return i;
+    }
+    case 1i: {
+      var i_1 : i32 = (i + 1i);
+      return i_1;
+    }
+    default: {
+      return i;
+    }
+  }
+  return i32();
+}
 )");
 }
 
@@ -3320,6 +3376,24 @@ fn f() -> i32 {
       return i;
     }
   }
+}
+)",
+             R"(
+fn f() -> i32 {
+  var i : i32;
+  switch(i) {
+    case 0i: {
+      return i;
+    }
+    case 1i: {
+      let i_1 = (i + 1i);
+      return i_1;
+    }
+    default: {
+      return i;
+    }
+  }
+  return i32();
 }
 )");
 }
@@ -3397,6 +3471,202 @@ TEST_F(IRToProgramRoundtripTest, BuiltinStructInInferredArrayType) {
     RUN_TEST(R"(
 fn a(x : f32) {
   let y = array(frexp(x));
+}
+)");
+}
+
+// Test that we do not try to name the unnameable builtin structure types in nested array
+// declarations. See crbug.com/380898799.
+TEST_F(IRToProgramRoundtripTest, BuiltinStructInInferredNestedArrayType) {
+    RUN_TEST(R"(
+fn a(x : f32) {
+  let y = array(array(frexp(x)));
+}
+)");
+}
+
+// Test that we rename declarations that shadow builtin types when they are used in arrays.
+// See crbug.com/380903161.
+TEST_F(IRToProgramRoundtripTest, BuiltinTypeNameShadowedAndUsedInArray) {
+    RUN_TEST(R"(
+fn a(f32 : f32) {
+  let x = array(1.0f);
+}
+)",
+             R"(
+fn a(f32_1 : f32) {
+  let x = array<f32, 1u>(1.0f);
+}
+)");
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// chromium_experimental_subgroup_matrix
+////////////////////////////////////////////////////////////////////////////////
+TEST_F(IRToProgramRoundtripTest, SubgroupMatrixConstruct) {
+    RUN_TEST(R"(
+enable chromium_experimental_subgroup_matrix;
+
+fn f() {
+  var m = subgroup_matrix_left<f32, 8, 8>();
+}
+)",
+             R"(
+enable chromium_experimental_subgroup_matrix;
+
+fn f() {
+  var m : subgroup_matrix_left<f32, 8, 8> = subgroup_matrix_left<f32, 8, 8>();
+}
+)");
+}
+
+TEST_F(IRToProgramRoundtripTest, SubgroupMatrixLoad) {
+    RUN_TEST(R"(
+enable chromium_experimental_subgroup_matrix;
+
+@group(0u) @binding(0u) var<storage, read_write> v : array<f32, 64u>;
+
+fn f() {
+  let l = subgroupMatrixLoad<subgroup_matrix_left<f32, 4, 2>>(&(v), 0u, false, 4u);
+  let r = subgroupMatrixLoad<subgroup_matrix_right<f32, 2, 4>>(&(v), 32u, true, 8u);
+}
+)");
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// buffer_view
+////////////////////////////////////////////////////////////////////////////////
+TEST_F(IRToProgramRoundtripTest, BufferView_Storage) {
+    RUN_TEST(R"(
+@group(0u) @binding(0u) var<storage, read> v1 : buffer;
+
+@group(0u) @binding(1u) var<storage, read_write> v2 : buffer<32>;
+
+fn f() {
+  let a = bufferView<array<u32, 4u>>(&(v1), 0u);
+  let b = bufferView<f32>(&(v2), 4u);
+  let c = bufferView<vec4<f32>>(&(v1), 16u);
+  let d = bufferView<array<u32>>(&(v2), 0u);
+}
+)");
+}
+
+TEST_F(IRToProgramRoundtripTest, BufferView_Uniform) {
+    RUN_TEST(R"(
+@group(0u) @binding(0u) var<uniform> v : buffer<128>;
+
+fn foo(p : ptr<uniform, buffer>) {
+  let a = bufferView<array<u32, 4u>>(&(v), 0u);
+  let b = bufferView<f32>(p, 4u);
+  let c = bufferView<vec4<f32>>(&(v), 16u);
+  let d = bufferView<array<u32, 1u>>(p, 0u);
+}
+)");
+}
+
+TEST_F(IRToProgramRoundtripTest, BufferView_Workgroup) {
+    RUN_TEST(R"(
+var<workgroup> v : buffer<128>;
+
+fn foo(p : ptr<workgroup, buffer>) {
+  let a = bufferView<array<u32, 4u>>(&(v), 0u);
+  let b = bufferView<f32>(p, 4u);
+  let c = bufferView<vec4<f32>>(&(v), 16u);
+  let d = bufferView<array<u32, 1u>>(p, 0u);
+}
+)");
+}
+
+TEST_F(IRToProgramRoundtripTest, BufferLength_Storage) {
+    RUN_TEST(R"(
+@group(0u) @binding(0u) var<storage, read> v1 : buffer;
+
+@group(0u) @binding(1u) var<storage, read_write> v2 : buffer<32>;
+
+fn f() {
+  let a = bufferLength(&(v1));
+  let b = bufferLength(&(v2));
+  let c = bufferLength(&(v1));
+  let d = bufferLength(&(v2));
+}
+)");
+}
+
+TEST_F(IRToProgramRoundtripTest, BufferLength_Uniform) {
+    RUN_TEST(R"(
+@group(0u) @binding(0u) var<uniform> v : buffer<32>;
+
+fn foo(p : ptr<uniform, buffer>) {
+  let a = bufferLength(&(v));
+  let b = bufferLength(p);
+  let c = bufferLength(&(v));
+  let d = bufferLength(p);
+}
+)");
+}
+
+TEST_F(IRToProgramRoundtripTest, BufferLength_Workgroup) {
+    RUN_TEST(R"(
+var<workgroup> v : buffer<32>;
+
+fn foo(p : ptr<workgroup, buffer>) {
+  let a = bufferLength(&(v));
+  let b = bufferLength(p);
+  let c = bufferLength(&(v));
+  let d = bufferLength(p);
+}
+)");
+}
+
+TEST_F(IRToProgramRoundtripTest, BufferArrayView_Storage) {
+    RUN_TEST(R"(
+@group(0u) @binding(0u) var<storage, read> v1 : buffer;
+
+@group(0u) @binding(1u) var<storage, read_write> v2 : buffer<32>;
+
+struct S {
+  a : u32,
+  b : array<u32>,
+}
+
+fn f() {
+  let a = bufferArrayView<array<u32>>(&(v1), 0u, 8u);
+  let b = bufferArrayView<S>(&(v2), 4u, 8u);
+  let c = bufferArrayView<array<u32>>(&(v2), 0u, 8u);
+}
+)");
+}
+
+TEST_F(IRToProgramRoundtripTest, BufferArrayView_Uniform) {
+    RUN_TEST(R"(
+@group(0u) @binding(0u) var<uniform> v : buffer<128>;
+
+struct S {
+  a : u32,
+  b : array<u32>,
+}
+
+fn foo(p : ptr<uniform, buffer>) {
+  let a = bufferArrayView<array<u32>>(&(v), 0u, 8u);
+  let b = bufferArrayView<S>(p, 4u, 8u);
+  let c = bufferArrayView<array<u32>>(p, 0u, 8u);
+}
+)");
+}
+
+TEST_F(IRToProgramRoundtripTest, BufferArrayView_Workgroup) {
+    RUN_TEST(R"(
+var<workgroup> v : buffer<128>;
+
+struct S {
+  a : u32,
+  b : array<u32>,
+}
+
+fn foo(p : ptr<workgroup, buffer>) {
+  let a = bufferArrayView<array<u32>>(&(v), 0u, 8u);
+  let b = bufferArrayView<S>(p, 4u, 8u);
+  let c = bufferArrayView<array<u32>>(p, 0u, 8u);
 }
 )");
 }

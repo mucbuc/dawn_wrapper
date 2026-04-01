@@ -51,8 +51,8 @@ TEST_F(IR_CoreBuiltinCallTest, Result) {
     auto* builtin = b.Call(mod.Types().f32(), core::BuiltinFn::kAbs, arg1, arg2);
 
     EXPECT_EQ(builtin->Results().Length(), 1u);
-    EXPECT_TRUE(builtin->Result(0)->Is<InstructionResult>());
-    EXPECT_EQ(builtin->Result(0)->Instruction(), builtin);
+    EXPECT_TRUE(builtin->Result()->Is<InstructionResult>());
+    EXPECT_EQ(builtin->Result()->Instruction(), builtin);
 }
 
 TEST_F(IR_CoreBuiltinCallDeathTest, Fail_NullType) {
@@ -81,13 +81,13 @@ TEST_F(IR_CoreBuiltinCallTest, Clone) {
     auto* new_b = clone_ctx.Clone(builtin);
 
     EXPECT_NE(builtin, new_b);
-    EXPECT_NE(builtin->Result(0), new_b->Result(0));
-    EXPECT_EQ(mod.Types().f32(), new_b->Result(0)->Type());
+    EXPECT_NE(builtin->Result(), new_b->Result());
+    EXPECT_EQ(mod.Types().f32(), new_b->Result()->Type());
 
     EXPECT_EQ(core::BuiltinFn::kAbs, new_b->Func());
 
     auto args = new_b->Args();
-    EXPECT_EQ(2u, args.Length());
+    EXPECT_EQ(2u, args.size());
 
     auto* val0 = args[0]->As<Constant>()->Value();
     EXPECT_EQ(1_u, val0->As<core::constant::Scalar<u32>>()->ValueAs<u32>());
@@ -100,13 +100,25 @@ TEST_F(IR_CoreBuiltinCallTest, CloneNoArgs) {
     auto* builtin = b.Call(mod.Types().f32(), core::BuiltinFn::kAbs);
 
     auto* new_b = clone_ctx.Clone(builtin);
-    EXPECT_NE(builtin->Result(0), new_b->Result(0));
-    EXPECT_EQ(mod.Types().f32(), new_b->Result(0)->Type());
+    EXPECT_NE(builtin->Result(), new_b->Result());
+    EXPECT_EQ(mod.Types().f32(), new_b->Result()->Type());
 
     EXPECT_EQ(core::BuiltinFn::kAbs, new_b->Func());
 
     auto args = new_b->Args();
-    EXPECT_TRUE(args.IsEmpty());
+    EXPECT_TRUE(args.empty());
+}
+
+TEST_F(IR_CoreBuiltinCallTest, CloneWithExplicitParams) {
+    auto* builtin = b.Call(mod.Types().i32(), core::BuiltinFn::kAbs, 1_u);
+    builtin->SetExplicitTemplateParams(Vector{mod.Types().i32()});
+
+    auto* new_b = clone_ctx.Clone(builtin);
+    EXPECT_NE(builtin->Result(), new_b->Result());
+    EXPECT_EQ(mod.Types().i32(), new_b->Result()->Type());
+
+    EXPECT_EQ(core::BuiltinFn::kAbs, new_b->Func());
+    EXPECT_THAT(new_b->ExplicitTemplateParams(), testing::ElementsAre(mod.Types().i32()));
 }
 
 }  // namespace

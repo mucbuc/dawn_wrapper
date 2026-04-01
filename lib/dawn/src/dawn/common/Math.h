@@ -28,24 +28,38 @@
 #ifndef SRC_DAWN_COMMON_MATH_H_
 #define SRC_DAWN_COMMON_MATH_H_
 
+#include <climits>
+#include <concepts>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
-
 #include <limits>
 #include <optional>
-#include <type_traits>
 
 #include "dawn/common/Assert.h"
+#include "dawn/common/Platform.h"
 #include "partition_alloc/pointers/raw_ptr.h"
+
+#if DAWN_COMPILER_IS(MSVC)
+#include <intrin.h>
+#endif
 
 namespace dawn {
 
 // The following are not valid for 0
-uint32_t ScanForward(uint32_t bits);
 uint32_t Log2(uint32_t value);
 uint32_t Log2(uint64_t value);
 bool IsPowerOfTwo(uint64_t n);
+
+// Returns 2^exp for integrals
+template <std::integral T>
+T Pow2(T exp) {
+    return (T{1} << exp);
+}
+
+// Rounds n to the nearest multiple of m
+// e.g. RoundUp(7, 3) rounds 7 to 9 (3*3)
+// while RoundUp(6,3) rounds 6 to 6 (3*2).
 uint64_t RoundUp(uint64_t n, uint64_t m);
 
 constexpr uint32_t ConstexprLog2(uint64_t v) {
@@ -126,14 +140,6 @@ DAWN_FORCE_INLINE const T* AlignPtr(const T* ptr, size_t alignment) {
                                       ~(alignment - 1));
 }
 
-template <typename destType, typename sourceType>
-destType BitCast(const sourceType& source) {
-    static_assert(sizeof(destType) == sizeof(sourceType), "BitCast: cannot lose precision.");
-    destType output;
-    std::memcpy(&output, &source, sizeof(destType));
-    return output;
-}
-
 uint16_t Float32ToFloat16(float fp32);
 float Float16ToFloat32(uint16_t fp16);
 bool IsFloat16NaN(uint16_t fp16);
@@ -145,12 +151,21 @@ T FloatToUnorm(float value) {
 
 float SRGBToLinear(float srgb);
 
-template <typename T1,
-          typename T2,
-          typename Enable = typename std::enable_if<sizeof(T1) == sizeof(T2)>::type>
+template <typename T1, typename T2>
+    requires(sizeof(T1) == sizeof(T2))
 constexpr bool IsSubset(T1 subset, T2 set) {
     T2 bitsAlsoInSet = subset & set;
     return bitsAlsoInSet == subset;
+}
+
+template <typename T>
+constexpr T Max(T a, T b) {
+    return (a > b) ? a : b;
+}
+
+template <typename T, typename... Args>
+constexpr T Max(T first, Args... rest) {
+    return Max(first, Max(rest...));
 }
 
 }  // namespace dawn

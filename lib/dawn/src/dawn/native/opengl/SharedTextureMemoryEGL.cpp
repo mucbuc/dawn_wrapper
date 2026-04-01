@@ -31,6 +31,7 @@
 
 #include "dawn/native/opengl/DeviceGL.h"
 #include "dawn/native/opengl/TextureGL.h"
+#include "dawn/native/opengl/UtilsGL.h"
 
 #if DAWN_PLATFORM_IS(ANDROID)
 #include <android/hardware_buffer.h>
@@ -59,7 +60,7 @@ ResultOrError<Ref<SharedTextureMemory>> SharedTextureMemoryEGL::Create(
 
     // If the format of the AHB is unknown due to not having an equivalent wgpu::TextureFormat or
     // being an unknowable Android video format, disable all usages except sampling.
-    if (properties.format == wgpu::TextureFormat::External) {
+    if (properties.format == wgpu::TextureFormat::OpaqueYCbCrAndroid) {
         properties.usage &= wgpu::TextureUsage::TextureBinding;
     }
 
@@ -85,7 +86,7 @@ SharedTextureMemoryEGL::SharedTextureMemoryEGL(Device* device,
                                                ::EGLImage image)
     : SharedTextureMemory(device, label, properties), mEGLImage(image) {}
 
-void SharedTextureMemoryEGL::DestroyImpl() {
+void SharedTextureMemoryEGL::DestroyImpl(DestroyReason reason) {
     if (mEGLImage) {
         Device* device = ToBackend(GetDevice());
         const EGLFunctions& egl = device->GetEGL(false);
@@ -95,15 +96,12 @@ void SharedTextureMemoryEGL::DestroyImpl() {
     }
 }
 
-GLuint SharedTextureMemoryEGL::GenerateGLTexture() {
-    Device* device = ToBackend(GetDevice());
-    const OpenGLFunctions& gl = device->GetGL();
-
+ResultOrError<GLuint> SharedTextureMemoryEGL::GenerateGLTexture(const OpenGLFunctions& gl) {
     GLuint tex;
-    gl.GenTextures(1, &tex);
-    gl.BindTexture(GL_TEXTURE_2D, tex);
-    gl.EGLImageTargetTexture2DOES(GL_TEXTURE_2D, mEGLImage);
-    gl.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 0);
+    DAWN_GL_TRY(gl, GenTextures(1, &tex));
+    DAWN_GL_TRY(gl, BindTexture(GL_TEXTURE_2D, tex));
+    DAWN_GL_TRY(gl, EGLImageTargetTexture2DOES(GL_TEXTURE_2D, mEGLImage));
+    DAWN_GL_TRY(gl, TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 0));
 
     return tex;
 }

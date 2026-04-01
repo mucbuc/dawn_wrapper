@@ -27,9 +27,11 @@
 
 #include "dawn/native/DawnNative.h"
 
+#include <string>
 #include <vector>
 
 #include "dawn/common/Log.h"
+#include "dawn/native/Adapter.h"
 #include "dawn/native/BindGroupLayout.h"
 #include "dawn/native/Buffer.h"
 #include "dawn/native/Device.h"
@@ -51,6 +53,9 @@ const DawnProcTable& GetProcsAutogen();
 
 const DawnProcTable& GetProcs() {
     return GetProcsAutogen();
+}
+std::vector<const char*> GetTogglesUsed(const wgpu::Adapter& adapter) {
+    return FromAPI(adapter.Get())->GetTogglesUsed();
 }
 
 std::vector<const char*> GetTogglesUsed(WGPUDevice device) {
@@ -89,25 +94,8 @@ Adapter& Adapter::operator=(const Adapter& other) {
     return *this;
 }
 
-wgpu::Status Adapter::GetInfo(wgpu::AdapterInfo* info) const {
-    return GetInfo(reinterpret_cast<WGPUAdapterInfo*>(info));
-}
-
-wgpu::Status Adapter::GetInfo(WGPUAdapterInfo* info) const {
-    return mImpl->APIGetInfo(FromAPI(info));
-}
-
 WGPUAdapter Adapter::Get() const {
     return ToAPI(mImpl);
-}
-
-std::vector<const char*> Adapter::GetSupportedFeatures() const {
-    FeaturesSet supportedFeaturesSet = mImpl->GetSupportedFeatures();
-    return supportedFeaturesSet.GetEnabledFeatureNames();
-}
-
-wgpu::ConvertibleStatus Adapter::GetLimits(WGPUSupportedLimits* limits) const {
-    return mImpl->APIGetLimits(FromAPI(limits));
 }
 
 void Adapter::SetUseTieredLimits(bool useTieredLimits) {
@@ -128,20 +116,6 @@ WGPUDevice Adapter::CreateDevice(const wgpu::DeviceDescriptor* deviceDescriptor)
 
 WGPUDevice Adapter::CreateDevice(const WGPUDeviceDescriptor* deviceDescriptor) {
     return ToAPI(mImpl->APICreateDevice(FromAPI(deviceDescriptor)));
-}
-
-void Adapter::RequestDevice(const wgpu::DeviceDescriptor* descriptor,
-                            WGPURequestDeviceCallback callback,
-                            void* userdata) {
-    mImpl->APIRequestDevice(reinterpret_cast<const DeviceDescriptor*>(descriptor), callback,
-                            userdata);
-}
-
-void Adapter::RequestDevice(const WGPUDeviceDescriptor* descriptor,
-                            WGPURequestDeviceCallback callback,
-                            void* userdata) {
-    mImpl->APIRequestDevice(reinterpret_cast<const DeviceDescriptor*>(descriptor), callback,
-                            userdata);
 }
 
 void Adapter::ResetInternalDeviceForTesting() {
@@ -166,6 +140,11 @@ bool DawnInstanceDescriptor::operator==(const DawnInstanceDescriptor& rhs) const
 // Instance
 
 Instance::Instance(const WGPUInstanceDescriptor* desc)
+    : mImpl(APICreateInstance(reinterpret_cast<const InstanceDescriptor*>(desc))) {
+    tint::Initialize();
+}
+
+Instance::Instance(const wgpu::InstanceDescriptor* desc)
     : mImpl(APICreateInstance(reinterpret_cast<const InstanceDescriptor*>(desc))) {
     tint::Initialize();
 }
@@ -219,6 +198,10 @@ WGPUInstance Instance::Get() const {
 
 void Instance::DisconnectDawnPlatform() {
     mImpl->DisconnectDawnPlatform();
+}
+
+void Instance::SetPlatformForTesting(dawn::platform::Platform* platform) {
+    mImpl->SetPlatformForTesting(platform);
 }
 
 size_t GetLazyClearCountForTesting(WGPUDevice device) {
@@ -276,9 +259,9 @@ bool CheckIsErrorForTesting(void* objectHandle) {
     return reinterpret_cast<ErrorMonad*>(objectHandle)->IsError();
 }
 
-const char* GetObjectLabelForTesting(void* objectHandle) {
+std::string GetObjectLabelForTesting(void* objectHandle) {
     ApiObjectBase* object = reinterpret_cast<ApiObjectBase*>(objectHandle);
-    return object->GetLabel().c_str();
+    return object->GetLabel();
 }
 
 uint64_t GetAllocatedSizeForTesting(WGPUBuffer buffer) {
@@ -297,25 +280,39 @@ const FeatureInfo* GetFeatureInfo(wgpu::FeatureName feature) {
     return &kFeatureNameAndInfoList[FromAPI(feature)];
 }
 
+void MemoryDump::AddOwnerGUID(const char* name, uint64_t ownerGUID) {
+    // Provide a default empty implementation to prevent breaking existing MemoryDump
+    // implementations.
+}
+
 void DumpMemoryStatistics(WGPUDevice device, MemoryDump* dump) {
-    auto deviceLock(FromAPI(device)->GetScopedLock());
+    auto deviceGuard = FromAPI(device)->GetGuard();
     FromAPI(device)->DumpMemoryStatistics(dump);
 }
 
-uint64_t ComputeEstimatedMemoryUsage(WGPUDevice device) {
-    auto deviceLock(FromAPI(device)->GetScopedLock());
+MemoryUsageInfo ComputeEstimatedMemoryUsageInfo(WGPUDevice device) {
+    auto deviceGuard = FromAPI(device)->GetGuard();
     return FromAPI(device)->ComputeEstimatedMemoryUsage();
 }
 
-void ReduceMemoryUsage(WGPUDevice device) {
-    auto deviceLock(FromAPI(device)->GetScopedLock());
-    FromAPI(device)->ReduceMemoryUsage();
+AllocatorMemoryInfo GetAllocatorMemoryInfo(WGPUDevice device) {
+    auto deviceGuard = FromAPI(device)->GetGuard();
+    return FromAPI(device)->GetAllocatorMemoryInfo();
+}
+
+bool ReduceMemoryUsage(WGPUDevice device) {
+    auto deviceGuard = FromAPI(device)->GetGuard();
+    return FromAPI(device)->ReduceMemoryUsage();
 }
 
 void PerformIdleTasks(const wgpu::Device& device) {
     auto* deviceBase = FromAPI(device.Get());
-    auto deviceLock(deviceBase->GetScopedLock());
+    auto deviceGuard = deviceBase->GetGuard();
     deviceBase->PerformIdleTasks();
+}
+
+bool IsDeviceLost(WGPUDevice device) {
+    return FromAPI(device)->IsLost();
 }
 
 }  // namespace dawn::native

@@ -43,20 +43,20 @@ class CommandBuffer final : public CommandBufferBase {
   public:
     CommandBuffer(CommandEncoder* encoder, const CommandBufferDescriptor* descriptor);
 
-    MaybeError Execute();
+    MaybeError Execute(const OpenGLFunctions& gl);
 
   private:
-    MaybeError ExecuteComputePass();
-    MaybeError ExecuteRenderPass(BeginRenderPassCmd* renderPass);
+    MaybeError ExecuteComputePass(const OpenGLFunctions& gl);
+    MaybeError ExecuteRenderPass(BeginRenderPassCmd* renderPass, const OpenGLFunctions& gl);
 };
 
 // Like glTexSubImage*, the "data" argument is either a pointer to image data or
 // an offset if a PBO is bound.
-void DoTexSubImage(const OpenGLFunctions& gl,
-                   const TextureCopy& destination,
-                   const void* data,
-                   const TextureDataLayout& dataLayout,
-                   const Extent3D& copySize);
+MaybeError DoTexSubImage(const OpenGLFunctions& gl,
+                         const TextureCopy& destination,
+                         const void* data,
+                         const TexelCopyBufferLayout& dataLayout,
+                         const TexelExtent3D& copySize);
 }  // namespace dawn::native::opengl
 
 #endif  // SRC_DAWN_NATIVE_OPENGL_COMMANDBUFFERGL_H_

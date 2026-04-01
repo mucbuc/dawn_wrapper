@@ -28,8 +28,6 @@
 #ifndef SRC_DAWN_NATIVE_RENDERPASSENCODER_H_
 #define SRC_DAWN_NATIVE_RENDERPASSENCODER_H_
 
-#include <vector>
-
 #include "dawn/native/Error.h"
 #include "dawn/native/Forward.h"
 #include "dawn/native/RenderEncoderBase.h"
@@ -47,8 +45,7 @@ class RenderPassEncoder final : public RenderEncoderBase {
                                          EncodingContext* encodingContext,
                                          RenderPassResourceUsageTracker usageTracker,
                                          Ref<AttachmentState> attachmentState,
-                                         uint32_t renderTargetWidth,
-                                         uint32_t renderTargetHeight,
+                                         const RenderAreaRect& renderArea,
                                          bool depthReadOnly,
                                          bool stencilReadOnly,
                                          EndCallback endCallback = nullptr);
@@ -94,8 +91,7 @@ class RenderPassEncoder final : public RenderEncoderBase {
                       EncodingContext* encodingContext,
                       RenderPassResourceUsageTracker usageTracker,
                       Ref<AttachmentState> attachmentState,
-                      uint32_t renderTargetWidth,
-                      uint32_t renderTargetHeight,
+                      const RenderAreaRect& renderArea,
                       bool depthReadOnly,
                       bool stencilReadOnly,
                       EndCallback endCallback = nullptr);
@@ -106,7 +102,7 @@ class RenderPassEncoder final : public RenderEncoderBase {
                       StringView label);
 
   private:
-    void DestroyImpl() override;
+    void DestroyImpl(DestroyReason reason) override;
 
     void TrackQueryAvailability(QuerySetBase* querySet, uint32_t queryIndex);
 
@@ -114,8 +110,7 @@ class RenderPassEncoder final : public RenderEncoderBase {
     // Keep a reference to the encoder to make sure the context isn't freed.
     Ref<CommandEncoder> mCommandEncoder;
 
-    uint32_t mRenderTargetWidth;
-    uint32_t mRenderTargetHeight;
+    RenderAreaRect mRenderArea;
 
     // The resources for occlusion query
     Ref<QuerySetBase> mOcclusionQuerySet;

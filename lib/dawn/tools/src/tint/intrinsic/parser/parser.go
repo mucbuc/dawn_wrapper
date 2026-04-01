@@ -31,36 +31,40 @@ package parser
 
 import (
 	"fmt"
-	"os"
 	"strconv"
 
+	"dawn.googlesource.com/dawn/tools/src/oswrapper"
 	"dawn.googlesource.com/dawn/tools/src/tint/intrinsic/ast"
 	"dawn.googlesource.com/dawn/tools/src/tint/intrinsic/lexer"
 	"dawn.googlesource.com/dawn/tools/src/tint/intrinsic/tok"
 )
 
 // Parse produces a list of tokens for the given source code
-func Parse(source, filepath string) (*ast.AST, error) {
+func Parse(source, filepath string, fsReader oswrapper.FilesystemReader) (*ast.AST, error) {
 	out := &ast.AST{}
-	if err := parse(source, filepath, out); err != nil {
+	if err := parse(source, filepath, fsReader, out); err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func parse(source, filepath string, out *ast.AST) error {
+func parse(source, filepath string, fsReader oswrapper.FilesystemReader, out *ast.AST) error {
 	runes := []rune(source)
 	tokens, err := lexer.Lex(runes, filepath)
 	if err != nil {
 		return err
 	}
-	p := parser{tokens: tokens}
+	p := parser{
+		tokens:   tokens,
+		fsReader: fsReader,
+	}
 	return p.parse(out)
 }
 
 type parser struct {
-	tokens []tok.Token
-	err    error
+	tokens   []tok.Token
+	fsReader oswrapper.FilesystemReader
+	err      error
 }
 
 func (p *parser) parse(out *ast.AST) error {
@@ -75,13 +79,11 @@ func (p *parser) parse(out *ast.AST) error {
 		case tok.Attr:
 			attributes = append(attributes, p.attributes()...)
 		case tok.Enum:
-			if len(attributes) > 0 {
-				p.err = fmt.Errorf("%v unexpected attribute", attributes[0].Source)
-			}
 			if len(implicitParams) > 0 {
 				p.err = fmt.Errorf("%v unexpected implicitParams", implicitParams[0].Source)
 			}
-			out.Enums = append(out.Enums, p.enumDecl())
+			out.Enums = append(out.Enums, p.enumDecl(attributes))
+			attributes = nil
 		case tok.Match:
 			if len(attributes) > 0 {
 				p.err = fmt.Errorf("%v unexpected attribute", attributes[0].Source)
@@ -138,10 +140,11 @@ func (p *parser) parse(out *ast.AST) error {
 	return nil
 }
 
-func (p *parser) enumDecl() ast.EnumDecl {
+func (p *parser) enumDecl(decos ast.Attributes) ast.EnumDecl {
 	p.expect(tok.Enum, "enum declaration")
 	name := p.expect(tok.Identifier, "enum name")
-	e := ast.EnumDecl{Source: name.Source, Name: string(name.Runes)}
+	e := ast.EnumDecl{Source: name.Source, Name: string(name.Runes), Attributes: decos}
+
 	p.expect(tok.Lbrace, "enum declaration")
 	for p.err == nil && p.match(tok.Rbrace) == nil {
 		e.Entries = append(e.Entries, p.enumEntry())
@@ -179,17 +182,17 @@ func (p *parser) matcherDecl() ast.MatcherDecl {
 }
 
 func (p *parser) importDecl(out *ast.AST) {
-	p.expect(tok.Import, "import declaration")
+	t := p.expect(tok.Import, "import declaration")
 	path := p.string()
 
-	content, err := os.ReadFile(path)
+	content, err := p.fsReader.ReadFile(path)
 	if err != nil {
 		p.err = fmt.Errorf("%v failed to load '%v': %w",
-			p.tokens[0].Source, path, err)
+			t.Source, path, err)
 		return
 	}
 
-	p.err = parse(string(content), path, out)
+	p.err = parse(string(content), path, p.fsReader, out)
 }
 
 func (p *parser) typeDecl(decos ast.Attributes) ast.TypeDecl {

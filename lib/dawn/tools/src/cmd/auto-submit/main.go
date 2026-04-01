@@ -43,6 +43,7 @@ import (
 	"dawn.googlesource.com/dawn/tools/src/dawn"
 	"dawn.googlesource.com/dawn/tools/src/gerrit"
 	"dawn.googlesource.com/dawn/tools/src/git"
+	"dawn.googlesource.com/dawn/tools/src/oswrapper"
 	"go.chromium.org/luci/auth/client/authcli"
 )
 
@@ -53,16 +54,18 @@ const (
 
 var (
 	repoFlag    = flag.String("repo", "dawn", "the repo")
-	userFlag    = flag.String("user", defaultUser(), "user name / email")
+	userFlag    = flag.String("user", defaultUser(oswrapper.GetRealOSWrapper()), "user name / email")
 	verboseFlag = flag.Bool("v", false, "verbose mode")
 	dryrunFlag  = flag.Bool("dry", false, "dry mode. Don't apply any labels")
 	authFlags   = authcli.Flags{}
 )
 
-func defaultUser() string {
+// TODO(crbug.com/416755658): Add unittest coverage once exec is handled via
+// dependency injection.
+func defaultUser(osW oswrapper.OSWrapper) string {
 	if gitExe, err := exec.LookPath("git"); err == nil {
-		if g, err := git.New(gitExe); err == nil {
-			if cwd, err := os.Getwd(); err == nil {
+		if g, err := git.New(gitExe, osW); err == nil {
+			if cwd, err := osW.Getwd(); err == nil {
 				if r, err := g.Open(cwd); err == nil {
 					if cfg, err := r.Config(nil); err == nil {
 						return cfg["user.email"]
@@ -75,7 +78,7 @@ func defaultUser() string {
 }
 
 func main() {
-	authFlags.Register(flag.CommandLine, auth.DefaultAuthOptions())
+	authFlags.Register(flag.CommandLine, auth.DefaultAuthOptions(oswrapper.GetRealOSWrapper()))
 
 	flag.Usage = func() {
 		out := flag.CommandLine.Output()
@@ -95,6 +98,8 @@ The tool monitors Gerrit changes authored by the user, looking for changes that 
 	}
 }
 
+// TODO(crbug.com/460178080): Add unittest coverage after Gerrit interactions
+// support dependency injection.
 func run() error {
 	user := *userFlag
 	if user == "" {
@@ -102,12 +107,12 @@ func run() error {
 	}
 
 	ctx := context.Background()
-	auth, err := authFlags.Options()
+	options, err := authFlags.Options()
 	if err != nil {
 		return err
 	}
 
-	g, err := gerrit.New(ctx, auth, dawn.GerritURL)
+	g, err := gerrit.New(ctx, options, dawn.GerritURL)
 	if err != nil {
 		return err
 	}
@@ -131,6 +136,8 @@ type app struct {
 	user string // User account of changes to submit
 }
 
+// TODO(crbug.com/460178080): Add unittest coverage after Gerrit interactions
+// support dependency injection.
 func (a *app) submitReadyChanges() error {
 	if *verboseFlag {
 		log.Println("Scanning for changes to submit...")

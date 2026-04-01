@@ -44,17 +44,19 @@ enum class QuadAngle { Flat, TiltedX };
 
 class DepthBiasTests : public DawnTest {
   protected:
+    void SetUp() override {
+        DawnTest::SetUp();
+
+        // TODO(crbug.com/473870505): [Capture] support depth/stencil and multi-planar textures.
+        DAWN_SUPPRESS_TEST_IF(IsCaptureReplayCheckingEnabled());
+    }
+
     void RunDepthBiasTest(wgpu::TextureFormat depthFormat,
                           float depthClear,
                           QuadAngle quadAngle,
                           int32_t bias,
                           float biasSlopeScale,
                           float biasClamp) {
-        // Skip formats other than Depth24PlusStencil8 if we're specifically testing with the packed
-        // depth24_unorm_stencil8 toggle.
-        DAWN_TEST_UNSUPPORTED_IF(HasToggleEnabled("use_packed_depth24_unorm_stencil8_format") &&
-                                 depthFormat != wgpu::TextureFormat::Depth24PlusStencil8);
-
         const char* vertexSource = nullptr;
         switch (quadAngle) {
             case QuadAngle::Flat:
@@ -164,8 +166,13 @@ class DepthBiasTests : public DawnTest {
 
 // Test adding positive bias to output
 TEST_P(DepthBiasTests, PositiveBiasOnFloat) {
+    // TODO(crbug.com/40238674): Fails on Pixel 10.
+    DAWN_SUPPRESS_TEST_IF(IsImgTec());
     // NVIDIA GPUs under Vulkan seem to be using a different scale than everyone else.
     DAWN_SUPPRESS_TEST_IF(IsVulkan() && IsNvidia());
+
+    // TODO(crbug.com/444741058): Fails on Intel-based brya devices running Android Desktop.
+    DAWN_SUPPRESS_TEST_IF(IsOpenGLES() && IsIntel() && IsAndroid());
 
     // Draw quad flat on z = 0.25 with 0.25 bias
     RunDepthBiasTest(wgpu::TextureFormat::Depth32Float, 0, QuadAngle::Flat,
@@ -183,9 +190,9 @@ TEST_P(DepthBiasTests, PositiveBiasOnFloat) {
 
 // Test adding positive bias to output with a clamp
 TEST_P(DepthBiasTests, PositiveBiasOnFloatWithClamp) {
-    // Clamping support in OpenGL is spotty
-    DAWN_TEST_UNSUPPORTED_IF(IsOpenGL());
-    DAWN_TEST_UNSUPPORTED_IF(IsOpenGLES());
+    // Depth bias clamp is not supported in compat mode.
+    // https://github.com/gpuweb/gpuweb/blob/main/proposals/compatibility-mode.md#9-depth-bias-clamp-must-be-zero
+    DAWN_TEST_UNSUPPORTED_IF(IsCompatibilityMode());
 
     // Draw quad flat on z = 0.25 with 0.25 bias clamped at 0.125.
     RunDepthBiasTest(wgpu::TextureFormat::Depth32Float, 0, QuadAngle::Flat,
@@ -203,6 +210,8 @@ TEST_P(DepthBiasTests, PositiveBiasOnFloatWithClamp) {
 
 // Test adding negative bias to output
 TEST_P(DepthBiasTests, NegativeBiasOnFloat) {
+    // TODO(crbug.com/40238674): Fails on Pixel 10.
+    DAWN_SUPPRESS_TEST_IF(IsImgTec());
     // NVIDIA GPUs seems to be using a different scale than everyone else
     DAWN_SUPPRESS_TEST_IF(IsVulkan() && IsNvidia());
     // Draw quad flat on z = 0.25 with -0.25 bias, depth clear of 0.125
@@ -221,9 +230,9 @@ TEST_P(DepthBiasTests, NegativeBiasOnFloat) {
 
 // Test adding negative bias to output with a clamp
 TEST_P(DepthBiasTests, NegativeBiasOnFloatWithClamp) {
-    // Clamping support in OpenGL is spotty
-    DAWN_TEST_UNSUPPORTED_IF(IsOpenGL());
-    DAWN_TEST_UNSUPPORTED_IF(IsOpenGLES());
+    // Depth bias clamp is not supported in compat mode.
+    // https://github.com/gpuweb/gpuweb/blob/main/proposals/compatibility-mode.md#9-depth-bias-clamp-must-be-zero
+    DAWN_TEST_UNSUPPORTED_IF(IsCompatibilityMode());
 
     // Draw quad flat on z = 0.25 with -0.25 bias clamped at -0.125.
     RunDepthBiasTest(wgpu::TextureFormat::Depth32Float, 0, QuadAngle::Flat,
@@ -239,46 +248,10 @@ TEST_P(DepthBiasTests, NegativeBiasOnFloatWithClamp) {
                       wgpu::TextureAspect::DepthOnly);
 }
 
-// Test adding positive infinite slope bias to output
-TEST_P(DepthBiasTests, PositiveInfinitySlopeBiasOnFloat) {
-    // NVIDIA GPUs do not clamp values to 1 when using Inf slope bias.
-    DAWN_SUPPRESS_TEST_IF(IsVulkan() && IsNvidia());
-
-    // Draw quad with z from 0 to 0.5 with inf slope bias
-    RunDepthBiasTest(wgpu::TextureFormat::Depth32Float, 0.125, QuadAngle::TiltedX, 0,
-                     std::numeric_limits<float>::infinity(), 0);
-
-    // Value at the center of the pixel + (0.25 slope * Inf slope bias) = 1 (clamped)
-    std::vector<float> expected = {
-        1.0, 1.0,  //
-        1.0, 1.0,  //
-    };
-
-    EXPECT_TEXTURE_EQ(expected.data(), mDepthTexture, {0, 0}, {kRTSize, kRTSize}, 0,
-                      wgpu::TextureAspect::DepthOnly);
-}
-
-// Test adding positive infinite slope bias to output
-TEST_P(DepthBiasTests, NegativeInfinityBiasOnFloat) {
-    // NVIDIA GPUs do not clamp values to 0 when using -Inf slope bias.
-    DAWN_SUPPRESS_TEST_IF(IsVulkan() && IsNvidia());
-
-    // Draw quad with z from 0 to 0.5 with -inf slope bias
-    RunDepthBiasTest(wgpu::TextureFormat::Depth32Float, 0.125, QuadAngle::TiltedX, 0,
-                     -std::numeric_limits<float>::infinity(), 0);
-
-    // Value at the center of the pixel + (0.25 slope * -Inf slope bias) = 0 (clamped)
-    std::vector<float> expected = {
-        0.0, 0.0,  //
-        0.0, 0.0,  //
-    };
-
-    EXPECT_TEXTURE_EQ(expected.data(), mDepthTexture, {0, 0}, {kRTSize, kRTSize}, 0,
-                      wgpu::TextureAspect::DepthOnly);
-}
-
 // Test tiledX quad with no bias
 TEST_P(DepthBiasTests, NoBiasTiltedXOnFloat) {
+    // TODO(crbug.com/40238674): Fails on Pixel 10.
+    DAWN_SUPPRESS_TEST_IF(IsImgTec());
     // Draw quad with z from 0 to 0.5 with no bias
     RunDepthBiasTest(wgpu::TextureFormat::Depth32Float, 0, QuadAngle::TiltedX, 0, 0, 0);
 
@@ -294,6 +267,8 @@ TEST_P(DepthBiasTests, NoBiasTiltedXOnFloat) {
 
 // Test adding positive slope bias to output
 TEST_P(DepthBiasTests, PositiveSlopeBiasOnFloat) {
+    // TODO(crbug.com/40238674): Fails on Pixel 10.
+    DAWN_SUPPRESS_TEST_IF(IsImgTec());
     // Draw quad with z from 0 to 0.5 with a slope bias of 1
     RunDepthBiasTest(wgpu::TextureFormat::Depth32Float, 0, QuadAngle::TiltedX, 0, 1, 0);
 
@@ -309,6 +284,8 @@ TEST_P(DepthBiasTests, PositiveSlopeBiasOnFloat) {
 
 // Test adding negative half slope bias to output
 TEST_P(DepthBiasTests, NegativeHalfSlopeBiasOnFloat) {
+    // TODO(crbug.com/40238674): Fails on Pixel 10.
+    DAWN_SUPPRESS_TEST_IF(IsImgTec());
     // Draw quad with z from 0 to 0.5 with a slope bias of -0.5
     RunDepthBiasTest(wgpu::TextureFormat::Depth32Float, 0, QuadAngle::TiltedX, 0, -0.5, 0);
 
@@ -340,9 +317,9 @@ TEST_P(DepthBiasTests, PositiveBiasOn24bit) {
 
 // Test adding positive bias to output with a clamp
 TEST_P(DepthBiasTests, PositiveBiasOn24bitWithClamp) {
-    // Clamping support in OpenGL is spotty
-    DAWN_TEST_UNSUPPORTED_IF(IsOpenGL());
-    DAWN_TEST_UNSUPPORTED_IF(IsOpenGLES());
+    // Depth bias clamp is not supported in compat mode.
+    // https://github.com/gpuweb/gpuweb/blob/main/proposals/compatibility-mode.md#9-depth-bias-clamp-must-be-zero
+    DAWN_TEST_UNSUPPORTED_IF(IsCompatibilityMode());
 
     // Draw quad flat on z = 0.25 with 0.25 bias clamped at 0.125.
     RunDepthBiasTest(wgpu::TextureFormat::Depth24PlusStencil8, 0.4f, QuadAngle::Flat,
@@ -376,11 +353,14 @@ TEST_P(DepthBiasTests, PositiveSlopeBiasOn24bit) {
 
 DAWN_INSTANTIATE_TEST(DepthBiasTests,
                       D3D11Backend(),
+                      D3D11Backend({"use_packed_depth24_unorm_stencil8_format"}),
                       D3D12Backend(),
+                      D3D12Backend({"use_packed_depth24_unorm_stencil8_format"}),
                       MetalBackend(),
                       OpenGLBackend(),
                       OpenGLESBackend(),
-                      VulkanBackend());
+                      VulkanBackend(),
+                      WebGPUBackend());
 
 }  // anonymous namespace
 }  // namespace dawn

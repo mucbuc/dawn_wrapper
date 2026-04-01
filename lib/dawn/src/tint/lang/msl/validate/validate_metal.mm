@@ -33,29 +33,60 @@
 
 namespace tint::msl::validate {
 
-Result ValidateUsingMetal(const std::string& src, MslVersion version) {
-    Result result;
-
+Result<SuccessType> ValidateUsingMetal(const std::string& src_original, MslVersion version) {
     NSError* error = nil;
 
     id<MTLDevice> device = MTLCreateSystemDefaultDevice();
     if (!device) {
-        result.output = "MTLCreateSystemDefaultDevice returned null";
-        result.failed = true;
-        return result;
+        return Failure{"MTLCreateSystemDefaultDevice returned null"};
     }
 
-    NSString* source = [NSString stringWithCString:src.c_str() encoding:NSUTF8StringEncoding];
-
+    std::string src_modified = src_original;
     MTLCompileOptions* compileOptions = [MTLCompileOptions new];
-    compileOptions.fastMathEnabled = true;
+    if (@available(macOS 15.0, iOS 18.0, *)) {
+        // Use relaxed math where possible.
+        // See crbug.com/425650181
+        // The compileOptions.mathMode member is not present on older versions
+        // of OSX, and compilation is not protected by the @available check.
+        src_modified = std::string("\n#pragma METAL fp math_mode(relaxed)\n") + src_original;
+    } else {
+// Silence the warning that fastMathEnabled is deprecated since we cannot remove it until the
+// minimum support macOS version is macOS 15.0.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+        compileOptions.fastMathEnabled = true;
+#pragma clang diagnostic pop
+    }
+    NSString* source = [NSString stringWithCString:src_modified.c_str()
+                                          encoding:NSUTF8StringEncoding];
+
     switch (version) {
-        case MslVersion::kMsl_2_2:
-            compileOptions.languageVersion = MTLLanguageVersion2_2;
-            break;
         case MslVersion::kMsl_2_3:
             compileOptions.languageVersion = MTLLanguageVersion2_3;
             break;
+        case MslVersion::kMsl_2_4:
+#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 120000
+            if (@available(macOS 12.0, *)) {
+                compileOptions.languageVersion = MTLLanguageVersion2_4;
+                break;
+            } else
+#endif
+            {
+                return Success;
+            }
+        case MslVersion::kMsl_3_2:
+#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 150000
+            if (@available(macOS 15.0, iOS 18.0, *)) {
+                compileOptions.languageVersion = MTLLanguageVersion3_2;
+                break;
+            } else
+#endif
+            {
+                // TODO(crbug.com/434149401): Instead of silently skipping validation, it'd be nice
+                // if we could produce a warning here that the requested validation is not
+                // happening, in a way that does not break the Tint E2E tests on Dawn CQ.
+                return Success;
+            }
     }
 
     id<MTLLibrary> library = [device newLibraryWithSource:source
@@ -63,11 +94,10 @@ Result ValidateUsingMetal(const std::string& src, MslVersion version) {
                                                     error:&error];
     if (!library) {
         NSString* output = [error localizedDescription];
-        result.output = [output UTF8String];
-        result.failed = true;
+        return Failure{[output UTF8String]};
     }
 
-    return result;
+    return Success;
 }
 
 }  // namespace tint::msl::validate

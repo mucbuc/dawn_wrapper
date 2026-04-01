@@ -30,6 +30,8 @@
 
 #include <cstdint>
 
+#include "partition_alloc/pointers/raw_ptr.h"
+
 namespace dawn::native {
 
 class ResourceHeapBase;
@@ -59,6 +61,12 @@ struct AllocationInfo {
     uint64_t mBlockOffset = 0;
 
     AllocationMethod mMethod = AllocationMethod::kInvalid;
+
+    // Represents the requested memory allocation size (without padding) by the allocator.
+    uint64_t mRequestedSize = 0;
+
+    // Tracks whether the memory allocation contains VK_MEMORY_PROPERTY_LAZILY_ALLOCATED_BIT.
+    bool mIsLazyAllocated = false;
 };
 
 // Handle into a resource heap pool.
@@ -84,8 +92,10 @@ class ResourceMemoryAllocation {
   private:
     AllocationInfo mInfo;
     uint64_t mOffset;
-    ResourceHeapBase* mResourceHeap;
-    uint8_t* mMappedPointer;
+    // TODO(crbug.com/485825675): Investigate why this pointer is dangling.
+    raw_ptr<ResourceHeapBase, DanglingUntriaged> mResourceHeap;
+    // TODO(crbug.com/485825675): Investigate why this pointer is dangling.
+    raw_ptr<uint8_t, DanglingUntriaged | AllowPtrArithmetic> mMappedPointer;
 };
 }  // namespace dawn::native
 

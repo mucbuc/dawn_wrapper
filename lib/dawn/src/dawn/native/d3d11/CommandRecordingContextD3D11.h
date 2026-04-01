@@ -28,11 +28,15 @@
 #ifndef SRC_DAWN_NATIVE_D3D11_COMMANDRECORDINGCONTEXT_D3D11_H_
 #define SRC_DAWN_NATIVE_D3D11_COMMANDRECORDINGCONTEXT_D3D11_H_
 
+#include <utility>
+
 #include "absl/container/flat_hash_set.h"
 #include "absl/container/inlined_vector.h"
+#include "dawn/common/Constants.h"
 #include "dawn/common/MutexProtected.h"
 #include "dawn/common/NonCopyable.h"
 #include "dawn/common/Ref.h"
+#include "dawn/common/StackAllocated.h"
 #include "dawn/native/Error.h"
 #include "dawn/native/d3d/KeyedMutex.h"
 #include "dawn/native/d3d/d3d_platform.h"
@@ -49,30 +53,25 @@ class CommandRecordingContext;
 template <typename Ctx, typename Traits>
 class CommandRecordingContextGuard;
 
-// CommandRecordingContext::Guard is an implementation of Guard that uses two locks.
-// It uses its own lock to synchronize access within Dawn.
-// It also acquires a D3D11 lock if multithread protected mode is enabled.
-// When enabled, it synchronizes access to the D3D11 context external to Dawn.
+// Inherits dawn::detail::Guard and makes constructors public so that ScopedCommandRecordingContext
+// can move it.
 template <typename Ctx, typename Traits>
 class CommandRecordingContextGuard : public ::dawn::detail::Guard<Ctx, Traits> {
   public:
     using Base = ::dawn::detail::Guard<Ctx, Traits>;
 
+    CommandRecordingContextGuard() = default;
     CommandRecordingContextGuard(CommandRecordingContextGuard&& rhs) = default;
-    CommandRecordingContextGuard(Ctx* ctx, typename Traits::MutexType& mutex) : Base(ctx, mutex) {
-        if (this->Get() && this->Get()->mD3D11Multithread) {
-            this->Get()->mD3D11Multithread->Enter();
-        }
-    }
-    ~CommandRecordingContextGuard() {
-        if (this->Get() && this->Get()->mD3D11Multithread) {
-            this->Get()->mD3D11Multithread->Leave();
-        }
-    }
+    CommandRecordingContextGuard& operator=(CommandRecordingContextGuard&& other) = default;
+    CommandRecordingContextGuard(Ctx* ctx,
+                                 typename Traits::MutexType& mutex,
+                                 Defer* defer = nullptr)
+        : Base(ctx, mutex, defer) {}
+    CommandRecordingContextGuard(Ctx* ctx, typename Traits::LockType&& lock, Defer* defer = nullptr)
+        : Base(ctx, std::move(lock), defer) {}
 
     CommandRecordingContextGuard(const CommandRecordingContextGuard& other) = delete;
     CommandRecordingContextGuard& operator=(const CommandRecordingContextGuard& other) = delete;
-    CommandRecordingContextGuard& operator=(CommandRecordingContextGuard&& other) = delete;
 };
 
 class CommandRecordingContext {
@@ -84,8 +83,9 @@ class CommandRecordingContext {
     MaybeError Initialize(Device* device);
     void Destroy();
 
+    bool IsValid() const;
+
     static ResultOrError<Ref<BufferBase>> CreateInternalUniformBuffer(DeviceBase* device);
-    MaybeError SetInternalUniformBuffer(Ref<BufferBase> uniformBuffer);
 
     void ReleaseKeyedMutexes();
 
@@ -101,15 +101,14 @@ class CommandRecordingContext {
     bool mIsOpen = false;
     ComPtr<ID3D11Device> mD3D11Device;
     ComPtr<ID3DDeviceContextState> mD3D11DeviceContextState;
+    ComPtr<ID3D11DeviceContext3> mD3D11DeviceContext3;
     ComPtr<ID3D11DeviceContext4> mD3D11DeviceContext4;
     ComPtr<ID3D11Multithread> mD3D11Multithread;
     ComPtr<ID3DUserDefinedAnnotation> mD3DUserDefinedAnnotation;
 
-    // The maximum number of builtin elements is 4 (vec4). It must be multiple of 4.
-    static constexpr size_t kMaxNumBuiltinElements = 4;
     // The uniform buffer for built-in variables.
     Ref<GPUUsableBuffer> mUniformBuffer;
-    std::array<uint32_t, kMaxNumBuiltinElements> mUniformBufferData;
+    std::array<uint32_t, kMaxImmediateConstantsPerPipeline> mUniformBufferData{};
     bool mUniformBufferDirty = true;
 
     absl::flat_hash_set<Ref<d3d::KeyedMutex>> mAcquiredKeyedMutexes;
@@ -124,9 +123,17 @@ class CommandRecordingContext {
 };
 
 // For using ID3D11DeviceContext methods which don't change device context state.
-class ScopedCommandRecordingContext : public CommandRecordingContext::Guard {
+// This class holds two locks.
+// - It uses a Guard lock to synchronize access within Dawn.
+// - It also acquires a D3D11 lock if multithread protected mode is enabled.
+// When enabled, it synchronizes access to the D3D11 context external to Dawn.
+class ScopedCommandRecordingContext : NonCopyable {
   public:
-    explicit ScopedCommandRecordingContext(CommandRecordingContext::Guard&& guard);
+    ScopedCommandRecordingContext() = default;
+    ScopedCommandRecordingContext(CommandRecordingContext::Guard&& guard, bool lockD3D11Scope);
+    ScopedCommandRecordingContext(ScopedCommandRecordingContext&& other);
+    ScopedCommandRecordingContext& operator=(ScopedCommandRecordingContext&& other);
+    ~ScopedCommandRecordingContext();
 
     Device* GetDevice() const;
 
@@ -161,10 +168,13 @@ class ScopedCommandRecordingContext : public CommandRecordingContext::Guard {
     void Unmap(ID3D11Resource* pResource, UINT Subresource) const;
     HRESULT Signal(ID3D11Fence* pFence, UINT64 Value) const;
     HRESULT Wait(ID3D11Fence* pFence, UINT64 Value) const;
+    HRESULT GetData(ID3D11Query* pQuery, void* pResult, UINT size, UINT flags) const;
+    void End(ID3D11Query* pQuery) const;
+    void Flush() const;
     void Flush1(D3D11_CONTEXT_TYPE ContextType, HANDLE hEvent) const;
 
-    // Write the built-in variable value to the uniform buffer.
-    void WriteUniformBuffer(uint32_t offset, uint32_t element) const;
+    // Write immediate data to the uniform buffer.
+    void WriteUniformBufferRange(uint32_t offset, const void* data, size_t size) const;
     MaybeError FlushUniformBuffer() const;
 
     MaybeError AcquireKeyedMutex(Ref<d3d::KeyedMutex> keyedMutex) const;
@@ -175,22 +185,40 @@ class ScopedCommandRecordingContext : public CommandRecordingContext::Guard {
     // the end of a command buffer when it is about to be submitted.
     void AddBufferForSyncingWithCPU(GPUUsableBuffer* buffer) const;
     MaybeError FlushBuffersForSyncingWithCPU() const;
+
+    // Allow calling CommandRecordingContext's methods via -> operator.
+    CommandRecordingContext* operator->() const { return Get(); }
+
+  protected:
+    CommandRecordingContext* Get() const {
+        // Guard's Get() is not public, so use its operator* which returns CommandRecordingContext&.
+        return &(*mGuard);
+    }
+
+  private:
+    STACK_ALLOCATED_IGNORE("TODO: avoid heap allocated class containing StackAllocated members")
+    CommandRecordingContext::Guard mGuard;
+    bool mLockD3D11Scope = false;
 };
 
 // For using ID3D11DeviceContext directly. It swaps and resets ID3DDeviceContextState of
 // ID3D11DeviceContext for a scope. It is needed for sharing ID3D11Device between dawn and ANGLE.
 class ScopedSwapStateCommandRecordingContext : public ScopedCommandRecordingContext {
   public:
+    ScopedSwapStateCommandRecordingContext() = default;
     explicit ScopedSwapStateCommandRecordingContext(CommandRecordingContext::Guard&& guard);
+    ScopedSwapStateCommandRecordingContext(ScopedSwapStateCommandRecordingContext&& other);
+    ScopedSwapStateCommandRecordingContext& operator=(
+        ScopedSwapStateCommandRecordingContext&& other);
     ~ScopedSwapStateCommandRecordingContext();
 
     ID3D11Device* GetD3D11Device() const;
-    ID3D11DeviceContext4* GetD3D11DeviceContext4() const;
+    ID3D11DeviceContext3* GetD3D11DeviceContext3() const;
     ID3DUserDefinedAnnotation* GetD3DUserDefinedAnnotation() const;
-    Buffer* GetUniformBuffer() const;
+    Buffer* GetInternalUniformBuffer() const;
+    MaybeError SetInternalUniformBuffer(Ref<BufferBase> uniformBuffer);
 
   private:
-    const bool mSwapContextState;
     ComPtr<ID3DDeviceContextState> mPreviousState;
 };
 

@@ -28,12 +28,11 @@
 #ifndef SRC_TINT_LANG_GLSL_WRITER_RAISE_BINARY_POLYFILL_H_
 #define SRC_TINT_LANG_GLSL_WRITER_RAISE_BINARY_POLYFILL_H_
 
-#include "src/tint/utils/result/result.h"
+#include "src/tint/utils/result.h"
 
 // Forward declarations.
 namespace tint::core::ir {
 class Module;
-class Texture;
 }  // namespace tint::core::ir
 
 namespace tint::glsl::writer::raise {

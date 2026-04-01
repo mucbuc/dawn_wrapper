@@ -31,12 +31,9 @@
 if(NOT TINT_BUILD_AS_OTHER_OS)
   if(APPLE)  # Must come before UNIX
     set(TINT_BUILD_IS_MAC TRUE)
-    set(TINT_BUILD_IS_MAC TRUE)
   elseif(UNIX)
     set(TINT_BUILD_IS_LINUX TRUE)
-    set(TINT_BUILD_IS_LINUX TRUE)
   elseif(WIN32)
-    set(TINT_BUILD_IS_WIN TRUE)
     set(TINT_BUILD_IS_WIN TRUE)
   endif()
 endif()
@@ -58,12 +55,6 @@ if (TINT_BUILD_IR_BINARY)
   endif()
 endif()
 
-if (TINT_BUILD_IR_FUZZER AND NOT TINT_BUILD_IR_BINARY)
-  message(FATAL_ERROR "Building IR fuzzer 'TINT_BUILD_IR_FUZZER' is enabled, "
-                      "but building IR binary format 'TINT_BUILD_IR_BINARY' is "
-                      "not")
-endif()
-
 ################################################################################
 # Helper functions
 ################################################################################
@@ -74,20 +65,21 @@ function(tint_core_compile_options TARGET)
   target_compile_definitions(${TARGET} PUBLIC -DTINT_BUILD_GLSL_WRITER=$<BOOL:${TINT_BUILD_GLSL_WRITER}>)
   target_compile_definitions(${TARGET} PUBLIC -DTINT_BUILD_HLSL_WRITER=$<BOOL:${TINT_BUILD_HLSL_WRITER}>)
   target_compile_definitions(${TARGET} PUBLIC -DTINT_BUILD_IR_BINARY=$<BOOL:${TINT_BUILD_IR_BINARY}>)
-  target_compile_definitions(${TARGET} PUBLIC -DTINT_BUILD_IR_FUZZER=$<BOOL:${TINT_BUILD_IR_FUZZER}>)
   target_compile_definitions(${TARGET} PUBLIC -DTINT_BUILD_IS_LINUX=$<BOOL:${TINT_BUILD_IS_LINUX}>)
   target_compile_definitions(${TARGET} PUBLIC -DTINT_BUILD_IS_MAC=$<BOOL:${TINT_BUILD_IS_MAC}>)
   target_compile_definitions(${TARGET} PUBLIC -DTINT_BUILD_IS_WIN=$<BOOL:${TINT_BUILD_IS_WIN}>)
   target_compile_definitions(${TARGET} PUBLIC -DTINT_BUILD_MSL_WRITER=$<BOOL:${TINT_BUILD_MSL_WRITER}>)
   target_compile_definitions(${TARGET} PUBLIC -DTINT_BUILD_SPV_READER=$<BOOL:${TINT_BUILD_SPV_READER}>)
   target_compile_definitions(${TARGET} PUBLIC -DTINT_BUILD_SPV_WRITER=$<BOOL:${TINT_BUILD_SPV_WRITER}>)
-  target_compile_definitions(${TARGET} PUBLIC -DTINT_BUILD_SYNTAX_TREE_WRITER=$<BOOL:${TINT_BUILD_SYNTAX_TREE_WRITER}>)
   target_compile_definitions(${TARGET} PUBLIC -DTINT_BUILD_WGSL_READER=$<BOOL:${TINT_BUILD_WGSL_READER}>)
   target_compile_definitions(${TARGET} PUBLIC -DTINT_BUILD_WGSL_WRITER=$<BOOL:${TINT_BUILD_WGSL_WRITER}>)
+  target_compile_definitions(${TARGET} PUBLIC -DTINT_BUILD_NULL_WRITER=$<BOOL:${TINT_BUILD_NULL_WRITER}>)
   target_compile_definitions(${TARGET} PUBLIC -DTINT_BUILD_TINTD=$<BOOL:${TINT_BUILD_TINTD}>)
+  target_compile_definitions(${TARGET} PUBLIC -DTINT_ENABLE_IR_VALIDATION=$<BOOL:${TINT_ENABLE_IR_VALIDATION}>)
 
   if(TINT_BUILD_FUZZERS)
     target_compile_options(${TARGET} PRIVATE "-fsanitize=fuzzer")
+    target_compile_definitions(${TARGET} PUBLIC -DTINT_BUILD_FUZZER_VULKAN_SUPPORT=$<BOOL:${TINT_BUILD_FUZZER_VULKAN_SUPPORT}>)
   endif()
 
   common_compile_options(${TARGET})
@@ -101,7 +93,6 @@ function(tint_default_compile_options TARGET)
   set(COMMON_GNU_OPTIONS
     -Wall
     -Wextra
-    -Wno-documentation-unknown-command
     -Wno-padded
     -Wno-switch-enum
     -Wno-unknown-pragmas
@@ -113,15 +104,22 @@ function(tint_default_compile_options TARGET)
   set(COMMON_CLANG_OPTIONS
     -Wno-c++98-compat
     -Wno-c++98-compat-pedantic
+    -Wno-deprecated-copy-with-dtor
+    -Wno-documentation
+    -Wno-documentation-unknown-command
     -Wno-format-pedantic
-    -Wno-gnu-zero-variadic-macro-arguments
     -Wno-poison-system-directories
     -Wno-return-std-move-in-c++11
     -Wno-undefined-var-template
     -Wno-unknown-warning-option
-    -Wno-unsafe-buffer-usage
     -Wno-used-but-marked-unused
     -Weverything
+    -Wunsafe-buffer-usage
+    -Wno-unsafe-buffer-usage-in-libc-call
+    -Wno-covered-switch-default
+    -Wno-c2y-extensions
+    -Wno-lifetime-safety-intra-tu-suggestions
+    -Wno-lifetime-safety-cross-tu-suggestions
   )
 
   if(COMPILER_IS_GNU)
@@ -150,6 +148,7 @@ function(tint_default_compile_options TARGET)
       /bigobj
       /EHsc
       /W4
+      /wd4018 # '>=': signed/unsigned mismatch (Comes from protobuf library)
       /wd4068 # unknown pragma
       /wd4127 # conditional expression is constant
       /wd4244 # 'conversion' conversion from 'type1' to 'type2', possible loss of data
@@ -202,6 +201,10 @@ function(tint_default_compile_options TARGET)
         )
       endif()
     endif()
+  endif()
+
+  if (WIN32)
+    target_compile_definitions(${TARGET} INTERFACE "NOMINMAX")
   endif()
 
   if(TINT_RANDOMIZE_HASHES)
@@ -315,7 +318,7 @@ function(tint_fuzzer_compile_options TARGET)
 endfunction()
 
 if(TINT_ENABLE_BREAK_IN_DEBUGGER)
-  set_source_files_properties(utils/debug/debugger.cc
+  set_source_files_properties(utils/ice/debugger.cc
     PROPERTIES COMPILE_DEFINITIONS "TINT_ENABLE_BREAK_IN_DEBUGGER=1")
 endif()
 
@@ -416,6 +419,7 @@ function(tint_add_target TARGET KIND)
   elseif(${KIND} STREQUAL cmd)
     add_executable(${TARGET})
     tint_default_compile_options(${TARGET})
+    install(TARGETS "${TARGET}")
   elseif(${KIND} STREQUAL test_cmd)
     add_executable(${TARGET})
     tint_test_cmd_compile_options(${TARGET})
@@ -513,12 +517,22 @@ function(tint_target_add_external_dependencies TARGET KIND)
       target_link_libraries(${TARGET} PRIVATE
         absl::strings
       )
+
+      if(NOT MSVC)
+        target_compile_options(${TARGET} PUBLIC
+          -Wno-gcc-compat
+          -Wno-unreachable-code-break
+          -Wno-nullability-extension
+          -Wno-shadow
+        )
+      endif()
+
     elseif(${DEPENDENCY} STREQUAL "dl")
       target_link_libraries(${TARGET} PRIVATE ${CMAKE_DL_LIBS})
     elseif(${DEPENDENCY} STREQUAL "dxc-include")
       target_include_directories(${TARGET} PRIVATE "${DAWN_THIRD_PARTY_DIR}/dxc/include")
     elseif(${DEPENDENCY} STREQUAL "dxcompiler-for-fuzzer")
-      if(TINT_BUILD_FUZZERS) # TODO: and target arch is not x86
+      if(TINT_BUILD_FUZZERS AND DAWN_USE_BUILT_DXC) # TODO: and target arch is not x86
         target_link_libraries(${TARGET} PRIVATE dxcompiler)
       endif()
     elseif(${DEPENDENCY} STREQUAL "jsoncpp")
@@ -547,6 +561,11 @@ function(tint_target_add_external_dependencies TARGET KIND)
       target_link_libraries(${TARGET} PRIVATE gmock)
     elseif(${DEPENDENCY} STREQUAL "libprotobuf-mutator")
       target_link_libraries(${TARGET} PRIVATE libprotobuf-mutator)
+    elseif(${DEPENDENCY} STREQUAL "mesa")
+      if (NOT TINT_BUILD_MESA)
+        message(FATAL_ERROR "unexpected external dependency ${DEPENDENCY} w/o enabling TINT_BUILD_MESA")
+      endif()
+      add_dependencies(${TARGET} mesa)
     elseif(${DEPENDENCY} STREQUAL "metal")
       find_library(CoreGraphicsFramework CoreGraphics REQUIRED)
       find_library(FoundationFramework Foundation REQUIRED)
@@ -573,10 +592,19 @@ function(tint_target_add_external_dependencies TARGET KIND)
     elseif(${DEPENDENCY} STREQUAL "thread")
       find_package(Threads REQUIRED)
       target_link_libraries(${TARGET} PRIVATE Threads::Threads)
+    elseif(${DEPENDENCY} STREQUAL "vulkan-headers")
+      target_link_libraries(${TARGET} PRIVATE Vulkan::Headers)
+    elseif(${DEPENDENCY} STREQUAL "libvulkan")
+      if (NOT TINT_BUILD_FUZZER_VULKAN_SUPPORT)
+        message(FATAL_ERROR "unexpected external dependency ${DEPENDENCY} w/o enabling TINT_BUILD_FUZZER_VULKAN_SUPPORT")
+      endif()
+      target_link_libraries(${TARGET} PRIVATE Vulkan::Loader)
     elseif(${DEPENDENCY} STREQUAL "winsock")
       target_link_libraries(${TARGET} PRIVATE ws2_32)
     elseif(${DEPENDENCY} STREQUAL "src_utils")
       target_link_libraries(${TARGET} PRIVATE dawn_shared_utils)
+    elseif(${DEPENDENCY} STREQUAL "src_utils_chromium_test_compat")
+      target_link_libraries(${TARGET} PRIVATE dawn_shared_utils_chromium_test_compat)
     else()
       message(FATAL_ERROR "unhandled external dependency ${DEPENDENCY}")
     endif()

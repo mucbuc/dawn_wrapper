@@ -35,8 +35,6 @@
 #include "src/tint/lang/core/ir/validator.h"
 #include "src/tint/lang/core/type/manager.h"
 #include "src/tint/utils/containers/vector.h"
-#include "src/tint/utils/ice/ice.h"
-#include "src/tint/utils/result/result.h"
 
 namespace tint::hlsl::writer::raise {
 namespace {
@@ -87,7 +85,7 @@ struct State {
         auto swtch_default_block = swtch->Cases()[0].block;
         for (auto* inst = *swtch_default_block->begin(); inst;) {
             // Remember next instruction as we're about to remove the current one from its block
-            auto* next = inst->next.Get();
+            auto* next = inst->next;
             TINT_DEFER(inst = next);
             inst->Remove();
             loop->Body()->Append(inst);
@@ -100,10 +98,9 @@ struct State {
 }  // namespace
 
 Result<SuccessType> ReplaceDefaultOnlySwitch(core::ir::Module& ir) {
-    auto result = ValidateAndDumpIfNeeded(ir, "hlsl.ReplaceDefaultOnlySwitch");
-    if (result != Success) {
-        return result.Failure();
-    }
+    TINT_CHECK_RESULT(ValidateBeforeIfNeeded(
+        ir, core::ir::Capabilities{core::ir::Capability::kAllowDuplicateBindings},
+        "hlsl.ReplaceDefaultOnlySwitch"));
 
     State{ir}.Process();
 

@@ -32,9 +32,22 @@
 #include "src/tint/lang/core/type/array.h"
 #include "src/tint/lang/core/type/manager.h"
 #include "src/tint/lang/core/type/struct.h"
+#include "src/tint/lang/spirv/type/literal.h"
 #include "src/tint/lang/spirv/type/sampled_image.h"
 
 namespace tint::spirv::intrinsic {
+
+inline bool MatchLiteral(core::intrinsic::MatchState&, const core::type::Type* ty) {
+    if (ty->Is<type::Literal>()) {
+        return true;
+    }
+    return false;
+}
+
+inline const core::type::Type* BuildLiteral(core::intrinsic::MatchState& state,
+                                            const core::type::Type*) {
+    return state.types.Get<type::Literal>();
+}
 
 inline bool MatchStructWithRuntimeArray(core::intrinsic::MatchState&, const core::type::Type* ty) {
     if (auto* str = ty->As<core::type::Struct>()) {
@@ -73,6 +86,62 @@ inline const core::type::Type* BuildSampledImage(core::intrinsic::MatchState& st
                                                  const core::type::Type*,
                                                  const core::type::Type* T) {
     return state.types.Get<type::SampledImage>(T);
+}
+
+inline bool MatchImage(core::intrinsic::MatchState&,
+                       const core::type::Type* ty,
+                       const core::type::Type*& T,
+                       core::intrinsic::Number& D,
+                       core::intrinsic::Number& E,
+                       core::intrinsic::Number& R,
+                       core::intrinsic::Number& M,
+                       core::intrinsic::Number& S,
+                       core::intrinsic::Number& F,
+                       core::intrinsic::Number& A) {
+    if (ty->Is<core::intrinsic::Any>()) {
+        T = ty;
+        D = core::intrinsic::Number::any;
+        E = core::intrinsic::Number::any;
+        R = core::intrinsic::Number::any;
+        M = core::intrinsic::Number::any;
+        S = core::intrinsic::Number::any;
+        F = core::intrinsic::Number::any;
+        A = core::intrinsic::Number::any;
+        return true;
+    }
+    if (auto* v = ty->As<spirv::type::Image>()) {
+        T = v->GetSampledType();
+        D = core::intrinsic::Number(static_cast<uint32_t>(v->GetDim()));
+        E = core::intrinsic::Number(static_cast<uint32_t>(v->GetDepth()));
+        R = core::intrinsic::Number(static_cast<uint32_t>(v->GetArrayed()));
+        M = core::intrinsic::Number(static_cast<uint32_t>(v->GetMultisampled()));
+        S = core::intrinsic::Number(static_cast<uint32_t>(v->GetSampled()));
+        F = core::intrinsic::Number(static_cast<uint32_t>(v->GetTexelFormat()));
+        A = core::intrinsic::Number(static_cast<uint32_t>(v->GetAccess()));
+        return true;
+    }
+    return false;
+}
+
+inline const core::type::Type* BuildImage(core::intrinsic::MatchState& state,
+                                          const core::type::Type*,
+                                          const core::type::Type* T,
+                                          core::intrinsic::Number D,
+                                          core::intrinsic::Number E,
+                                          core::intrinsic::Number R,
+                                          core::intrinsic::Number M,
+                                          core::intrinsic::Number S,
+                                          core::intrinsic::Number F,
+                                          core::intrinsic::Number A) {
+    auto dim = static_cast<spirv::type::Dim>(D.Value());
+    auto depth = static_cast<spirv::type::Depth>(E.Value());
+    auto arrayed = static_cast<spirv::type::Arrayed>(R.Value());
+    auto ms = static_cast<spirv::type::Multisampled>(M.Value());
+    auto sampled = static_cast<spirv::type::Sampled>(S.Value());
+    auto fmt = static_cast<core::TexelFormat>(F.Value());
+    auto access = static_cast<core::Access>(A.Value());
+
+    return state.types.Get<type::Image>(T, dim, depth, arrayed, ms, sampled, fmt, access);
 }
 
 }  // namespace tint::spirv::intrinsic

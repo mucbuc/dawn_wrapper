@@ -35,9 +35,23 @@ set(protobuf_MSVC_STATIC_RUNTIME OFF CACHE BOOL "Controls whether a protobuf sta
 set(protobuf_BUILD_PROTOC_BINARIES ON CACHE BOOL "Build libprotoc and protoc compiler" FORCE)
 set(protobuf_DISABLE_RTTI ON CACHE BOOL "Remove runtime type information in the binaries" FORCE)
 
-add_subdirectory("${DAWN_PROTOBUF_DIR}/cmake")
+add_subdirectory("${DAWN_PROTOBUF_DIR}")
+target_compile_definitions(libprotobuf PUBLIC "-DPROTOBUF_ENABLE_DEBUG_LOGGING_MAY_LEAK_PII=0")
 
-target_compile_definitions(libprotobuf PUBLIC "-DGOOGLE_PROTOBUF_INTERNAL_DONATE_STEAL_INLINE=0")
+target_compile_options(libprotobuf PUBLIC -fno-exceptions)
+if (NOT DAWN_ENABLE_RTTI)
+  target_compile_options(libprotobuf PUBLIC -fno-rtti)
+endif()
+
+# Allowing usage of enable_if() and nullability extensions in abseil and avoid shadowing errors
+if (("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang") OR
+    ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "AppleClang"))
+  target_compile_options(libprotobuf PUBLIC
+          -Wno-gcc-compat
+          -Wno-unreachable-code-break
+          -Wno-nullability-extension
+          -Wno-shadow)
+endif()
 
 # A simplified version of protobuf_generate()
 function(generate_protos)
@@ -160,11 +174,17 @@ function(generate_protos)
 
     file(MAKE_DIRECTORY "${ARGS_PROTOC_OUT_DIR}/${REL_DIR}")
 
+    if(PLUGIN_OPTIONS)
+      set(lang_out_arg "--${ARGS_LANGUAGE}_out=${PLUGIN_OPTIONS}:${ARGS_PROTOC_OUT_DIR}")
+    else()
+      set(lang_out_arg "--${ARGS_LANGUAGE}_out=${ARGS_PROTOC_OUT_DIR}")
+    endif()
+
     add_custom_command(
       OUTPUT ${GENERATED_SRCS}
-      COMMAND protobuf::protoc
-      ARGS ${ARGS_PROTOC_OPTIONS} --${ARGS_LANGUAGE}_out ${_plugin_options}:${ARGS_PROTOC_OUT_DIR} ${_plugin} ${PROTOBUF_INCLUDE_PATH} ${ABS_FILE}
-      DEPENDS ${ABS_FILE} protobuf::protoc
+      COMMAND $<TARGET_FILE:protobuf::protoc>
+      ARGS ${ARGS_PROTOC_OPTIONS} ${lang_out_arg} ${_plugin} ${PROTOBUF_INCLUDE_PATH} ${ABS_FILE}
+      DEPENDS ${ABS_FILE} $<TARGET_FILE:protobuf::protoc>
       COMMENT ${COMMENT}
       VERBATIM)
   endforeach()

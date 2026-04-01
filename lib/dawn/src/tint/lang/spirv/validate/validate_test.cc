@@ -25,9 +25,9 @@
 // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#include "gmock/gmock.h"
-
 #include "src/tint/lang/spirv/validate/validate.h"
+
+#include "gmock/gmock.h"
 
 namespace tint::spirv::validate {
 namespace {
@@ -70,7 +70,7 @@ TEST(SpirvValidateTest, Invalid) {
     };
     auto res = Validate(spirv, SPV_ENV_VULKAN_1_3);
     ASSERT_NE(res, Success);
-    auto got = res.Failure().reason.Str();
+    auto got = res.Failure().reason;
     EXPECT_THAT(got, testing::HasSubstr("spirv error: SPIR-V failed validation."));
     EXPECT_THAT(got, testing::HasSubstr("error: Initializer type must match"));
 }

@@ -28,9 +28,10 @@
 #include "src/tint/lang/wgsl/reader/parser/parser.h"
 
 #include <limits>
+#include <span>
 #include <utility>
 
-#include "src/tint/lang/core/attribute.h"
+#include "src/tint/lang/core/enums.h"
 #include "src/tint/lang/core/type/depth_texture.h"
 #include "src/tint/lang/core/type/external_texture.h"
 #include "src/tint/lang/core/type/multisampled_texture.h"
@@ -50,6 +51,7 @@
 #include "src/tint/lang/wgsl/ast/loop_statement.h"
 #include "src/tint/lang/wgsl/ast/return_statement.h"
 #include "src/tint/lang/wgsl/ast/stage_attribute.h"
+#include "src/tint/lang/wgsl/ast/subgroup_size_attribute.h"
 #include "src/tint/lang/wgsl/ast/switch_statement.h"
 #include "src/tint/lang/wgsl/ast/unary_op_expression.h"
 #include "src/tint/lang/wgsl/ast/var.h"
@@ -57,6 +59,7 @@
 #include "src/tint/lang/wgsl/ast/workgroup_attribute.h"
 #include "src/tint/lang/wgsl/reader/parser/classify_template_args.h"
 #include "src/tint/lang/wgsl/reader/parser/lexer.h"
+#include "src/tint/lang/wgsl/reserved_words.h"
 #include "src/tint/utils/containers/reverse.h"
 #include "src/tint/utils/macros/defer.h"
 #include "src/tint/utils/text/string.h"
@@ -85,45 +88,6 @@ constexpr uint32_t kMaxParseDepth = 128;
 /// The maximum number of tokens to look ahead to try and sync the
 /// parser on error.
 constexpr size_t const kMaxResynchronizeLookahead = 32;
-
-// https://gpuweb.github.io/gpuweb/wgsl.html#reserved-keywords
-//
-// Must be called with an identifier token.
-bool is_reserved(const Token& t) {
-    auto s = t.to_str_view();
-    return s == "NULL" || s == "Self" || s == "abstract" || s == "active" || s == "alignas" ||
-           s == "alignof" || s == "as" || s == "asm" || s == "asm_fragment" || s == "async" ||
-           s == "attribute" || s == "auto" || s == "await" || s == "become" ||
-           s == "binding_array" || s == "cast" || s == "catch" || s == "class" || s == "co_await" ||
-           s == "co_return" || s == "co_yield" || s == "coherent" || s == "column_major" ||
-           s == "common" || s == "compile" || s == "compile_fragment" || s == "concept" ||
-           s == "const_cast" || s == "consteval" || s == "constexpr" || s == "constinit" ||
-           s == "crate" || s == "debugger" || s == "decltype" || s == "delete" || s == "demote" ||
-           s == "demote_to_helper" || s == "do" || s == "dynamic_cast" || s == "enum" ||
-           s == "explicit" || s == "export" || s == "extends" || s == "extern" || s == "external" ||
-           s == "filter" || s == "final" || s == "finally" || s == "friend" || s == "from" ||
-           s == "fxgroup" || s == "get" || s == "goto" || s == "groupshared" || s == "highp" ||
-           s == "impl" || s == "implements" || s == "import" || s == "inline" ||
-           s == "instanceof" || s == "interface" || s == "layout" || s == "lowp" || s == "macro" ||
-           s == "macro_rules" || s == "match" || s == "mediump" || s == "meta" || s == "mod" ||
-           s == "module" || s == "move" || s == "mut" || s == "mutable" || s == "namespace" ||
-           s == "new" || s == "nil" || s == "noexcept" || s == "noinline" ||
-           s == "nointerpolation" || s == "non_coherent" || s == "noncoherent" ||
-           s == "noperspective" || s == "null" || s == "nullptr" || s == "of" || s == "operator" ||
-           s == "package" || s == "packoffset" || s == "partition" || s == "pass" || s == "patch" ||
-           s == "pixelfragment" || s == "precise" || s == "precision" || s == "premerge" ||
-           s == "priv" || s == "protected" || s == "pub" || s == "public" || s == "readonly" ||
-           s == "ref" || s == "regardless" || s == "register" || s == "reinterpret_cast" ||
-           s == "require" || s == "resource" || s == "restrict" || s == "self" || s == "set" ||
-           s == "shared" || s == "sizeof" || s == "smooth" || s == "snorm" || s == "static" ||
-           s == "static_assert" || s == "static_cast" || s == "std" || s == "subroutine" ||
-           s == "super" || s == "target" || s == "template" || s == "this" || s == "thread_local" ||
-           s == "throw" || s == "trait" || s == "try" || s == "type" || s == "typedef" ||
-           s == "typeid" || s == "typename" || s == "typeof" || s == "union" || s == "unless" ||
-           s == "unorm" || s == "unsafe" || s == "unsized" || s == "use" || s == "using" ||
-           s == "varying" || s == "virtual" || s == "volatile" || s == "wgsl" || s == "where" ||
-           s == "with" || s == "writeonly" || s == "yield";
-}
 
 /// Enter-exit counters for block token types.
 /// Used by sync_to() to skip over closing block tokens that were opened during
@@ -309,15 +273,11 @@ bool Parser::peek_is(Token::Type tok, size_t idx) {
 }
 
 void Parser::split_token(Token::Type lhs, Token::Type rhs) {
-    if (DAWN_UNLIKELY(next_token_idx_ == 0)) {
-        TINT_ICE() << "attempt to update placeholder at beginning of tokens";
-    }
-    if (DAWN_UNLIKELY(next_token_idx_ >= tokens_.size())) {
-        TINT_ICE() << "attempt to update placeholder past end of tokens";
-    }
-    if (DAWN_UNLIKELY(!tokens_[next_token_idx_].IsPlaceholder())) {
-        TINT_ICE() << "attempt to update non-placeholder token";
-    }
+    TINT_ASSERT(next_token_idx_ != 0) << "attempt to update placeholder at beginning of tokens";
+    TINT_ASSERT(next_token_idx_ < tokens_.size())
+        << "attempt to update placeholder past end of tokens";
+    TINT_ASSERT(tokens_[next_token_idx_].IsPlaceholder())
+        << "attempt to update non-placeholder token";
     tokens_[next_token_idx_ - 1].SetType(lhs);
     tokens_[next_token_idx_].SetType(rhs);
 }
@@ -905,7 +865,7 @@ Maybe<ast::Type> Parser::type_specifier() {
     }
 
     if (!peek_is(Token::Type::kTemplateArgsLeft)) {
-        return builder_.ty(builder_.Ident(source(), ident.to_str()));
+        return builder_.ty.AsType(source(), ident.to_str());
     }
 
     auto args = expect_template_arg_block("type template arguments", [&] {
@@ -915,13 +875,13 @@ Maybe<ast::Type> Parser::type_specifier() {
     if (args.errored) {
         return Failure::kErrored;
     }
-    return builder_.ty(builder_.Ident(source(), ident.to_str(), std::move(args.value)));
+    return builder_.ty.AsType(source(), ident.to_str(), std::move(args.value));
 }
 
 template <typename ENUM>
 Expect<ENUM> Parser::expect_enum(std::string_view name,
                                  ENUM (*parse)(std::string_view str),
-                                 Slice<const std::string_view> strings,
+                                 std::span<const std::string_view> strings,
                                  std::string_view use) {
     auto& t = peek();
     auto ident = t.to_str();
@@ -948,17 +908,18 @@ Expect<ENUM> Parser::expect_enum(std::string_view name,
     }
     err << "\n";
 
-    if (strings == wgsl::kExtensionStrings && !HasPrefix(ident, "chromium")) {
+    if (strings.data() == std::span(wgsl::kExtensionStrings).data() &&
+        strings.size() == std::size(wgsl::kExtensionStrings) && !ident.starts_with("chromium")) {
         // Filter out 'chromium' prefixed extensions. We don't want to advertise experimental
         // extensions to end users (unless it looks like they've actually mis-typed a chromium
         // extension name)
         Vector<std::string_view, 8> filtered;
         for (auto str : strings) {
-            if (!HasPrefix(str, "chromium")) {
+            if (!str.starts_with("chromium")) {
                 filtered.Push(str);
             }
         }
-        tint::SuggestAlternatives(ident, filtered.Slice(), err);
+        tint::SuggestAlternatives(ident, filtered.AsSpan(), err);
     } else {
         tint::SuggestAlternatives(ident, strings, err);
     }
@@ -2024,6 +1985,12 @@ Maybe<const ast::BlockStatement*> Parser::continuing_compound_statement() {
         StatementList stmts;
 
         while (continue_parsing()) {
+            // Need to skip empty statements otherwise we can end up in the `statement` code below,
+            // then we skip the `;` and parse a `break-if` as a `break`.
+            while (match(Token::Type::kSemicolon)) {
+                // Skip empty statements
+            }
+
             // Note, break-if has to parse before statements because statements includes `break`
             auto break_if = break_if_statement();
             if (break_if.errored) {
@@ -2662,15 +2629,25 @@ Maybe<const ast::Expression*> Parser::unary_expression() {
     MultiTokenSource source(this);
 
     auto& t = peek();
-    if (match(Token::Type::kPlusPlus) || match(Token::Type::kMinusMinus)) {
-        AddError(source,
-                 "prefix increment and decrement operators are reserved for a "
-                 "future WGSL version");
-        return Failure::kErrored;
+
+    // Note that an valid unary Negation expression starts with MINUS can be nested by another
+    // Negation unary expression, results in the form of (--e). The two MINUS might be tokenized as
+    // a single kMinusMinus, while kMinusMinus should only be used in a variable updating statement.
+    // The token should be split and the expression should be parsed as (-(-e)).
+    // There is no unary expression (+e) so (++e) is not a valid unary expression and kPlusPlus is
+    // unexpected here. Special casing kPlusPlus to generate a more specific error message.
+    if (peek_is(Token::Type::kPlusPlus)) {
+        return AddError(peek(0).source(),
+                        "prefix increment and decrement operators are not supported");
     }
 
     core::UnaryOp op;
-    if (match(Token::Type::kMinus)) {
+    if (t.Is(Token::Type::kMinusMinus)) {
+        // Split the kMinusMinus token into two kMinus tokens.
+        next();
+        split_token(Token::Type::kMinus, Token::Type::kMinus);
+        op = core::UnaryOp::kNegation;
+    } else if (match(Token::Type::kMinus)) {
         op = core::UnaryOp::kNegation;
     } else if (match(Token::Type::kBang)) {
         op = core::UnaryOp::kNot;
@@ -2850,6 +2827,13 @@ Maybe<const ast::Statement*> Parser::variable_updating_statement() {
     // helpful than this error message:
     if (peek_is(Token::Type::kIdentifier) && peek_is(Token::Type::kColon, 1)) {
         return AddError(peek(0).source(), "expected 'var' for variable declaration");
+    }
+
+    // Prefix increment/decrement `++a`/`--a` is invalid grammar, and without
+    // special casing will return unmatched and no error message.
+    if (peek_is(Token::Type::kPlusPlus) || peek_is(Token::Type::kMinusMinus)) {
+        return AddError(peek(0).source(),
+                        "prefix increment and decrement operators are not supported");
     }
 
     Source source;
@@ -3043,6 +3027,7 @@ Maybe<const ast::Attribute*> Parser::attribute() {
 
     // builtin_attr :
     //   '@' 'builtin' '(' builtin_value_name ',' ? ')'
+    // | '@' 'builtin' '(' builtin_value_name ',' builtin_depth_mode_name ',' ? ')'
     if (attr.value == core::Attribute::kBuiltin) {
         return expect_paren_block(
             "builtin attribute", [&]() -> Expect<const ast::BuiltinAttribute*> {
@@ -3051,9 +3036,19 @@ Maybe<const ast::Attribute*> Parser::attribute() {
                 if (name.errored) {
                     return Failure::kErrored;
                 }
+                if (!match(Token::Type::kComma) || peek().Is(Token::Type::kParenRight)) {
+                    return builder_.Builtin(t.source(), name.value);
+                }
+
+                auto depth_mode_name =
+                    expect_enum("builtin depth mode name", core::ParseBuiltinDepthMode,
+                                core::kBuiltinDepthModeStrings);
+                if (depth_mode_name.errored) {
+                    return Failure::kErrored;
+                }
                 match(Token::Type::kComma);
 
-                return builder_.Builtin(t.source(), name.value);
+                return builder_.Builtin(t.source(), name.value, depth_mode_name.value);
             });
     }
 
@@ -3162,6 +3157,8 @@ Maybe<const ast::Attribute*> Parser::attribute() {
             return create<ast::WorkgroupAttribute>(t.source(), args[0],
                                                    args.Length() > 1 ? args[1] : nullptr,
                                                    args.Length() > 2 ? args[2] : nullptr);
+        case core::Attribute::kSubgroupSize:
+            return create<ast::SubgroupSizeAttribute>(t.source(), args[0]);
         default:
             return Failure::kNoMatch;
     }
@@ -3391,7 +3388,7 @@ Expect<const ast::Identifier*> Parser::expect_ident(std::string_view use,
         synchronized_ = true;
         next();
 
-        if (is_reserved(t)) {
+        if (IsReserved(t.to_str_view())) {
             return AddError(t.source(), "'" + t.to_str() + "' is a reserved keyword");
         }
 
@@ -3469,9 +3466,8 @@ T Parser::sync(Token::Type tok, F&& body) {
     auto result = body();
     --parse_depth_;
 
-    if (DAWN_UNLIKELY(sync_tokens_.back() != tok)) {
-        TINT_ICE() << "sync_tokens is out of sync";
-    }
+    TINT_ASSERT(sync_tokens_.back() == tok) << "sync_tokens is out of sync";
+
     sync_tokens_.pop_back();
 
     if (result.errored) {

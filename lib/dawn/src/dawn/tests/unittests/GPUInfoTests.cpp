@@ -32,28 +32,41 @@
 namespace dawn {
 namespace {
 
-const PCIVendorID vendorID = 0x8086;
-// Intel D3D12
-const gpu_info::DriverVersion version1 = {20, 19, 15, 5107};
-const gpu_info::DriverVersion version2 = {21, 20, 16, 5077};
-const gpu_info::DriverVersion version3 = {27, 20, 100, 9946};
-const gpu_info::DriverVersion version4 = {27, 20, 101, 2003};
+//  Intel D3D12
+const gpu_info::IntelWindowsDriverVersion version1 = {20, 19, 15, 5107};
+const gpu_info::IntelWindowsDriverVersion version2 = {21, 20, 16, 5077};
+const gpu_info::IntelWindowsDriverVersion version3 = {27, 20, 100, 9946};
+const gpu_info::IntelWindowsDriverVersion version4 = {27, 20, 101, 2003};
 // Intel Vulkan
-const gpu_info::DriverVersion version5 = {100, 9466};
-const gpu_info::DriverVersion version6 = {101, 3222};
-const gpu_info::DriverVersion version7 = {101, 3790};
+const gpu_info::IntelWindowsDriverVersion version5 = {100, 9466};
+const gpu_info::IntelWindowsDriverVersion version6 = {101, 3222};
+const gpu_info::IntelWindowsDriverVersion version7 = {101, 3790};
 
-TEST(GPUInfo, CompareWindowsDriverVersion) {
-    EXPECT_EQ(gpu_info::CompareWindowsDriverVersion(vendorID, version1, version2), -1);
-    EXPECT_EQ(gpu_info::CompareWindowsDriverVersion(vendorID, version2, version3), -1);
-    EXPECT_EQ(gpu_info::CompareWindowsDriverVersion(vendorID, version3, version4), -1);
-    EXPECT_EQ(gpu_info::CompareWindowsDriverVersion(vendorID, version5, version6), -1);
-    EXPECT_EQ(gpu_info::CompareWindowsDriverVersion(vendorID, version6, version7), -1);
+TEST(GPUInfo, CompareIntelWindowsDriverVersion) {
+    EXPECT_LT(gpu_info::IntelWindowsDriverVersion(version1), version2);
+    EXPECT_LT(gpu_info::IntelWindowsDriverVersion(version2), version3);
+    EXPECT_LT(gpu_info::IntelWindowsDriverVersion(version3), version4);
+    EXPECT_LT(gpu_info::IntelWindowsDriverVersion(version5), version6);
+    EXPECT_LT(gpu_info::IntelWindowsDriverVersion(version6), version7);
     // Windows Vulkan driver releases together with D3D12 driver, so they share the same version.
     // Expect Intel D3D12 driver and Vulkan driver to be comparable.
-    EXPECT_EQ(gpu_info::CompareWindowsDriverVersion(vendorID, version3, version6), -1);
-    EXPECT_EQ(gpu_info::CompareWindowsDriverVersion(vendorID, version4, version7), -1);
+    EXPECT_LT(gpu_info::IntelWindowsDriverVersion(version3), version6);
+    EXPECT_LT(gpu_info::IntelWindowsDriverVersion(version4), version7);
 }
 
+TEST(GPUInfo, GetGen) {
+    // Qualcomm GPUs
+    EXPECT_EQ(gpu_info::GetQualcommACPIGen(0x4D4F4351, 0x41333800),
+              gpu_info::QualcommACPIGen::Adreno6xx);
+    EXPECT_EQ(gpu_info::GetQualcommACPIGen(0x4D4F4351, 0x36334300),
+              gpu_info::QualcommACPIGen::Adreno7xx);
+    EXPECT_EQ(gpu_info::GetQualcommACPIGen(0x4D4F4351, 0x41333900),
+              gpu_info::QualcommACPIGen::Unknown);
+
+    // Intel GPUs
+    EXPECT_EQ(gpu_info::GetIntelGen(0x8086, 0x9A00), gpu_info::IntelGen::Xe);
+    EXPECT_EQ(gpu_info::GetIntelGen(0x8086, 0x7D00), gpu_info::IntelGen::Xe);
+    EXPECT_EQ(gpu_info::GetIntelGen(0x8086, 0x6400), gpu_info::IntelGen::Xe2);
+}
 }  // anonymous namespace
 }  // namespace dawn

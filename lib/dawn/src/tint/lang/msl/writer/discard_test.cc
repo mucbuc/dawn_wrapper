@@ -32,7 +32,7 @@ using namespace tint::core::number_suffixes;  // NOLINT
 namespace tint::msl::writer {
 namespace {
 
-TEST_F(MslWriterTest, Discard) {
+TEST_F(MslWriterTest, DiscardWithDemoteToHelper) {
     auto* func = b.Function("foo", ty.void_());
     b.Append(func->Block(), [&] {
         auto* if_ = b.If(true);
@@ -43,13 +43,17 @@ TEST_F(MslWriterTest, Discard) {
         b.Return(func);
     });
 
-    auto* ep = b.Function("frag_main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* ep = b.Function("entry", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(ep->Block(), [&] {
         b.Call(func);
         b.Return(ep);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.msl;
+    Options options;
+    options.extensions.disable_demote_to_helper = false;
+
+    auto result = Generate(options);
+    ASSERT_EQ(result, Success) << result.Failure() << output_.msl;
     EXPECT_EQ(output_.msl, MetalHeader() + R"(
 struct tint_module_vars_struct {
   thread bool* continue_execution;
@@ -61,13 +65,48 @@ void foo(tint_module_vars_struct tint_module_vars) {
   }
 }
 
-fragment void frag_main() {
+fragment void entry() {
   thread bool continue_execution = true;
   tint_module_vars_struct const tint_module_vars = tint_module_vars_struct{.continue_execution=(&continue_execution)};
   foo(tint_module_vars);
   if (!((*tint_module_vars.continue_execution))) {
     discard_fragment();
   }
+}
+)");
+}
+
+TEST_F(MslWriterTest, DiscardWithoutDemoteToHelper) {
+    auto* func = b.Function("foo", ty.void_());
+    b.Append(func->Block(), [&] {
+        auto* if_ = b.If(true);
+        b.Append(if_->True(), [&] {
+            b.Discard();
+            b.ExitIf(if_);
+        });
+        b.Return(func);
+    });
+
+    auto* ep = b.Function("entry", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    b.Append(ep->Block(), [&] {
+        b.Call(func);
+        b.Return(ep);
+    });
+
+    Options options;
+    options.extensions.disable_demote_to_helper = true;
+
+    auto result = Generate(options);
+    ASSERT_EQ(result, Success) << result.Failure() << output_.msl;
+    EXPECT_EQ(output_.msl, MetalHeader() + R"(
+void foo() {
+  if (true) {
+    discard_fragment();
+  }
+}
+
+fragment void entry() {
+  foo();
 }
 )");
 }

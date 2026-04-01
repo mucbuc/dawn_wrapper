@@ -76,7 +76,7 @@ struct State {
         auto functions = ir.functions;
         for (auto& func : functions) {
             // Only process entry points.
-            if (func->Stage() == Function::PipelineStage::kUndefined) {
+            if (!func->IsEntryPoint()) {
                 continue;
             }
 
@@ -87,7 +87,7 @@ struct State {
         for (auto* str : structures_to_strip) {
             for (auto* member : str->Members()) {
                 // TODO(crbug.com/tint/745): Remove the const_cast.
-                const_cast<core::type::StructMember*>(member)->SetAttributes({});
+                const_cast<core::type::StructMember*>(member)->ResetAttributes();
             }
         }
     }
@@ -106,16 +106,11 @@ struct State {
 
         // Add an output for the vertex point size if needed.
         std::optional<uint32_t> vertex_point_size_index;
-        if (ep->Stage() == Function::PipelineStage::kVertex && backend->NeedsVertexPointSize()) {
+        if (ep->IsVertex() && backend->NeedsVertexPointSize()) {
             vertex_point_size_index =
                 backend->AddOutput(ir.symbols.New("vertex_point_size"), ty.f32(),
                                    core::IOAttributes{
-                                       /* location */ std::nullopt,
-                                       /* index */ std::nullopt,
-                                       /* color */ std::nullopt,
-                                       /* builtin */ core::BuiltinValue::kPointSize,
-                                       /* interpolation */ std::nullopt,
-                                       /* invariant */ false,
+                                       .builtin = core::BuiltinValue::kPointSize,
                                    });
         }
 
@@ -127,14 +122,16 @@ struct State {
             return;
         }
 
-        // Rename the old function and remove its pipeline stage and workgroup size, as we will be
-        // wrapping it with a new entry point.
+        // Rename the old function and remove its pipeline stage, workgroup size and subgroup size,
+        // as we will be wrapping it with a new entry point.
         auto name = ir.NameOf(ep).Name();
         auto stage = ep->Stage();
         auto wgsize = ep->WorkgroupSize();
+        auto sgsize = ep->SubgroupSize();
         ir.SetName(ep, name + "_inner");
         ep->SetStage(Function::PipelineStage::kUndefined);
         ep->ClearWorkgroupSize();
+        ep->ClearSubgroupSize();
 
         // Create the entry point wrapper function.
         auto* wrapper_ep = b.Function(name, new_ret_ty);
@@ -143,15 +140,20 @@ struct State {
         if (wgsize) {
             wrapper_ep->SetWorkgroupSize((*wgsize)[0], (*wgsize)[1], (*wgsize)[2]);
         }
+        if (sgsize) {
+            wrapper_ep->SetSubgroupSize(*sgsize);
+        }
         auto wrapper = b.Append(wrapper_ep->Block());
 
         // Call the original function, passing it the inputs and capturing its return value.
         auto inner_call_args = BuildInnerCallArgs(wrapper);
         auto* inner_result = wrapper.Call(ep->ReturnType(), ep, std::move(inner_call_args));
-        SetOutputs(wrapper, inner_result->Result(0));
+        SetOutputs(wrapper, inner_result->Result());
         if (vertex_point_size_index) {
             backend->SetOutput(wrapper, vertex_point_size_index.value(), b.Constant(1_f));
         }
+
+        backend->SetBackendOutputs(wrapper, inner_result->Result());
 
         // Return the new result.
         wrapper.Return(wrapper_ep, backend->MakeReturnValue(wrapper));
@@ -164,8 +166,7 @@ struct State {
                 for (auto* member : str->Members()) {
                     auto name = str->Name().Name() + "_" + member->Name().Name();
                     auto attributes = member->Attributes();
-                    if (attributes.interpolation &&
-                        ep->Stage() != Function::PipelineStage::kFragment) {
+                    if (attributes.interpolation && !ep->IsFragment()) {
                         // Strip interpolation on non-fragment inputs
                         attributes.interpolation = {};
                     }
@@ -175,11 +176,11 @@ struct State {
             } else {
                 // Pull out the IO attributes and remove them from the parameter.
                 auto attributes = param->Attributes();
-                if (attributes.interpolation && ep->Stage() != Function::PipelineStage::kFragment) {
+                if (attributes.interpolation && !ep->IsFragment()) {
                     // Strip interpolation on non-fragment inputs
                     attributes.interpolation = {};
                 }
-                param->SetAttributes({});
+                param->ResetAttributes();
 
                 auto name = ir.NameOf(param);
                 backend->AddInput(name, param->Type(), std::move(attributes));
@@ -197,7 +198,7 @@ struct State {
             for (auto* member : str->Members()) {
                 auto name = str->Name().Name() + "_" + member->Name().Name();
                 auto attributes = member->Attributes();
-                if (attributes.interpolation && ep->Stage() != Function::PipelineStage::kVertex) {
+                if (attributes.interpolation && !ep->IsVertex()) {
                     // Strip interpolation on non-vertex outputs
                     attributes.interpolation = {};
                 }
@@ -207,7 +208,7 @@ struct State {
         } else {
             // Pull out the IO attributes and remove them from the original function.
             auto attributes = ep->ReturnAttributes();
-            if (attributes.interpolation && ep->Stage() != Function::PipelineStage::kVertex) {
+            if (attributes.interpolation && !ep->IsVertex()) {
                 // Strip interpolation on non-vertex outputs
                 attributes.interpolation = {};
             }
@@ -229,7 +230,7 @@ struct State {
                 for (uint32_t i = 0; i < str->Members().Length(); i++) {
                     construct_args.Push(backend->GetInput(builder, input_idx++));
                 }
-                args.Push(builder.Construct(param->Type(), construct_args)->Result(0));
+                args.Push(builder.Construct(param->Type(), construct_args)->Result());
             } else {
                 args.Push(backend->GetInput(builder, input_idx++));
             }
@@ -245,7 +246,7 @@ struct State {
         if (auto* str = inner_result->Type()->As<core::type::Struct>()) {
             for (auto* member : str->Members()) {
                 Value* from =
-                    builder.Access(member->Type(), inner_result, u32(member->Index()))->Result(0);
+                    builder.Access(member->Type(), inner_result, u32(member->Index()))->Result();
                 backend->SetOutput(builder, member->Index(), from);
             }
         } else if (!inner_result->Type()->Is<core::type::Void>()) {
@@ -255,6 +256,83 @@ struct State {
 };
 
 }  // namespace
+
+bool ShaderIOBackendState::HasBuiltinInput(core::BuiltinValue builtin) const {
+    return inputs.Any([builtin](auto& struct_mem_desc) {  //
+        return struct_mem_desc.attributes.builtin == builtin;
+    });
+}
+
+uint32_t ShaderIOBackendState::RequireBuiltinInput(core::BuiltinValue builtin,
+                                                   const core::type::Type* type,
+                                                   std::string_view name) {
+    for (uint32_t i = 0; i < inputs.Length(); i++) {
+        if (inputs[i].attributes.builtin == builtin) {
+            return i;
+        }
+    }
+    return AddInput(ir.symbols.New(name), type, core::IOAttributes{.builtin = builtin});
+}
+
+core::ir::Value* ShaderIOBackendState::PolyfillWorkgroupIndex(Builder& builder,
+                                                              uint32_t workgroup_id_index,
+                                                              uint32_t num_workgroups_index) {
+    if (tint_workgroup_index != nullptr) {
+        return tint_workgroup_index;
+    }
+
+    // workgroup_index = workgroup_id.x +
+    //                   (workgroup_id.y * num_workgroups.x) +
+    //                   (workgroup_id.z * num_workgroups.x * num_workgroups.y)
+    auto* workgroup_id = GetInput(builder, workgroup_id_index);
+    auto* num_workgroups = GetInput(builder, num_workgroups_index);
+
+    auto* num_workgroups_x = builder.Access(ty.u32(), num_workgroups, 0_u);
+    auto* num_workgroups_y = builder.Access(ty.u32(), num_workgroups, 1_u);
+    auto* z_part = builder.Multiply(num_workgroups_x, num_workgroups_y)->Result();
+    z_part = builder.Multiply(builder.Access(ty.u32(), workgroup_id, 2_u), z_part)->Result();
+    auto* y_part =
+        builder.Multiply(builder.Access(ty.u32(), workgroup_id, 1_u), num_workgroups_x)->Result();
+    auto* init = builder.Add(builder.Access(ty.u32(), workgroup_id, 0_u), y_part)->Result();
+    init = builder.Add(init, z_part)->Result();
+    tint_workgroup_index = init;
+    return tint_workgroup_index;
+}
+
+core::ir::Value* ShaderIOBackendState::PolyfillGlobalInvocationIndex(
+    Builder& builder,
+    uint32_t global_invocation_id_index,
+    uint32_t num_workgroups_index) {
+    if (tint_global_invocation_index) {
+        return tint_global_invocation_index;
+    }
+
+    // global_invocation_index =
+    //   global_invocation_id.x +
+    //   (global_invocation_id.y * num_workgroups.x * workgroup_size.x) +
+    //   (global_invocation_id.z * num_workgroups.x * workgroup_size.x * num_workgroups.y *
+    //   workgroup_size.y)
+    auto* num_workgroups = GetInput(builder, num_workgroups_index);
+    auto* global_id = GetInput(builder, global_invocation_id_index);
+
+    auto* global_id_x = builder.Access(ty.u32(), global_id, 0_u);
+    auto* global_id_y = builder.Access(ty.u32(), global_id, 1_u);
+    auto* global_id_z = builder.Access(ty.u32(), global_id, 2_u);
+
+    auto* num_workgroups_x = builder.Access(ty.u32(), num_workgroups, 0_u);
+    auto* num_workgroups_y = builder.Access(ty.u32(), num_workgroups, 1_u);
+
+    auto* x_size = builder.Multiply(num_workgroups_x, u32(workgroup_size->at(0)));
+    auto* y_size = builder.Multiply(num_workgroups_y, u32(workgroup_size->at(1)));
+
+    auto* z_part = builder.Multiply(x_size, y_size);
+    z_part = builder.Multiply(global_id_z, z_part);
+    auto* y_part = builder.Multiply(global_id_y, x_size);
+    auto* value = builder.Add(global_id_x, y_part);
+    value = builder.Add(value, z_part);
+    tint_global_invocation_index = value->Result();
+    return tint_global_invocation_index;
+}
 
 void RunShaderIOBase(Module& module, std::function<MakeBackendStateFunc> make_backend_state) {
     State{make_backend_state, module}.Process();

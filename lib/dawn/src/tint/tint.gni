@@ -77,6 +77,7 @@ template("tint_proto_library") {
   if (!tint_has_protobuf) {
     error("Tint needs protobuf to build a proto library")
   }
+
   proto_library(target_name) {
     forward_variables_from(invoker, "*", [ "configs" ])
     proto_in_dir = "${tint_root_dir}"
@@ -87,13 +88,11 @@ template("tint_proto_library") {
 }
 
 ###############################################################################
-# Executables - only built when tint_build_cmds is enabled
+# Executables
 ###############################################################################
-if (tint_build_cmds) {
-  template("tint_executable") {
-    executable(target_name) {
-      forward_variables_from(invoker, "*")
-    }
+template("tint_executable") {
+  executable(target_name) {
+    forward_variables_from(invoker, "*")
   }
 }
 
@@ -158,103 +157,83 @@ template("tint_benchmarks_source_set") {
 }
 
 ###############################################################################
-# Fuzzers - only built when tint_has_fuzzers is enabled
+# Fuzzers - Specific targets are guarded by if their dependencies
+#           (e.g. IR binary) are included in the build
 ###############################################################################
-if (tint_has_fuzzers) {
-  import("//testing/libfuzzer/fuzzer_test.gni")
-  fuzzer_corpus_wgsl_dir = "${root_gen_dir}/fuzzers/wgsl_corpus"
-  fuzzer_corpus_wgsl_stamp = "${fuzzer_corpus_wgsl_dir}.stamp"
-  fuzzer_corpus_ir_dir = "${root_gen_dir}/fuzzers/ir_corpus"
-  fuzzer_corpus_ir_stamp = "${fuzzer_corpus_ir_dir}.stamp"
+import("//testing/libfuzzer/fuzzer_test.gni")
+template("tint_fuzz_source_set") {
+  source_set(target_name) {
+    forward_variables_from(invoker, "*", [ "configs" ])
 
-  template("tint_fuzz_source_set") {
-    source_set(target_name) {
-      forward_variables_from(invoker, "*", [ "configs" ])
+    testonly = true
 
+    if (!defined(invoker.deps)) {
+      deps = []
+    }
+
+    if (defined(invoker.configs)) {
+      configs += invoker.configs
+    }
+
+    configs += [ "${tint_src_dir}:tint_common_config" ]
+
+    if (build_with_chromium) {
+      configs -= [ "//build/config/compiler:chromium_code" ]
+      configs += [ "//build/config/compiler:no_chromium_code" ]
+    }
+
+    if (!defined(invoker.public_configs)) {
+      public_configs = []
+    }
+
+    public_configs += [ "${tint_src_dir}:tint_public_config" ]
+  }
+}
+
+template("tint_fuzzer_test") {
+  # fuzzer_test.gni doesn't handle targets that use 'output_name' correctly.
+  # It will build an executable with the requested name, but the ClusterFuzz
+  # data files (corpus, dictionary, options, owners, runtime_deps) will all
+  # use the target name for their output file names, and these will not be
+  # used by ClusterFuzz.
+  # To work around this, if an 'output_name' is specified, pass the
+  # 'output_name' to fuzzer_test() as the target name, then make a proxy
+  # 'target_name' group that depends on the fuzzer target.
+  if (defined(invoker.output_name)) {
+    fuzzer_name = invoker.output_name
+  } else {
+    fuzzer_name = target_name
+  }
+
+  fuzzer_test(fuzzer_name) {
+    forward_variables_from(invoker, "*", [ "output_name" ])
+    exclude_main =
+        (defined(invoker.exclude_main) && invoker.exclude_main) || false
+
+    # TODO(https://crbug.com/394563978): Remove once experiment ends.
+    high_end_job_required = true
+
+    if (target_name == "wgsl") {
+      dict = "dictionary.txt"
+      libfuzzer_options = [
+        # TODO(crbug.com/tint/2223): Remove this to fuzz unicode?
+        "only_ascii=1",
+        "max_len=10000",
+      ]
+
+      # There is a nightly job that generates the corpus for each of
+      # the fuzzers and uploads them to cloud storage that
+      # ClusterFuzz uses, so there is no need for this rule to
+      # automatically generate the corpus. There are instructions in
+      # docs/tint/fuzzers.md for how to generate the corpus locally
+      # if needed.
+    }
+  }
+
+  if (fuzzer_name != target_name) {
+    group(target_name) {
       testonly = true
-
-      if (!defined(invoker.deps)) {
-        deps = []
-      }
-
-      if (defined(invoker.configs)) {
-        configs += invoker.configs
-      }
-
-      configs += [ "${tint_src_dir}:tint_common_config" ]
-
-      if (build_with_chromium) {
-        configs -= [ "//build/config/compiler:chromium_code" ]
-        configs += [ "//build/config/compiler:no_chromium_code" ]
-      }
-
-      if (!defined(invoker.public_configs)) {
-        public_configs = []
-      }
-
-      public_configs += [ "${tint_src_dir}:tint_public_config" ]
+      data_deps = [ ":${fuzzer_name}" ]
     }
-  }
-
-  template("tint_fuzzer_test") {
-    # fuzzer_test.gni doesn't handle targets that use 'output_name' correctly.
-    # It will build an executable with the requested name, but the ClusterFuzz
-    # data files (corpus, dictionary, options, owners, runtime_deps) will all
-    # use the target name for their output file names, and these will not be
-    # used by ClusterFuzz.
-    # To work around this, if an 'output_name' is specified, pass the
-    # 'output_name' to fuzzer_test() as the target name, then make a proxy
-    # 'target_name' group that depends on the fuzzer target.
-    if (defined(invoker.output_name)) {
-      fuzzer_name = invoker.output_name
-    } else {
-      fuzzer_name = target_name
-    }
-
-    fuzzer_test(fuzzer_name) {
-      forward_variables_from(invoker, "*", [ "output_name" ])
-      exclude_main = false
-
-      if (target_name == "wgsl") {
-        dict = "dictionary.txt"
-        libfuzzer_options = [
-          # TODO(crbug.com/tint/2223): Remove this to fuzz unicode?
-          "only_ascii=1",
-          "max_len=10000",
-        ]
-        seed_corpus = fuzzer_corpus_wgsl_dir
-        seed_corpus_deps = [ "${tint_src_dir}:tint_generate_wgsl_corpus" ]
-      } else if (target_name == "ir") {
-        # The IR corpus takes a long time to generate and may not
-        # actually be correctly formatted (crbug.com/345377541 &
-        # crbug.com/343218481).
-        # Disabling generating it by default until these issues
-        # are resolved.
-        # The corpus can still be generated by explicitly
-        # invoking tint_generate_ir_corpus
-        #
-        # seed_corpus = fuzzer_corpus_ir_dir
-        # seed_corpus_deps = [ "${tint_src_dir}:tint_generate_ir_corpus" ]
-        #
-      } else {
-        assert(false, "unsupported tint fuzzer target")
-      }
-    }
-
-    if (fuzzer_name != target_name) {
-      group(target_name) {
-        testonly = true
-        deps = [ ":${fuzzer_name}" ]
-      }
-    }
-  }
-} else {
-  template("tint_fuzz_source_set") {
-    not_needed(invoker, "*")
-    not_needed("*")
-  }
-  template("tint_fuzzer_test") {
-    not_needed(invoker, "*")
-    not_needed("*")
   }
 }

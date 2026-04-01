@@ -25,6 +25,11 @@
 // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/439062058): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #ifndef SRC_DAWN_COMMON_SERIALSTORAGE_H_
 #define SRC_DAWN_COMMON_SERIALSTORAGE_H_
 
@@ -54,8 +59,7 @@ class SerialStorage {
         explicit Iterator(StorageIterator start);
         Iterator& operator++();
 
-        bool operator==(const Iterator& other) const;
-        bool operator!=(const Iterator& other) const;
+        bool operator==(const Iterator& other) const = default;
         Value& operator*() const;
 
       private:
@@ -71,8 +75,7 @@ class SerialStorage {
         explicit ConstIterator(ConstStorageIterator start);
         ConstIterator& operator++();
 
-        bool operator==(const ConstIterator& other) const;
-        bool operator!=(const ConstIterator& other) const;
+        bool operator==(const ConstIterator& other) const = default;
         const Value& operator*() const;
 
       private:
@@ -246,18 +249,6 @@ typename SerialStorage<Derived>::Iterator& SerialStorage<Derived>::Iterator::ope
 }
 
 template <typename Derived>
-bool SerialStorage<Derived>::Iterator::operator==(
-    const typename SerialStorage<Derived>::Iterator& other) const {
-    return other.mStorageIterator == mStorageIterator && other.mSerialIterator == mSerialIterator;
-}
-
-template <typename Derived>
-bool SerialStorage<Derived>::Iterator::operator!=(
-    const typename SerialStorage<Derived>::Iterator& other) const {
-    return !(*this == other);
-}
-
-template <typename Derived>
 typename SerialStorage<Derived>::Value& SerialStorage<Derived>::Iterator::operator*() const {
     if (mSerialIterator == nullptr) {
         return *mStorageIterator->second.begin();
@@ -276,12 +267,12 @@ SerialStorage<Derived>::ConstBeginEnd::ConstBeginEnd(
 template <typename Derived>
 typename SerialStorage<Derived>::ConstIterator SerialStorage<Derived>::ConstBeginEnd::begin()
     const {
-    return {mStartIt};
+    return SerialStorage::ConstIterator(mStartIt);
 }
 
 template <typename Derived>
 typename SerialStorage<Derived>::ConstIterator SerialStorage<Derived>::ConstBeginEnd::end() const {
-    return {mEndIt};
+    return SerialStorage::ConstIterator(mEndIt);
 }
 
 // SerialStorage::ConstIterator
@@ -308,18 +299,6 @@ SerialStorage<Derived>::ConstIterator::operator++() {
     }
 
     return *this;
-}
-
-template <typename Derived>
-bool SerialStorage<Derived>::ConstIterator::operator==(
-    const typename SerialStorage<Derived>::ConstIterator& other) const {
-    return other.mStorageIterator == mStorageIterator && other.mSerialIterator == mSerialIterator;
-}
-
-template <typename Derived>
-bool SerialStorage<Derived>::ConstIterator::operator!=(
-    const typename SerialStorage<Derived>::ConstIterator& other) const {
-    return !(*this == other);
 }
 
 template <typename Derived>

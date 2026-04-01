@@ -87,7 +87,9 @@ TEST_F(DeviceInitializationTest, DeviceOutlivesInstance) {
     std::vector<wgpu::AdapterInfo> availableAdapterInfo;
     {
         auto instance = std::make_unique<native::Instance>();
-        for (const native::Adapter& adapter : instance->EnumerateAdapters()) {
+        // TODO(347047627): Use a webgpu.h version of enumerateAdapters
+        for (const native::Adapter& nativeAdapter : instance->EnumerateAdapters()) {
+            wgpu::Adapter adapter = wgpu::Adapter(nativeAdapter.Get());
             wgpu::AdapterInfo info;
             adapter.GetInfo(&info);
 
@@ -103,7 +105,9 @@ TEST_F(DeviceInitializationTest, DeviceOutlivesInstance) {
         wgpu::Device device;
 
         auto instance = std::make_unique<native::Instance>();
-        for (native::Adapter& adapter : instance->EnumerateAdapters()) {
+        // TODO(347047627): Use a webgpu.h version of enumerateAdapters
+        for (native::Adapter& nativeAdapter : instance->EnumerateAdapters()) {
+            wgpu::Adapter adapter = wgpu::Adapter(nativeAdapter.Get());
             wgpu::AdapterInfo info;
             adapter.GetInfo(&info);
 
@@ -111,7 +115,7 @@ TEST_F(DeviceInitializationTest, DeviceOutlivesInstance) {
                 info.adapterType == desiredInfo.adapterType &&
                 info.backendType == desiredInfo.backendType) {
                 // Create the device, destroy the instance, and break out of the loop.
-                device = wgpu::Device::Acquire(adapter.CreateDevice());
+                device = wgpu::Device::Acquire(nativeAdapter.CreateDevice());
                 instance.reset();
                 break;
             }
@@ -131,13 +135,24 @@ TEST_F(DeviceInitializationTest, AdapterOutlivesInstance) {
     std::vector<wgpu::AdapterInfo> availableAdapterInfo;
     {
         auto instance = std::make_unique<native::Instance>();
-        for (const native::Adapter& adapter : instance->EnumerateAdapters()) {
+        // TODO(347047627): Use a webgpu.h version of enumerateAdapters
+        for (const native::Adapter& nativeAdapter : instance->EnumerateAdapters()) {
+            wgpu::Adapter adapter = wgpu::Adapter(nativeAdapter.Get());
             wgpu::AdapterInfo info;
             adapter.GetInfo(&info);
 
             if (info.backendType == wgpu::BackendType::Null) {
                 continue;
             }
+
+            // TODO(crbug.com/472472701): Flakily kills test process when run with
+            // software backends and MSVC-compiled binaries.
+#if DAWN_COMPILER_IS(MSVC)
+            if (info.adapterType == wgpu::AdapterType::CPU) {
+                DAWN_SUPPRESS_TEST_IF(true);
+            }
+#endif  // DAWN_COMPILER_IS(MSVC)
+
             availableAdapterInfo.push_back(std::move(info));
         }
     }
@@ -146,9 +161,10 @@ TEST_F(DeviceInitializationTest, AdapterOutlivesInstance) {
         wgpu::Adapter adapter;
 
         auto instance = std::make_unique<native::Instance>();
+        // TODO(347047627): Use a webgpu.h version of enumerateAdapters
         for (native::Adapter& nativeAdapter : instance->EnumerateAdapters()) {
             wgpu::AdapterInfo info;
-            nativeAdapter.GetInfo(&info);
+            wgpu::Adapter(nativeAdapter.Get()).GetInfo(&info);
 
             if (info.deviceID == desiredInfo.deviceID && info.vendorID == desiredInfo.vendorID &&
                 info.adapterType == desiredInfo.adapterType &&

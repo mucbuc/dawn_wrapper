@@ -53,7 +53,7 @@ struct surface_wrapper::pimpl {
 
     void setup(std::string selector, unsigned width, unsigned height)
     {
-        SurfaceDescriptorFromCanvasHTMLSelector canvasDesc {};
+        EmscriptenSurfaceSourceCanvasHTMLSelector canvasDesc {};
         canvasDesc.selector = selector.c_str();
 
         SurfaceDescriptor surfaceDesc { .nextInChain = &canvasDesc };
@@ -72,7 +72,7 @@ struct surface_wrapper::pimpl {
     {
         SurfaceTexture st;
         m_surface.GetCurrentTexture(&st);
-        ASSERT(!st.suboptimal); 
+        ASSERT(st.status == SurfaceGetCurrentTextureStatus::SuccessOptimal);
         return st.texture.CreateView();
     }
 

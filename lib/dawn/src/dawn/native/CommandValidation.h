@@ -32,6 +32,8 @@
 
 #include "absl/container/inlined_vector.h"
 #include "dawn/common/Constants.h"
+#include "dawn/common/Numeric.h"
+#include "dawn/native/BlockInfo.h"
 #include "dawn/native/CommandAllocator.h"
 #include "dawn/native/Error.h"
 #include "dawn/native/Features.h"
@@ -54,9 +56,7 @@ MaybeError ValidateTimestampQuery(const DeviceBase* device,
                                   Feature requiredFeature = Feature::TimestampQuery);
 
 MaybeError ValidatePassTimestampWrites(const DeviceBase* device,
-                                       const QuerySetBase* querySet,
-                                       uint32_t beginningOfPassWriteIndex,
-                                       uint32_t endOfPassWriteIndex);
+                                       const PassTimestampWrites* timestampWrites);
 
 MaybeError ValidateWriteBuffer(const DeviceBase* device,
                                const BufferBase* buffer,
@@ -70,44 +70,62 @@ DAWN_FORCE_INLINE uint64_t Safe32x32(A a, B b) {
     return uint64_t(a) * uint64_t(b);
 }
 
+// Overload to be used before/during validation. Handles bytesPerRow and rowPerImage being
+// wgpu::kCopyStrideUndefined.
 ResultOrError<uint64_t> ComputeRequiredBytesInCopy(const TexelBlockInfo& blockInfo,
                                                    const Extent3D& copySize,
                                                    uint32_t bytesPerRow,
                                                    uint32_t rowsPerImage);
+// Overload to be used post validation, e.g. after ValidateLinearTextureData.
+// Inputs are expected to have defined values, e.g. after ApplyDefaultTexelCopyBufferLayoutOptions.
+uint64_t ComputeRequiredBytesInCopy(const TypedTexelBlockInfo& blockInfo,
+                                    const BlockExtent3D& copySize,
+                                    BlockCount blocksPerRow,
+                                    BlockCount rowsPerImage);
 
-void ApplyDefaultTextureDataLayoutOptions(TextureDataLayout* layout,
-                                          const TexelBlockInfo& blockInfo,
-                                          const Extent3D& copyExtent);
-MaybeError ValidateLinearTextureData(const TextureDataLayout& layout,
+void ApplyDefaultTexelCopyBufferLayoutOptions(TexelCopyBufferLayout* layout,
+                                              const TexelBlockInfo& blockInfo,
+                                              const Extent3D& copyExtent);
+MaybeError ValidateLinearTextureData(const TexelCopyBufferLayout& layout,
                                      uint64_t byteSize,
                                      const TexelBlockInfo& blockInfo,
                                      const Extent3D& copyExtent);
 MaybeError ValidateTextureCopyRange(DeviceBase const* device,
-                                    const ImageCopyTexture& imageCopyTexture,
+                                    const TexelCopyTextureInfo& TexelCopyTextureInfo,
                                     const Extent3D& copySize);
-ResultOrError<Aspect> SingleAspectUsedByImageCopyTexture(const ImageCopyTexture& view);
-MaybeError ValidateLinearToDepthStencilCopyRestrictions(const ImageCopyTexture& dst);
+ResultOrError<Aspect> SingleAspectUsedByTexelCopyTextureInfo(const TexelCopyTextureInfo& view);
+MaybeError ValidateLinearToDepthStencilCopyRestrictions(const TexelCopyTextureInfo& dst);
 
-MaybeError ValidateImageCopyBuffer(DeviceBase const* device,
-                                   const ImageCopyBuffer& imageCopyBuffer);
-MaybeError ValidateImageCopyTexture(DeviceBase const* device,
-                                    const ImageCopyTexture& imageCopyTexture,
-                                    const Extent3D& copySize);
+MaybeError ValidateTexelCopyBufferInfo(DeviceBase const* device,
+                                       const TexelCopyBufferInfo& texelCopyBufferInfo);
+MaybeError ValidateTexelCopyTextureInfo(DeviceBase const* device,
+                                        const TexelCopyTextureInfo& TexelCopyTextureInfo,
+                                        const Extent3D& copySize);
 
 MaybeError ValidateCopySizeFitsInBuffer(const Ref<BufferBase>& buffer,
                                         uint64_t offset,
                                         uint64_t size,
                                         BufferSizeType checkBufferSizeType = BufferSizeType::Size);
 
-bool IsRangeOverlapped(uint32_t startA, uint32_t startB, uint32_t length);
+// Returns true if [startA, startA + length[ overlaps [startB, startB + length[
+template <typename T>
+bool IsRangeOverlapped(T startA, T startB, T length) {
+    if (length < T{1}) {
+        return false;
+    }
+    return RangesOverlap(static_cast<uint64_t>(startA),
+                         static_cast<uint64_t>(startA) + static_cast<uint64_t>(length) - 1,
+                         static_cast<uint64_t>(startB),
+                         static_cast<uint64_t>(startB) + static_cast<uint64_t>(length) - 1);
+}
 
 MaybeError ValidateTextureToTextureCopyCommonRestrictions(DeviceBase const* device,
-                                                          const ImageCopyTexture& src,
-                                                          const ImageCopyTexture& dst,
+                                                          const TexelCopyTextureInfo& src,
+                                                          const TexelCopyTextureInfo& dst,
                                                           const Extent3D& copySize);
 MaybeError ValidateTextureToTextureCopyRestrictions(DeviceBase const* device,
-                                                    const ImageCopyTexture& src,
-                                                    const ImageCopyTexture& dst,
+                                                    const TexelCopyTextureInfo& src,
+                                                    const TexelCopyTextureInfo& dst,
                                                     const Extent3D& copySize);
 
 MaybeError ValidateCanUseAs(const TextureBase* textureView,

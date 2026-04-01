@@ -29,7 +29,7 @@
 #define SRC_TINT_LANG_CORE_IR_TRANSFORM_REMOVE_TERMINATOR_ARGS_H_
 
 #include "src/tint/lang/core/ir/validator.h"
-#include "src/tint/utils/result/result.h"
+#include "src/tint/utils/result.h"
 
 // Forward declarations.
 namespace tint::core::ir {
@@ -41,10 +41,20 @@ namespace tint::core::ir::transform {
 /// The capabilities that the transform can support.
 const core::ir::Capabilities kRemoveTerminatorArgsCapabilities{
     core::ir::Capability::kAllow8BitIntegers,
-    core::ir::Capability::kAllowPointersInStructures,
+    core::ir::Capability::kAllow16BitIntegers,
+    core::ir::Capability::kAllow64BitIntegers,
+    core::ir::Capability::kAllowMultipleEntryPoints,
+    core::ir::Capability::kAllowOverrides,
+    core::ir::Capability::kAllowPointSizeBuiltin,
     core::ir::Capability::kAllowVectorElementPointer,
     core::ir::Capability::kAllowHandleVarsWithoutBindings,
-    core::ir::Capability::kAllowClipDistancesOnF32,
+    core::ir::Capability::kAllowClipDistancesOnF32ScalarAndVector,
+    core::ir::Capability::kAllowAnyLetType,
+    core::ir::Capability::kAllowModuleScopeLets,
+    core::ir::Capability::kMslAllowEntryPointInterface,
+    core::ir::Capability::kAllowDuplicateBindings,
+    core::ir::Capability::kAllowNonCoreTypes,
+    core::ir::Capability::kLoosenValidationForShaderIO,
 };
 
 /// RemoveTerminatorArgs is a transform that removes all arguments from terminator instructions and

@@ -25,15 +25,14 @@
 // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#include "src/tint/lang/core/builtin_value.h"
+#include "gmock/gmock.h"
+#include "src/tint/lang/core/enums.h"
 #include "src/tint/lang/wgsl/ast/builtin_attribute.h"
 #include "src/tint/lang/wgsl/ast/location_attribute.h"
 #include "src/tint/lang/wgsl/ast/return_statement.h"
 #include "src/tint/lang/wgsl/ast/stage_attribute.h"
 #include "src/tint/lang/wgsl/resolver/resolver.h"
 #include "src/tint/lang/wgsl/resolver/resolver_helper_test.h"
-
-#include "gmock/gmock.h"
 
 namespace tint::resolver {
 namespace {
@@ -445,41 +444,31 @@ TEST_F(ResolverEntryPointValidationTest, VertexShaderMustReturnPosition) {
               "in its return type");
 }
 
-TEST_F(ResolverEntryPointValidationTest, PushConstantAllowedWithEnable) {
-    // enable chromium_experimental_push_constant;
-    // var<push_constant> a : u32;
-    Enable(wgsl::Extension::kChromiumExperimentalPushConstant);
-    GlobalVar("a", ty.u32(), core::AddressSpace::kPushConstant);
+TEST_F(ResolverEntryPointValidationTest, ImmediateAllowedWithFeatureEnabled) {
+    // var<immediate> a : u32;
+    GlobalVar("a", ty.u32(), core::AddressSpace::kImmediate);
 
     EXPECT_TRUE(r()->Resolve());
 }
 
-TEST_F(ResolverEntryPointValidationTest, PushConstantDisallowedWithoutEnable) {
-    // var<push_constant> a : u32;
-    GlobalVar(Source{{1, 2}}, "a", ty.u32(), core::AddressSpace::kPushConstant);
+TEST_F(ResolverEntryPointValidationTest, ImmediateDisallowedWithFeatureDisabled) {
+    // var<immediate> a : u32;
+    GlobalVar(Source{{1, 2}}, "a", ty.u32(), core::AddressSpace::kImmediate);
 
-    EXPECT_FALSE(r()->Resolve());
-    EXPECT_EQ(r()->error(),
-              "1:2 error: use of variable address space 'push_constant' requires enabling "
-              "extension 'chromium_experimental_push_constant'");
+    auto resolver = Resolver{this, wgsl::AllowedFeatures{}};
+    EXPECT_FALSE(resolver.Resolve());
+    EXPECT_EQ(
+        resolver.error(),
+        "1:2 error: use of variable address space 'immediate' requires the immediate_address_space "
+        "language feature, which is not allowed in the current environment");
 }
 
-TEST_F(ResolverEntryPointValidationTest, PushConstantAllowedWithIgnoreAddressSpaceAttribute) {
-    // var<push_constant> a : u32; // With ast::DisabledValidation::kIgnoreAddressSpace
-    GlobalVar("a", ty.u32(), core::AddressSpace::kPushConstant,
-              Vector{Disable(ast::DisabledValidation::kIgnoreAddressSpace)});
-
-    EXPECT_TRUE(r()->Resolve());
-}
-
-TEST_F(ResolverEntryPointValidationTest, PushConstantOneVariableUsedInEntryPoint) {
-    // enable chromium_experimental_push_constant;
-    // var<push_constant> a : u32;
+TEST_F(ResolverEntryPointValidationTest, ImmediateOneVariableUsedInEntryPoint) {
+    // var<immediate> a : u32;
     // @compute @workgroup_size(1) fn main() {
     //   _ = a;
     // }
-    Enable(wgsl::Extension::kChromiumExperimentalPushConstant);
-    GlobalVar("a", ty.u32(), core::AddressSpace::kPushConstant);
+    GlobalVar("a", ty.u32(), core::AddressSpace::kImmediate);
 
     Func("main", {}, ty.void_(), Vector{Assign(Phony(), "a")},
          Vector{Stage(ast::PipelineStage::kCompute), WorkgroupSize(1_a)});
@@ -487,33 +476,29 @@ TEST_F(ResolverEntryPointValidationTest, PushConstantOneVariableUsedInEntryPoint
     EXPECT_TRUE(r()->Resolve());
 }
 
-TEST_F(ResolverEntryPointValidationTest, PushConstantTwoVariablesUsedInEntryPoint) {
-    // enable chromium_experimental_push_constant;
-    // var<push_constant> a : u32;
-    // var<push_constant> b : u32;
+TEST_F(ResolverEntryPointValidationTest, ImmediateTwoVariablesUsedInEntryPoint) {
+    // var<immediate> a : u32;
+    // var<immediate> b : u32;
     // @compute @workgroup_size(1) fn main() {
     //   _ = a;
     //   _ = b;
     // }
-    Enable(wgsl::Extension::kChromiumExperimentalPushConstant);
-    GlobalVar(Source{{1, 2}}, "a", ty.u32(), core::AddressSpace::kPushConstant);
-    GlobalVar(Source{{3, 4}}, "b", ty.u32(), core::AddressSpace::kPushConstant);
+    GlobalVar(Source{{1, 2}}, "a", ty.u32(), core::AddressSpace::kImmediate);
+    GlobalVar(Source{{3, 4}}, "b", ty.u32(), core::AddressSpace::kImmediate);
 
     Func(Source{{5, 6}}, "main", {}, ty.void_(), Vector{Assign(Phony(), "a"), Assign(Phony(), "b")},
          Vector{Stage(ast::PipelineStage::kCompute), WorkgroupSize(1_a)});
 
     EXPECT_FALSE(r()->Resolve());
     EXPECT_EQ(r()->error(),
-              R"(5:6 error: entry point 'main' uses two different 'push_constant' variables.
-3:4 note: first 'push_constant' variable declaration is here
-1:2 note: second 'push_constant' variable declaration is here)");
+              R"(5:6 error: entry point 'main' uses two different 'immediate' variables.
+3:4 note: first 'immediate' variable declaration is here
+1:2 note: second 'immediate' variable declaration is here)");
 }
 
-TEST_F(ResolverEntryPointValidationTest,
-       PushConstantTwoVariablesUsedInEntryPointWithFunctionGraph) {
-    // enable chromium_experimental_push_constant;
-    // var<push_constant> a : u32;
-    // var<push_constant> b : u32;
+TEST_F(ResolverEntryPointValidationTest, ImmediateTwoVariablesUsedInEntryPointWithFunctionGraph) {
+    // var<immediate> a : u32;
+    // var<immediate> b : u32;
     // fn uses_a() {
     //   _ = a;
     // }
@@ -524,9 +509,8 @@ TEST_F(ResolverEntryPointValidationTest,
     //   uses_a();
     //   uses_b();
     // }
-    Enable(wgsl::Extension::kChromiumExperimentalPushConstant);
-    GlobalVar(Source{{1, 2}}, "a", ty.u32(), core::AddressSpace::kPushConstant);
-    GlobalVar(Source{{3, 4}}, "b", ty.u32(), core::AddressSpace::kPushConstant);
+    GlobalVar(Source{{1, 2}}, "a", ty.u32(), core::AddressSpace::kImmediate);
+    GlobalVar(Source{{3, 4}}, "b", ty.u32(), core::AddressSpace::kImmediate);
 
     Func(Source{{5, 6}}, "uses_a", {}, ty.void_(), Vector{Assign(Phony(), "a")});
     Func(Source{{7, 8}}, "uses_b", {}, ty.void_(), Vector{Assign(Phony(), "b")});
@@ -537,28 +521,26 @@ TEST_F(ResolverEntryPointValidationTest,
 
     EXPECT_FALSE(r()->Resolve());
     EXPECT_EQ(r()->error(),
-              R"(9:10 error: entry point 'main' uses two different 'push_constant' variables.
-3:4 note: first 'push_constant' variable declaration is here
+              R"(9:10 error: entry point 'main' uses two different 'immediate' variables.
+3:4 note: first 'immediate' variable declaration is here
 7:8 note: called by function 'uses_b'
 9:10 note: called by entry point 'main'
-1:2 note: second 'push_constant' variable declaration is here
+1:2 note: second 'immediate' variable declaration is here
 5:6 note: called by function 'uses_a'
 9:10 note: called by entry point 'main')");
 }
 
-TEST_F(ResolverEntryPointValidationTest, PushConstantTwoVariablesUsedInDifferentEntryPoint) {
-    // enable chromium_experimental_push_constant;
-    // var<push_constant> a : u32;
-    // var<push_constant> b : u32;
+TEST_F(ResolverEntryPointValidationTest, ImmediateTwoVariablesUsedInDifferentEntryPoint) {
+    // var<immediate> a : u32;
+    // var<immediate> b : u32;
     // @compute @workgroup_size(1) fn uses_a() {
     //   _ = a;
     // }
     // @compute @workgroup_size(1) fn uses_b() {
     //   _ = a;
     // }
-    Enable(wgsl::Extension::kChromiumExperimentalPushConstant);
-    GlobalVar("a", ty.u32(), core::AddressSpace::kPushConstant);
-    GlobalVar("b", ty.u32(), core::AddressSpace::kPushConstant);
+    GlobalVar("a", ty.u32(), core::AddressSpace::kImmediate);
+    GlobalVar("b", ty.u32(), core::AddressSpace::kImmediate);
 
     Func("uses_a", {}, ty.void_(), Vector{Assign(Phony(), "a")},
          Vector{Stage(ast::PipelineStage::kCompute), WorkgroupSize(1_a)});

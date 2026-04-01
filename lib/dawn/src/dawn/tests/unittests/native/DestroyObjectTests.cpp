@@ -37,6 +37,7 @@
 #include "dawn/tests/DawnNativeTest.h"
 #include "dawn/tests/MockCallback.h"
 #include "dawn/utils/ComboRenderPipelineDescriptor.h"
+#include "dawn/utils/TestUtils.h"
 #include "dawn/utils/WGPUHelpers.h"
 #include "mocks/BindGroupLayoutMock.h"
 #include "mocks/BindGroupMock.h"
@@ -84,6 +85,11 @@ static constexpr std::string_view kFragmentShader = R"(
         @fragment fn main() {}
     )";
 
+// Use a sampler that's not the default as it would reuse the placeholder sampler, which only gets
+// destroyed during device destruction.
+static constexpr SamplerDescriptor kSamplerDesc = {.label = "",
+                                                   .minFilter = wgpu::FilterMode::Linear};
+
 // Stores and scopes a raw mock object ptr expectation. This is particularly useful on objects that
 // are expected to be destroyed at the end of the scope. In most cases, when the validation in this
 // class's destructor is ran, the pointer is probably already freed.
@@ -112,7 +118,7 @@ TEST_F(DestroyObjectTests, BindGroupNativeExplicit) {
     desc.entryCount = 0;
     desc.entries = nullptr;
 
-    Ref<BindGroupMock> bindGroupMock = AcquireRef(new BindGroupMock(mDeviceMock, &desc));
+    Ref<BindGroupMock> bindGroupMock = AcquireRef(new BindGroupMock(mDeviceMock, Unpack(&desc)));
     EXPECT_CALL(*bindGroupMock.Get(), DestroyImpl).Times(1);
 
     EXPECT_TRUE(bindGroupMock->IsAlive());
@@ -128,7 +134,7 @@ TEST_F(DestroyObjectTests, BindGroupImplicit) {
     desc.entryCount = 0;
     desc.entries = nullptr;
 
-    Ref<BindGroupMock> bindGroupMock = AcquireRef(new BindGroupMock(mDeviceMock, &desc));
+    Ref<BindGroupMock> bindGroupMock = AcquireRef(new BindGroupMock(mDeviceMock, Unpack(&desc)));
     EXPECT_CALL(*bindGroupMock.Get(), DestroyImpl).Times(1);
     {
         ScopedRawPtrExpectation scoped(bindGroupMock.Get());
@@ -151,7 +157,7 @@ TEST_F(DestroyObjectTests, BindGroupLayoutNativeExplicit) {
     desc.entries = entries.data();
 
     Ref<BindGroupLayoutMock> bindGroupLayoutMock =
-        AcquireRef(new BindGroupLayoutMock(mDeviceMock, &desc));
+        AcquireRef(new BindGroupLayoutMock(mDeviceMock, Unpack(&desc)));
     EXPECT_CALL(*bindGroupLayoutMock.Get(), DestroyImpl).Times(1);
 
     EXPECT_TRUE(bindGroupLayoutMock->IsAlive());
@@ -171,7 +177,7 @@ TEST_F(DestroyObjectTests, BindGroupLayoutImplicit) {
     desc.entries = entries.data();
 
     Ref<BindGroupLayoutMock> bindGroupLayoutMock =
-        AcquireRef(new BindGroupLayoutMock(mDeviceMock, &desc));
+        AcquireRef(new BindGroupLayoutMock(mDeviceMock, Unpack(&desc)));
     EXPECT_CALL(*bindGroupLayoutMock.Get(), DestroyImpl).Times(1);
     {
         ScopedRawPtrExpectation scoped(bindGroupLayoutMock.Get());
@@ -384,7 +390,8 @@ TEST_F(DestroyObjectTests, ExternalTextureNativeExplicit) {
     desc.gamutConversionMatrix = placeholderConstantArray.data();
     desc.srcTransferFunctionParameters = placeholderConstantArray.data();
     desc.dstTransferFunctionParameters = placeholderConstantArray.data();
-    desc.visibleSize = {1, 1};
+    desc.cropSize = {1, 1};
+    desc.apparentSize = {1, 1};
     desc.plane0 = textureViewMock.Get();
 
     Ref<ExternalTextureMock> externalTextureMock = ExternalTextureMock::Create(mDeviceMock, &desc);
@@ -414,7 +421,8 @@ TEST_F(DestroyObjectTests, ExternalTextureApiExplicit) {
     desc.gamutConversionMatrix = placeholderConstantArray.data();
     desc.srcTransferFunctionParameters = placeholderConstantArray.data();
     desc.dstTransferFunctionParameters = placeholderConstantArray.data();
-    desc.visibleSize = {1, 1};
+    desc.cropSize = {1, 1};
+    desc.apparentSize = {1, 1};
     desc.plane0 = textureViewMock.Get();
 
     Ref<ExternalTextureMock> externalTextureMock = ExternalTextureMock::Create(mDeviceMock, &desc);
@@ -448,7 +456,8 @@ TEST_F(DestroyObjectTests, ExternalTextureImplicit) {
     desc.gamutConversionMatrix = placeholderConstantArray.data();
     desc.srcTransferFunctionParameters = placeholderConstantArray.data();
     desc.dstTransferFunctionParameters = placeholderConstantArray.data();
-    desc.visibleSize = {1, 1};
+    desc.cropSize = {1, 1};
+    desc.apparentSize = {1, 1};
     desc.plane0 = textureViewMock.Get();
 
     Ref<ExternalTextureMock> externalTextureMock = ExternalTextureMock::Create(mDeviceMock, &desc);
@@ -483,9 +492,27 @@ TEST_F(DestroyObjectTests, PipelineLayoutNativeExplicit) {
 // If the reference count on API objects reach 0, they should delete themselves. Note that GTest
 // will also complain if there is a memory leak.
 TEST_F(DestroyObjectTests, PipelineLayoutImplicit) {
+    Ref<BindGroupLayoutMock> bindGroupLayoutMock;
+    wgpu::BindGroupLayout bindGroupLayout;
+    {
+        // Use an non-empty bind group layout to avoid hitting the internal empty layout in the
+        // cache.
+        BindGroupLayoutDescriptor desc = {};
+        std::vector<BindGroupLayoutEntry> entries;
+        entries.push_back(utils::BindingLayoutEntryInitializationHelper(
+            0, wgpu::ShaderStage::Compute, wgpu::BufferBindingType::Uniform));
+        desc.entryCount = entries.size();
+        desc.entries = entries.data();
+
+        ScopedRawPtrExpectation scoped(mDeviceMock);
+        bindGroupLayoutMock = AcquireRef(new BindGroupLayoutMock(mDeviceMock, Unpack(&desc)));
+        EXPECT_CALL(*mDeviceMock, CreateBindGroupLayoutImpl).WillOnce(Return(bindGroupLayoutMock));
+        bindGroupLayout = device.CreateBindGroupLayout(ToCppAPI(&desc));
+    }
+
     PipelineLayoutDescriptor desc = {};
     std::vector<BindGroupLayoutBase*> bindGroupLayouts;
-    bindGroupLayouts.push_back(mDeviceMock->GetEmptyBindGroupLayout());
+    bindGroupLayouts.push_back(reinterpret_cast<BindGroupLayoutBase*>(bindGroupLayout.Get()));
     desc.bindGroupLayoutCount = bindGroupLayouts.size();
     desc.bindGroupLayouts = bindGroupLayouts.data();
 
@@ -591,9 +618,7 @@ TEST_F(DestroyObjectTests, RenderPipelineImplicit) {
 }
 
 TEST_F(DestroyObjectTests, SamplerNativeExplicit) {
-    SamplerDescriptor desc = {};
-
-    Ref<SamplerMock> samplerMock = AcquireRef(new SamplerMock(mDeviceMock, &desc));
+    Ref<SamplerMock> samplerMock = AcquireRef(new SamplerMock(mDeviceMock, &kSamplerDesc));
     EXPECT_CALL(*samplerMock.Get(), DestroyImpl).Times(1);
 
     EXPECT_TRUE(samplerMock->IsAlive());
@@ -604,16 +629,14 @@ TEST_F(DestroyObjectTests, SamplerNativeExplicit) {
 // If the reference count on API objects reach 0, they should delete themselves. Note that GTest
 // will also complain if there is a memory leak.
 TEST_F(DestroyObjectTests, SamplerImplicit) {
-    SamplerDescriptor desc = {};
-
-    Ref<SamplerMock> samplerMock = AcquireRef(new SamplerMock(mDeviceMock, &desc));
+    Ref<SamplerMock> samplerMock = AcquireRef(new SamplerMock(mDeviceMock, &kSamplerDesc));
     EXPECT_CALL(*samplerMock.Get(), DestroyImpl).Times(1);
     {
         ScopedRawPtrExpectation scoped(samplerMock.Get());
 
         EXPECT_CALL(*mDeviceMock, CreateSamplerImpl)
             .WillOnce(Return(ByMove(std::move(samplerMock))));
-        wgpu::Sampler sampler = device.CreateSampler(ToCppAPI(&desc));
+        wgpu::Sampler sampler = device.CreateSampler(ToCppAPI(&kSamplerDesc));
 
         EXPECT_TRUE(FromAPI(sampler.Get())->IsAlive());
     }
@@ -802,7 +825,7 @@ TEST_F(DestroyObjectTests, DestroyObjectsApiExplicit) {
         desc.entries = nullptr;
 
         ScopedRawPtrExpectation scoped(mDeviceMock);
-        bindGroupMock = AcquireRef(new BindGroupMock(mDeviceMock, &desc));
+        bindGroupMock = AcquireRef(new BindGroupMock(mDeviceMock, Unpack(&desc)));
         EXPECT_CALL(*mDeviceMock, CreateBindGroupImpl).WillOnce(Return(bindGroupMock));
         bindGroup = device.CreateBindGroup(ToCppAPI(&desc));
     }
@@ -820,7 +843,7 @@ TEST_F(DestroyObjectTests, DestroyObjectsApiExplicit) {
         desc.entries = entries.data();
 
         ScopedRawPtrExpectation scoped(mDeviceMock);
-        bindGroupLayoutMock = AcquireRef(new BindGroupLayoutMock(mDeviceMock, &desc));
+        bindGroupLayoutMock = AcquireRef(new BindGroupLayoutMock(mDeviceMock, Unpack(&desc)));
         EXPECT_CALL(*mDeviceMock, CreateBindGroupLayoutImpl).WillOnce(Return(bindGroupLayoutMock));
         bindGroupLayout = device.CreateBindGroupLayout(ToCppAPI(&desc));
     }
@@ -899,9 +922,11 @@ TEST_F(DestroyObjectTests, DestroyObjectsApiExplicit) {
     Ref<PipelineLayoutMock> pipelineLayoutMock;
     wgpu::PipelineLayout pipelineLayout;
     {
+        // Use an non-empty bind group layout to avoid hitting the internal empty pipeline layout in
+        // the cache.
         PipelineLayoutDescriptor desc = {};
         std::vector<BindGroupLayoutBase*> bindGroupLayouts;
-        bindGroupLayouts.push_back(mDeviceMock->GetEmptyBindGroupLayout());
+        bindGroupLayouts.push_back(reinterpret_cast<BindGroupLayoutBase*>(bindGroupLayout.Get()));
         desc.bindGroupLayoutCount = bindGroupLayouts.size();
         desc.bindGroupLayouts = bindGroupLayouts.data();
 
@@ -941,12 +966,10 @@ TEST_F(DestroyObjectTests, DestroyObjectsApiExplicit) {
     Ref<SamplerMock> samplerMock;
     wgpu::Sampler sampler;
     {
-        SamplerDescriptor desc = {};
-
         ScopedRawPtrExpectation scoped(mDeviceMock);
-        samplerMock = AcquireRef(new SamplerMock(mDeviceMock, &desc));
+        samplerMock = AcquireRef(new SamplerMock(mDeviceMock, &kSamplerDesc));
         EXPECT_CALL(*mDeviceMock, CreateSamplerImpl).WillOnce(Return(samplerMock));
-        sampler = device.CreateSampler(ToCppAPI(&desc));
+        sampler = device.CreateSampler(ToCppAPI(&kSamplerDesc));
     }
 
     Ref<TextureMock> textureMock;
@@ -985,7 +1008,8 @@ TEST_F(DestroyObjectTests, DestroyObjectsApiExplicit) {
         desc.gamutConversionMatrix = placeholderConstantArray.data();
         desc.srcTransferFunctionParameters = placeholderConstantArray.data();
         desc.dstTransferFunctionParameters = placeholderConstantArray.data();
-        desc.visibleSize = {1, 1};
+        desc.cropSize = {1, 1};
+        desc.apparentSize = {1, 1};
         desc.plane0 = textureViewMock.Get();
 
         ScopedRawPtrExpectation scoped(mDeviceMock);
@@ -1026,7 +1050,12 @@ TEST_F(DestroyObjectTests, DestroyObjectsApiExplicit) {
     EXPECT_TRUE(FromAPI(csModule.Get())->IsAlive());
     EXPECT_TRUE(FromAPI(texture.Get())->IsAlive());
     EXPECT_TRUE(FromAPI(textureView.Get())->IsAlive());
+
+    EXPECT_CALL(mDeviceLostCallback,
+                Call(CHandleIs(device.Get()), wgpu::DeviceLostReason::Destroyed, _))
+        .Times(1);
     device.Destroy();
+
     EXPECT_FALSE(FromAPI(bindGroup.Get())->IsAlive());
     EXPECT_FALSE(FromAPI(bindGroupLayout.Get())->IsAlive());
     EXPECT_FALSE(FromAPI(buffer.Get())->IsAlive());
@@ -1041,6 +1070,31 @@ TEST_F(DestroyObjectTests, DestroyObjectsApiExplicit) {
     EXPECT_FALSE(FromAPI(csModule.Get())->IsAlive());
     EXPECT_FALSE(FromAPI(texture.Get())->IsAlive());
     EXPECT_FALSE(FromAPI(textureView.Get())->IsAlive());
+}
+
+// Verify that the object's destruction (which modifies the internal object list) shouldn't race
+// with other objects' IsAlive() checks. Each thread creates a buffer, checks IsAlive(), and drops
+// the ref, causing the buffer to be removed from the tracking list.
+TEST_F(DestroyObjectTests, IsAliveRace) {
+    constexpr uint32_t kNumThreads = 10;
+    constexpr uint32_t kBuffersPerThread = 100;
+
+    dawn::utils::RunInParallel(kNumThreads, [&](uint32_t threadIndex) {
+        for (uint32_t i = 0; i < kBuffersPerThread; i++) {
+            // Create a buffer
+            BufferDescriptor desc = {};
+            desc.size = 16;
+            desc.usage = wgpu::BufferUsage::Uniform;
+            Ref<BufferMock> bufferMock = AcquireRef(new BufferMock(mDeviceMock, &desc));
+            EXPECT_CALL(*bufferMock.Get(), DestroyImpl).Times(1);
+
+            // Check that it's alive
+            EXPECT_TRUE(bufferMock->IsAlive());
+
+            // Drop the ref, causing destruction which removes it from the tracking list
+            bufferMock = nullptr;
+        }
+    });
 }
 
 class DestroyObjectRegressionTests : public DawnNativeTest {};

@@ -54,6 +54,7 @@ _supported = _compiler_supported && _build_type_supported &&
 
 use_partition_alloc_as_malloc_default = _supported
 use_allocator_shim_default = _supported
+shim_supports_sized_dealloc_default = false
 enable_backup_ref_ptr_support_default = _supported
 put_ref_count_in_previous_slot_default = true
 enable_backup_ref_ptr_slow_checks_default = false
@@ -64,7 +65,5 @@ raw_ptr_zero_on_construct_default = true
 raw_ptr_zero_on_move_default = true
 raw_ptr_zero_on_destruct_default = false
 
-# Allow embedders to opt-out of C++20 build which is set as default.
-#
-# Dawn still uses C++17 only, because of Skia.
-assert_cpp20_default = false
+# Dawn requires C++20.
+assert_cpp20_default = true

@@ -28,25 +28,28 @@
 #ifndef SRC_TINT_UTILS_BYTES_SWAP_H_
 #define SRC_TINT_UTILS_BYTES_SWAP_H_
 
+#include <algorithm>
+#include <array>
 #include <cstdint>
-#include <cstring>
 #include <type_traits>
 #include <utility>
 
+#include "src/tint/utils/macros/compiler.h"
+#include "src/tint/utils/memory/copy.h"
+
 namespace tint::bytes {
 
-/// @return the input integer value with all bytes reversed
-/// @param value the input value
+/// @returns the input value with all bytes reversed
+/// @param value the input value, can be any type that passes std::is_integral
+///              (this includes non-obvious types like wchar_t)
 template <typename T>
 [[nodiscard]] inline T Swap(T value) {
     static_assert(std::is_integral_v<T>);
-    uint8_t bytes[sizeof(T)];
-    memcpy(bytes, &value, sizeof(T));
-    for (size_t i = 0; i < sizeof(T) / 2; i++) {
-        std::swap(bytes[i], bytes[sizeof(T) - i - 1]);
-    }
+    std::array<std::byte, sizeof(T)> bytes;
+    tint::Copy(std::span<std::byte, sizeof(T)>{bytes}, value);
+    std::ranges::reverse(bytes);
     T out;
-    memcpy(&out, bytes, sizeof(T));
+    tint::Copy(&out, 1, std::span<std::byte, sizeof(T)>{bytes});
     return out;
 }
 

@@ -29,6 +29,7 @@
 #define WEBGPU_JNI_JNICONTEXT_H_
 
 #include <jni.h>
+
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -51,6 +52,7 @@ class JNIContext : dawn::NonMovable {
 
     // Public members for convenience.
     JNIEnv* const env;
+    JavaVM* jvm;
 
     const char* GetStringUTFChars(jstring s);
     const jint* GetIntArrayElements(jintArray a);

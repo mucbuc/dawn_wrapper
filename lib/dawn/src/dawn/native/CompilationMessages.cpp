@@ -27,10 +27,11 @@
 
 #include "dawn/native/CompilationMessages.h"
 
+#include <utility>
+
 #include "dawn/common/Assert.h"
 #include "dawn/common/StringViewUtils.h"
 #include "dawn/native/dawn_platform.h"
-
 #include "tint/tint.h"
 
 namespace dawn::native {
@@ -50,7 +51,7 @@ wgpu::CompilationMessageType TintSeverityToMessageType(tint::diag::Severity seve
 
 }  // anonymous namespace
 
-ResultOrError<uint64_t> CountUTF16CodeUnitsFromUTF8String(const std::string_view& utf8String) {
+uint64_t CountUTF16CodeUnitsFromUTF8String(const std::string_view& utf8String) {
     if (tint::utf8::IsASCII(utf8String)) {
         return utf8String.size();
     }
@@ -59,64 +60,58 @@ ResultOrError<uint64_t> CountUTF16CodeUnitsFromUTF8String(const std::string_view
     std::string_view remaining = utf8String;
     while (!remaining.empty()) {
         auto [codePoint, utf8CharacterByteLength] = tint::utf8::Decode(remaining);
-        // Directly return as something wrong has happened during the UTF-8 decoding.
-        if (utf8CharacterByteLength == 0) {
-            return DAWN_INTERNAL_ERROR("Fail to decode the unicode string");
-        }
+        // WGSL validation will already have prevented invalid UTF-8.
+        DAWN_ASSERT(utf8CharacterByteLength != 0);
         remaining = remaining.substr(utf8CharacterByteLength);
 
         // Count the number of code units in UTF-16. See https://en.wikipedia.org/wiki/UTF-16 for
-        // more details.
-        if (codePoint.value <= 0xD7FF || (codePoint.value >= 0xE000 && codePoint.value <= 0xFFFF)) {
+        // more details. Note that while the code points ranging from U+D800 to U+DFFF are not
+        // encodable in UTF-16 (they are surrogate code points), we still mark them as needing a
+        // single UTF-16 code unit. The computations performed in this function are only useful when
+        // the application uses UTF-16 internally (like JS code), so the source would have been
+        // valid UTF-16 already.
+        if (codePoint.value <= 0xFFFF) {
             // Code points from U+0000 to U+D7FF and U+E000 to U+FFFF are encoded as single 16-bit
-            // code units.
-            ++numberOfUTF16CodeUnits;
-        } else if (codePoint.value >= 0x10000) {
+            // code units. As noted above we also count surrogates as one UTF-16 code unit.
+            numberOfUTF16CodeUnits += 1;
+        } else {
             // Code points from U+010000 to U+10FFFF are encoded as two 16-bit code units.
             numberOfUTF16CodeUnits += 2;
-        } else {
-            // UTF-16 cannot encode the code points from U+D800 to U+DFFF.
-            return DAWN_INTERNAL_ERROR("The unicode string contains illegal unicode code point.");
         }
     }
 
     return numberOfUTF16CodeUnits;
 }
 
-OwnedCompilationMessages::OwnedCompilationMessages() = default;
-
-OwnedCompilationMessages::~OwnedCompilationMessages() = default;
-
-void OwnedCompilationMessages::AddUnanchoredMessage(std::string_view message,
-                                                    wgpu::CompilationMessageType type) {
-    CompilationMessage m = {};
+void ParsedCompilationMessages::AddUnanchoredMessage(std::string_view message,
+                                                     wgpu::CompilationMessageType type) {
+    CompilationMessageContent m = {};
     m.message = message;
     m.type = type;
-
-    AddMessage(m);
+    AddMessage(std::move(m));
 }
 
-void OwnedCompilationMessages::AddMessageForTesting(std::string_view message,
-                                                    wgpu::CompilationMessageType type,
-                                                    uint64_t lineNum,
-                                                    uint64_t linePos,
-                                                    uint64_t offset,
-                                                    uint64_t length) {
-    CompilationMessage m = {};
-    m.message = message;
-    m.type = type;
-    m.lineNum = lineNum;
-    m.linePos = linePos;
-    m.offset = offset;
-    m.length = length;
-    m.utf16LinePos = linePos;
-    m.utf16Offset = offset;
-    m.utf16Length = length;
-
-    AddMessage(m);
+void ParsedCompilationMessages::AddMessageForTesting(std::string_view message,
+                                                     wgpu::CompilationMessageType type,
+                                                     uint64_t lineNum,
+                                                     uint64_t linePos,
+                                                     uint64_t offset,
+                                                     uint64_t length) {
+    AddMessage({{
+        .message = std::string(message),
+        .type = type,
+        .lineNum = lineNum,
+        .linePosInBytes = linePos,
+        .offsetInBytes = offset,
+        .lengthInBytes = length,
+        // Incorrect for non-ACSII strings
+        .linePosInUTF16 = linePos,
+        .offsetInUTF16 = offset,
+        .lengthInUTF16 = length,
+    }});
 }
 
-MaybeError OwnedCompilationMessages::AddMessage(const tint::diag::Diagnostic& diagnostic) {
+void ParsedCompilationMessages::AddMessage(const tint::diag::Diagnostic& diagnostic) {
     // Tint line and column values are 1-based.
     uint64_t lineNum = diagnostic.source.range.begin.line;
     uint64_t linePosInBytes = diagnostic.source.range.begin.column;
@@ -139,16 +134,13 @@ MaybeError OwnedCompilationMessages::AddMessage(const tint::diag::Diagnostic& di
         offsetInBytes = static_cast<uint64_t>(lineStart - fileStart) + linePosInBytes - 1;
 
         // The linePosInBytes is 1-based.
-        uint64_t linePosOffsetInUTF16 = 0;
-        DAWN_TRY_ASSIGN(linePosOffsetInUTF16, CountUTF16CodeUnitsFromUTF8String(
-                                                  std::string_view(lineStart, linePosInBytes - 1)));
+        uint64_t linePosOffsetInUTF16 =
+            CountUTF16CodeUnitsFromUTF8String(std::string_view(lineStart, linePosInBytes - 1));
         linePosInUTF16 = linePosOffsetInUTF16 + 1;
 
         // The offset is 0-based.
-        uint64_t lineStartToFileStartOffsetInUTF16 = 0;
-        DAWN_TRY_ASSIGN(lineStartToFileStartOffsetInUTF16,
-                        CountUTF16CodeUnitsFromUTF8String(std::string_view(
-                            fileStart, static_cast<uint64_t>(lineStart - fileStart))));
+        uint64_t lineStartToFileStartOffsetInUTF16 = CountUTF16CodeUnitsFromUTF8String(
+            std::string_view(fileStart, static_cast<uint64_t>(lineStart - fileStart)));
         offsetInUTF16 = lineStartToFileStartOffsetInUTF16 + linePosInUTF16 - 1;
 
         // If the range has a valid start but the end is not specified, clamp it to the start.
@@ -166,91 +158,38 @@ MaybeError OwnedCompilationMessages::AddMessage(const tint::diag::Diagnostic& di
         // ending offset. Negative ranges aren't allowed.
         DAWN_ASSERT(endOffsetInBytes >= offsetInBytes);
         lengthInBytes = endOffsetInBytes - offsetInBytes;
-        DAWN_TRY_ASSIGN(lengthInUTF16, CountUTF16CodeUnitsFromUTF8String(std::string_view(
-                                           fileStart + offsetInBytes, lengthInBytes)));
+        lengthInUTF16 = CountUTF16CodeUnitsFromUTF8String(
+            std::string_view(fileStart + offsetInBytes, lengthInBytes));
     }
 
     std::string plainMessage = diagnostic.message.Plain();
 
-    CompilationMessage m = {};
-    m.message = std::string_view(plainMessage);
-    m.type = TintSeverityToMessageType(diagnostic.severity);
-    m.lineNum = lineNum;
-    m.linePos = linePosInBytes;
-    m.offset = offsetInBytes;
-    m.length = lengthInBytes;
-    m.utf16LinePos = linePosInUTF16;
-    m.utf16Offset = offsetInUTF16;
-    m.utf16Length = lengthInUTF16;
-
-    AddMessage(m);
-    return {};
+    AddMessage({{
+        .message = plainMessage,
+        .type = TintSeverityToMessageType(diagnostic.severity),
+        .lineNum = lineNum,
+        .linePosInBytes = linePosInBytes,
+        .offsetInBytes = offsetInBytes,
+        .lengthInBytes = lengthInBytes,
+        .linePosInUTF16 = linePosInUTF16,
+        .offsetInUTF16 = offsetInUTF16,
+        .lengthInUTF16 = lengthInUTF16,
+    }});
 }
 
-void OwnedCompilationMessages::AddMessage(const CompilationMessage& message) {
-    // Cannot add messages after GetCompilationInfo has been called.
-    DAWN_ASSERT(!mCompilationInfo->has_value());
-
-    DAWN_ASSERT(message.nextInChain == nullptr);
-
-    mMessages.push_back(message);
-
-    // Own the contents of the message as it might be freed afterwards.
-    // Note that we use make_unique here as moving strings doesn't guarantee that the data pointer
-    // stays the same, for example if there's some small string optimization.
-    mMessageStrings.push_back(std::make_unique<std::string>(message.message));
-    mMessages.back().message = ToOutputStringView(*mMessageStrings.back());
+void ParsedCompilationMessages::AddMessage(CompilationMessageContent&& message) {
+    messages.push_back(message);
 }
 
-MaybeError OwnedCompilationMessages::AddMessages(const tint::diag::List& diagnostics) {
-    // Cannot add messages after GetCompilationInfo has been called.
-    DAWN_ASSERT(!mCompilationInfo->has_value());
-
+void ParsedCompilationMessages::AddMessages(const tint::diag::List& diagnostics) {
     for (const auto& diag : diagnostics) {
-        DAWN_TRY(AddMessage(diag));
+        AddMessage(diag);
     }
 
     AddFormattedTintMessages(diagnostics);
-
-    return {};
 }
 
-void OwnedCompilationMessages::ClearMessages() {
-    // Cannot clear messages after GetCompilationInfo has been called.
-    DAWN_ASSERT(!mCompilationInfo->has_value());
-
-    mMessageStrings.clear();
-    mMessages.clear();
-}
-
-const CompilationInfo* OwnedCompilationMessages::GetCompilationInfo() {
-    return mCompilationInfo.Use([&](auto info) {
-        if (info->has_value()) {
-            return &info->value();
-        }
-
-        (*info).emplace();
-        (*info)->messageCount = mMessages.size();
-        (*info)->messages = mMessages.data();
-        return &info->value();
-    });
-}
-
-const std::vector<std::string>& OwnedCompilationMessages::GetFormattedTintMessages() const {
-    return mFormattedTintMessages;
-}
-
-bool OwnedCompilationMessages::HasWarningsOrErrors() const {
-    for (const auto& message : mMessages) {
-        if (message.type == wgpu::CompilationMessageType::Error ||
-            message.type == wgpu::CompilationMessageType::Warning) {
-            return true;
-        }
-    }
-    return false;
-}
-
-void OwnedCompilationMessages::AddFormattedTintMessages(const tint::diag::List& diagnostics) {
+void ParsedCompilationMessages::AddFormattedTintMessages(const tint::diag::List& diagnostics) {
     tint::diag::List messageList;
     size_t warningCount = 0;
     size_t errorCount = 0;
@@ -291,7 +230,55 @@ void OwnedCompilationMessages::AddFormattedTintMessages(const tint::diag::List& 
     }
     t << "generated while compiling the shader:\n"
       << tint::diag::Formatter{style}.Format(messageList).Plain();
-    mFormattedTintMessages.push_back(t.str());
+    formattedTintMessages.push_back(t.str());
+}
+
+OwnedCompilationMessages::OwnedCompilationMessages(
+    ParsedCompilationMessages&& parsedCompilationMessagges)
+    : mMessageContents(parsedCompilationMessagges), mCompilationInfo() {
+    // Reserve the size of messages to avoid reallocations, so that we can use
+    // the raw pointer when adding each message.
+    mMessagesList.reserve(mMessageContents.messages.size());
+    mUtf16Messages.reserve(mMessageContents.messages.size());
+
+    // Build the CompilationMessage and DawnCompilationMessageUtf16 object for each message.
+    for (auto& m : mMessageContents.messages) {
+        if (m.type == wgpu::CompilationMessageType::Error ||
+            m.type == wgpu::CompilationMessageType::Warning) {
+            mHasWarningsOrErrors = true;
+        }
+
+        DawnCompilationMessageUtf16& utf16 = mUtf16Messages.emplace_back();
+        utf16.linePos = m.linePosInUTF16;
+        utf16.offset = m.offsetInUTF16;
+        utf16.length = m.lengthInUTF16;
+
+        CompilationMessage& message = mMessagesList.emplace_back();
+        message.message = ToOutputStringView(m.message);
+        message.type = m.type;
+        message.lineNum = m.lineNum;
+        message.linePos = m.linePosInBytes;
+        message.offset = m.offsetInBytes;
+        message.length = m.lengthInBytes;
+        // Points to the created DawnCompilationMessageUtf16, pointers would keep valid since
+        // mUtf16Messages has been reserved to the size of messages.
+        message.nextInChain = &utf16;
+    }
+
+    mCompilationInfo.messageCount = mMessagesList.size();
+    mCompilationInfo.messages = mMessagesList.data();
+}
+
+const CompilationInfo* OwnedCompilationMessages::GetCompilationInfo() const {
+    return &mCompilationInfo;
+}
+
+const std::vector<std::string>& OwnedCompilationMessages::GetFormattedTintMessages() const {
+    return mMessageContents.formattedTintMessages;
+}
+
+bool OwnedCompilationMessages::HasWarningsOrErrors() const {
+    return mHasWarningsOrErrors;
 }
 
 }  // namespace dawn::native

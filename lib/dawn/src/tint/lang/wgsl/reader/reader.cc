@@ -30,6 +30,8 @@
 #include <limits>
 #include <utility>
 
+#include "src/tint/lang/wgsl/ast/module.h"
+#include "src/tint/lang/wgsl/ir/atomic_vec2u_to_from_u64.h"
 #include "src/tint/lang/wgsl/reader/lower/lower.h"
 #include "src/tint/lang/wgsl/reader/parser/parser.h"
 #include "src/tint/lang/wgsl/reader/program_to_ir/program_to_ir.h"
@@ -54,17 +56,28 @@ Result<core::ir::Module> WgslToIR(const Source::File* file, const Options& optio
     return ProgramToLoweredIR(program);
 }
 
-tint::Result<core::ir::Module> ProgramToLoweredIR(const Program& program) {
-    auto ir = ProgramToIR(program);
-    if (ir != Success) {
-        return ir.Failure();
+Result<core::ir::Module> ProgramToLoweredIR(const Program& program,
+                                            InternalCompilerErrorCallback ice_callback) {
+    TINT_CHECK_RESULT_UNWRAP(ir, ProgramToIR(program));
+    ir.ice_callback = ice_callback;
+    bool atomic_vec2u_min_max = false;
+    for (auto* enable : program.AST().Enables()) {
+        if (enable->HasExtension(wgsl::Extension::kAtomicVec2UMinMax)) {
+            atomic_vec2u_min_max = true;
+            break;
+        }
     }
 
-    // Lower from WGSL-dialect to core-dialect
-    auto res = Lower(ir.Get());
-    if (res != Success) {
-        return res.Failure();
+    if (atomic_vec2u_min_max) {
+        auto res2 = tint::wgsl::ir::transform::AtomicVec2uToFromU64(
+            ir, tint::wgsl::ir::transform::AtomicVec2uU64Direction::kToU64);
+        if (res2 != Success) {
+            return res2.Failure();
+        }
     }
+    // Lower from WGSL-dialect to core-dialect
+    TINT_CHECK_RESULT(Lower(ir));
+
     return ir;
 }
 
@@ -72,7 +85,6 @@ bool IsUnsupportedByIR(const ast::Enable* enable) {
     for (auto ext : enable->extensions) {
         switch (ext->name) {
             case tint::wgsl::Extension::kChromiumExperimentalFramebufferFetch:
-            case tint::wgsl::Extension::kChromiumInternalRelaxedUniformLayout:
                 return true;
             default:
                 break;

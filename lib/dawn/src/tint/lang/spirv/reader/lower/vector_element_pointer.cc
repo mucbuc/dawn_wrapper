@@ -27,8 +27,6 @@
 
 #include "src/tint/lang/spirv/reader/lower/vector_element_pointer.h"
 
-#include <utility>
-
 #include "src/tint/lang/core/ir/builder.h"
 #include "src/tint/lang/core/ir/module.h"
 #include "src/tint/lang/core/ir/validator.h"
@@ -100,19 +98,22 @@ struct State {
     void ReplaceAccess(const Access& access) {
         auto* object = access.inst->Object();
 
-        if (access.inst->Indices().Length() > 1) {
+        if (access.inst->Indices().size() > 1) {
             // Create a new access instruction that stops at the vector pointer.
-            Vector<core::ir::Value*, 8> partial_indices{access.inst->Indices()};
+            auto partial_indices = Vector<core::ir::Value*, 8>{access.inst->Indices()};
             partial_indices.Pop();
-            auto addrspace = object->Type()->As<core::type::Pointer>()->AddressSpace();
-            auto* access_to_vec = b.Access(ty.ptr(addrspace, access.type), object, partial_indices);
+
+            auto* ptr = object->Type()->As<core::type::Pointer>();
+            auto addrspace = ptr->AddressSpace();
+            auto* access_to_vec =
+                b.Access(ty.ptr(addrspace, access.type, ptr->Access()), object, partial_indices);
             access_to_vec->InsertBefore(access.inst);
 
-            object = access_to_vec->Result(0);
+            object = access_to_vec->Result();
         }
 
         // Replace all uses of the original access instruction.
-        auto* index = access.inst->Indices().Back();
+        auto* index = access.inst->Indices().back();
         ReplaceAccessUses(access.inst, object, index);
 
         // Destroy the original access instruction.
@@ -127,7 +128,7 @@ struct State {
                            core::ir::Value* object,
                            core::ir::Value* index) {
         Vector<core::ir::Instruction*, 4> to_destroy;
-        access->Result(0)->ForEachUseUnsorted([&](core::ir::Usage use) {
+        access->Result()->ForEachUseUnsorted([&](core::ir::Usage use) {
             Switch(
                 use.instruction,
                 [&](core::ir::Load* load) {
@@ -153,13 +154,20 @@ struct State {
 }  // namespace
 
 Result<SuccessType> VectorElementPointer(core::ir::Module& ir) {
-    auto result = ValidateAndDumpIfNeeded(ir, "spirv.VectorElementPointer",
-                                          core::ir::Capabilities{
-                                              core::ir::Capability::kAllowVectorElementPointer,
-                                          });
-    if (result != Success) {
-        return result.Failure();
-    }
+    TINT_CHECK_RESULT(
+        core::ir::ValidateBeforeIfNeeded(ir,
+                                         core::ir::Capabilities{
+                                             core::ir::Capability::kAllowMultipleEntryPoints,
+                                             core::ir::Capability::kAllowOverrides,
+                                             core::ir::Capability::kAllowVectorElementPointer,
+                                             core::ir::Capability::kAllowPhonyInstructions,
+                                             core::ir::Capability::kAllowNonCoreTypes,
+                                             core::ir::Capability::kAllowStructMatrixDecorations,
+                                             core::ir::Capability::kAllowLocationForNumericElements,
+                                             core::ir::Capability::kAllowPointerToHandle,
+                                             core::ir::Capability::kLoosenValidationForShaderIO,
+                                         },
+                                         "spirv.VectorElementPointer"));
 
     State{ir}.Process();
 

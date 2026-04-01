@@ -28,6 +28,9 @@
 #ifndef SRC_TINT_CMD_FUZZ_WGSL_FUZZ_H_
 #define SRC_TINT_CMD_FUZZ_WGSL_FUZZ_H_
 
+#include <cstddef>
+#include <iostream>
+#include <span>
 #include <string>
 #include <tuple>
 #include <utility>
@@ -36,7 +39,6 @@
 #include "src/tint/utils/bytes/buffer_reader.h"
 #include "src/tint/utils/bytes/decoder.h"
 #include "src/tint/utils/containers/enum_set.h"
-#include "src/tint/utils/containers/slice.h"
 #include "src/tint/utils/macros/static_init.h"
 
 namespace tint::fuzz::wgsl {
@@ -49,9 +51,12 @@ struct Options {
     bool run_concurrently = false;
     /// If true, print the fuzzer name to stdout before running.
     bool verbose = false;
-    /// If not empty, load DXC from this path when fuzzing HLSL generation, and fail the fuzzer if
-    /// not found, or if DXC fails to compile.
+    /// If not empty, load DXC from this path when fuzzing HLSL generation.
     std::string dxc;
+#if TINT_BUILD_FUZZER_VULKAN_SUPPORT
+    /// If not empty, load the Vulkan ICD from this path when fuzzing SPIR-V generation.
+    std::string vk_icd;
+#endif
     /// If true, dump shader input/output text to stdout
     bool dump = false;
 };
@@ -88,8 +93,11 @@ struct ProgramFuzzer {
                                 void (*fn)(const Program&, const Context&, ARGS...)) {
         if constexpr (sizeof...(ARGS) > 0) {
             auto fn_with_decode = [fn](const Program& program, const Context& context,
-                                       Slice<const std::byte> data) {
-                if (!data.data) {
+                                       std::span<const std::byte> data) {
+                if (data.empty()) {
+                    if (context.options.verbose) {
+                        std::cout << "   - Data expected but no data provided.\n";
+                    }
                     return;
                 }
                 bytes::BufferReader reader{data};
@@ -99,14 +107,18 @@ struct ProgramFuzzer {
                         std::tuple_cat(std::tuple<const Program&, const Context&>{program, context},
                                        data_args.Get());
                     std::apply(*fn, all_args);
+                } else {
+                    if (context.options.verbose) {
+                        std::cout << "   - Failed to decode fuzzer argument data.\n";
+                    }
                 }
             };
             return ProgramFuzzer{name, std::move(fn_with_decode)};
         } else {
             return ProgramFuzzer{
                 name,
-                [fn](const Program& program, const Context& options, Slice<const std::byte>) {
-                    fn(program, options);
+                [fn](const Program& program, const Context& context, std::span<const std::byte>) {
+                    fn(program, context);
                 },
             };
         }
@@ -119,9 +131,12 @@ struct ProgramFuzzer {
     template <typename... ARGS>
     static ProgramFuzzer Create(std::string_view name, void (*fn)(const Program&, ARGS...)) {
         if constexpr (sizeof...(ARGS) > 0) {
-            auto fn_with_decode = [fn](const Program& program, const Context&,
-                                       Slice<const std::byte> data) {
-                if (!data.data) {
+            auto fn_with_decode = [fn](const Program& program, const Context& context,
+                                       std::span<const std::byte> data) {
+                if (data.empty()) {
+                    if (context.options.verbose) {
+                        std::cout << "   - Data expected but no data provided.\n";
+                    }
                     return;
                 }
                 bytes::BufferReader reader{data};
@@ -130,13 +145,17 @@ struct ProgramFuzzer {
                     auto all_args =
                         std::tuple_cat(std::tuple<const Program&>{program}, data_args.Get());
                     std::apply(*fn, all_args);
+                } else {
+                    if (context.options.verbose) {
+                        std::cout << "   - Failed to decode fuzzer argument data.\n";
+                    }
                 }
             };
             return ProgramFuzzer{name, std::move(fn_with_decode)};
         } else {
             return ProgramFuzzer{
                 name,
-                [fn](const Program& program, const Context&, Slice<const std::byte>) {
+                [fn](const Program& program, const Context&, std::span<const std::byte>) {
                     fn(program);
                 },
             };
@@ -146,14 +165,14 @@ struct ProgramFuzzer {
     /// Name of the fuzzer function
     std::string_view name;
     /// The fuzzer function
-    std::function<void(const Program&, const Context&, Slice<const std::byte> data)> fn;
+    std::function<void(const Program&, const Context&, std::span<const std::byte> data)> fn;
 };
 
 /// Runs all the registered WGSL fuzzers with the supplied WGSL
 /// @param wgsl the input WGSL
 /// @param options the options for running the fuzzers
 /// @param data additional data used for fuzzing
-void Run(std::string_view wgsl, const Options& options, Slice<const std::byte> data);
+void Run(std::string_view wgsl, const Options& options, std::span<const std::byte> data);
 
 /// Registers the fuzzer function with the WGSL fuzzer executable.
 /// @param fuzzer the fuzzer

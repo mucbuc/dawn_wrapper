@@ -29,7 +29,6 @@
 #define SRC_DAWN_NATIVE_D3D11_PHYSICALDEVICED3D11_H_
 
 #include "dawn/native/d3d/PhysicalDeviceD3D.h"
-
 #include "dawn/native/d3d/d3d_platform.h"
 #include "dawn/native/d3d11/DeviceInfoD3D11.h"
 
@@ -40,14 +39,15 @@ class Backend;
 class PhysicalDevice : public d3d::PhysicalDevice {
   public:
     PhysicalDevice(Backend* backend,
-                   ComPtr<IDXGIAdapter4> hardwareAdapter,
+                   ComPtr<IDXGIAdapter3> hardwareAdapter,
                    ComPtr<ID3D11Device> d3d11Device);
     ~PhysicalDevice() override;
 
     // PhysicalDeviceBase Implementation
     bool SupportsExternalImages() const override;
 
-    bool SupportsFeatureLevel(FeatureLevel featureLevel) const override;
+    bool SupportsFeatureLevel(wgpu::FeatureLevel featureLevel,
+                              InstanceBase* instance) const override;
 
     const DeviceInfo& GetDeviceInfo() const;
     ResultOrError<ComPtr<ID3D11Device>> CreateD3D11Device(bool enableDebugLayer);
@@ -79,7 +79,8 @@ class PhysicalDevice : public d3d::PhysicalDevice {
         wgpu::FeatureName feature,
         const TogglesState& toggles) const override;
 
-    void PopulateBackendProperties(UnpackedPtr<AdapterInfo>& info) const override;
+    void PopulateBackendProperties(UnpackedPtr<AdapterInfo>& info,
+                                   const TogglesState& adapterToggles) const override;
 
     const bool mIsSharedD3D11Device;
     ComPtr<ID3D11Device> mD3D11Device;

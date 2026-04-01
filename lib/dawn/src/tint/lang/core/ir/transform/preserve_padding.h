@@ -29,7 +29,7 @@
 #define SRC_TINT_LANG_CORE_IR_TRANSFORM_PRESERVE_PADDING_H_
 
 #include "src/tint/lang/core/ir/validator.h"
-#include "src/tint/utils/result/result.h"
+#include "src/tint/utils/result.h"
 
 // Forward declarations.
 namespace tint::core::ir {
@@ -41,6 +41,9 @@ namespace tint::core::ir::transform {
 /// The capabilities that the transform can support.
 const core::ir::Capabilities kPreservePaddingCapabilities{
     core::ir::Capability::kAllowHandleVarsWithoutBindings,
+    core::ir::Capability::kAllowDuplicateBindings,
+    core::ir::Capability::kAllowNonCoreTypes,
+    core::ir::Capability::kAllow8BitIntegers,
 };
 
 /// PreservePadding is a transform that decomposes stores of whole structure and array types to

@@ -44,9 +44,7 @@ class ShaderModule final : public ObjectWithEventsBase {
 
     ObjectType GetObjectType() const override;
 
-    void GetCompilationInfo(WGPUCompilationInfoCallback callback, void* userdata);
-    WGPUFuture GetCompilationInfoF(const WGPUCompilationInfoCallbackInfo& callbackInfo);
-    WGPUFuture GetCompilationInfo2(const WGPUCompilationInfoCallbackInfo2& callbackInfo);
+    WGPUFuture APIGetCompilationInfo(const WGPUCompilationInfoCallbackInfo& callbackInfo);
 
   private:
     friend class Client;
@@ -55,6 +53,7 @@ class ShaderModule final : public ObjectWithEventsBase {
     std::optional<WGPUCompilationInfo> mCompilationInfo;
     std::vector<std::string> mMessageStrings;
     std::vector<WGPUCompilationMessage> mMessages;
+    std::vector<WGPUDawnCompilationMessageUtf16> mUtf16s;
 };
 
 }  // namespace dawn::wire::client

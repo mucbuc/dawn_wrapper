@@ -62,8 +62,7 @@ uint64_t Platform::AddTraceEvent(char phase,
                                  const uint64_t* argValues,
                                  unsigned char flags) {
     // AddTraceEvent cannot be called if events are disabled.
-    DAWN_ASSERT(false);
-    return 0;
+    DAWN_UNREACHABLE();
 }
 
 void Platform::HistogramCustomCounts(const char* name,
@@ -92,6 +91,12 @@ std::unique_ptr<dawn::platform::WorkerTaskPool> Platform::CreateWorkerTaskPool()
     return std::make_unique<AsyncWorkerThreadPool>();
 }
 
+std::unique_ptr<dawn::platform::JobHandle> WorkerTaskPool::PostWorkerJob(PostWorkerJobCallback cb,
+                                                                         void* userdata) {
+    DAWN_UNREACHABLE();
+    return nullptr;
+}
+
 bool Platform::IsFeatureEnabled(Features feature) {
     switch (feature) {
         case Features::kWebGPUUseDXC:
@@ -100,12 +105,12 @@ bool Platform::IsFeatureEnabled(Features feature) {
 #else
             return false;
 #endif
-        case Features::kWebGPUUseTintIR:
-#if defined(DAWN_OS_CHROMEOS)
+        case Features::kWebGPUEnableRangeAnalysisForRobustness:
             return true;
-#else
-            return false;
-#endif
+        case Features::kWebGPUUseSpirv14:
+            return true;
+        case Features::kWebGPUDecomposeUniformBuffers:
+            return true;
     }
     return false;
 }

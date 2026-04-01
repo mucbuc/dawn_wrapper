@@ -34,10 +34,10 @@ struct buffer_wrapper::pimpl
         write(colors.data());
     }
 
-    static void callback2(auto status, auto userData)
+    static void callback2(MapAsyncStatus status, const char* message, void * userData)
     {
         pimpl* instance = (pimpl*)userData;
-        if (status == WGPUBufferMapAsyncStatus_Success) {
+        if (status == MapAsyncStatus::Success) {
             const auto size = instance->m_buffer.GetSize();
             instance->m_dataCallback(size, instance->m_buffer.GetConstMappedRange(0, size));
             instance->m_buffer.Unmap();
@@ -57,7 +57,7 @@ struct buffer_wrapper::pimpl
         m_done = false;
 
         m_self_ref = shared_from_this();
-        m_buffer.MapAsync(MapMode::Read, 0, buffer_size, &callback2, this);
+        m_buffer.MapAsync(MapMode::Read, 0, buffer_size, CallbackMode::AllowSpontaneous, &callback2, (void*) this);
     }
 
     bool done() const

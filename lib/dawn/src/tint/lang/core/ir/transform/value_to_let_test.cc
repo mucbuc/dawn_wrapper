@@ -27,8 +27,6 @@
 
 #include "src/tint/lang/core/ir/transform/value_to_let.h"
 
-#include <utility>
-
 #include "gtest/gtest.h"
 #include "src/tint/lang/core/ir/transform/helper_test.h"
 #include "src/tint/lang/core/type/depth_texture.h"
@@ -76,7 +74,7 @@ TEST_F(IR_ValueToLetTest, NoModify_Unsequenced) {
     b.Append(fn->Block(), [&] {
         auto* x = b.Let("x", 1_i);
         auto* y = b.Let("y", 2_i);
-        auto* z = b.Let("z", b.Add<i32>(x, y));
+        auto* z = b.Let("z", b.Add(x, y));
         b.Return(fn, z);
     });
 
@@ -112,7 +110,7 @@ TEST_F(IR_ValueToLetTest, NoModify_Bitcast) {
 %F = func():u32 {
   $B1: {
     %x:i32 = let 1i
-    %3:u32 = bitcast %x
+    %3:u32 = bitcast<u32> %x
     ret %3
   }
 }
@@ -134,7 +132,7 @@ TEST_F(IR_ValueToLetTest, NoModify_SequencedValueUsedWithNonSequenced) {
     auto* rmw = b.Function("rmw", ty.i32());
     rmw->SetParams({p});
     b.Append(rmw->Block(), [&] {
-        auto* v = b.Let("v", b.Add<i32>(b.Load(i), p));
+        auto* v = b.Let("v", b.Add(b.Load(i), p));
         b.Store(i, v);
         b.Return(rmw, v);
     });
@@ -149,7 +147,7 @@ TEST_F(IR_ValueToLetTest, NoModify_SequencedValueUsedWithNonSequenced) {
 
     auto* src = R"(
 $B1: {  # root
-  %i:ptr<private, i32, read_write> = var
+  %i:ptr<private, i32, read_write> = var undef
 }
 
 %rmw = func(%p:i32):i32 {
@@ -186,7 +184,7 @@ TEST_F(IR_ValueToLetTest, NoModify_Inlinable_NestedCalls) {
     auto* rmw = b.Function("rmw", ty.i32());
     rmw->SetParams({p});
     b.Append(rmw->Block(), [&] {
-        auto* v = b.Let("v", b.Add<i32>(b.Load(i), p));
+        auto* v = b.Let("v", b.Add(b.Load(i), p));
         b.Store(i, v);
         b.Return(rmw, v);
     });
@@ -201,7 +199,7 @@ TEST_F(IR_ValueToLetTest, NoModify_Inlinable_NestedCalls) {
 
     auto* src = R"(
 $B1: {  # root
-  %i:ptr<private, i32, read_write> = var
+  %i:ptr<private, i32, read_write> = var undef
 }
 
 %rmw = func(%p:i32):i32 {
@@ -239,7 +237,7 @@ TEST_F(IR_ValueToLetTest, NoModify_LetUsedTwice) {
     auto* rmw = b.Function("rmw", ty.i32());
     rmw->SetParams({p});
     b.Append(rmw->Block(), [&] {
-        auto* v = b.Let("v", b.Add<i32>(b.Load(i), p));
+        auto* v = b.Let("v", b.Add(b.Load(i), p));
         b.Store(i, v);
         b.Return(rmw, v);
     });
@@ -248,13 +246,13 @@ TEST_F(IR_ValueToLetTest, NoModify_LetUsedTwice) {
     b.Append(fn->Block(), [&] {
         // No need to create more lets, as these are already in lets
         auto* x = b.Let("x", b.Call(rmw, 1_i));
-        auto* y = b.Name("y", b.Add<i32>(x, x));
+        auto* y = b.Name("y", b.Add(x, x));
         b.Return(fn, y);
     });
 
     auto* src = R"(
 $B1: {  # root
-  %i:ptr<private, i32, read_write> = var
+  %i:ptr<private, i32, read_write> = var undef
 }
 
 %rmw = func(%p:i32):i32 {
@@ -295,7 +293,7 @@ TEST_F(IR_ValueToLetTest, NoModify_VarUsedTwice) {
         auto* v = b.Var<function, i32>("v");
         auto* x = b.Let("x", b.Call(fn_g, v));
         auto* y = b.Let("y", b.Call(fn_g, v));
-        b.Return(fn, b.Add<i32>(x, y));
+        b.Return(fn, b.Add(x, y));
     });
 
     auto* src = R"(
@@ -307,7 +305,7 @@ TEST_F(IR_ValueToLetTest, NoModify_VarUsedTwice) {
 }
 %F = func():i32 {
   $B2: {
-    %v:ptr<function, i32, read_write> = var
+    %v:ptr<function, i32, read_write> = var undef
     %6:i32 = call %g, %v
     %x:i32 = let %6
     %8:i32 = call %g, %v
@@ -331,13 +329,13 @@ TEST_F(IR_ValueToLetTest, VarLoadUsedTwice) {
     b.Append(fn->Block(), [&] {
         auto* v = b.Var<function, i32>("v");
         auto* l = b.Name("l", b.Load(v));
-        b.Return(fn, b.Add<i32>(l, l));
+        b.Return(fn, b.Add(l, l));
     });
 
     auto* src = R"(
 %F = func():i32 {
   $B1: {
-    %v:ptr<function, i32, read_write> = var
+    %v:ptr<function, i32, read_write> = var undef
     %l:i32 = load %v
     %4:i32 = add %l, %l
     ret %4
@@ -349,7 +347,7 @@ TEST_F(IR_ValueToLetTest, VarLoadUsedTwice) {
     auto* expect = R"(
 %F = func():i32 {
   $B1: {
-    %v:ptr<function, i32, read_write> = var
+    %v:ptr<function, i32, read_write> = var undef
     %3:i32 = load %v
     %l:i32 = let %3
     %5:i32 = add %l, %l
@@ -375,7 +373,7 @@ TEST_F(IR_ValueToLetTest, VarLoad_ThenStore_ThenUse) {
     auto* src = R"(
 %F = func():i32 {
   $B1: {
-    %v:ptr<function, i32, read_write> = var
+    %v:ptr<function, i32, read_write> = var undef
     %l:i32 = load %v
     store %v, 1i
     ret %l
@@ -387,7 +385,7 @@ TEST_F(IR_ValueToLetTest, VarLoad_ThenStore_ThenUse) {
     auto* expect = R"(
 %F = func():i32 {
   $B1: {
-    %v:ptr<function, i32, read_write> = var
+    %v:ptr<function, i32, read_write> = var undef
     %3:i32 = load %v
     %l:i32 = let %3
     store %v, 1i
@@ -415,13 +413,13 @@ TEST_F(IR_ValueToLetTest, Call_ThenLoad_ThenUseCallBeforeLoad) {
     b.Append(fn->Block(), [&] {
         auto* c = b.Call<i32>(foo);
         auto* l = b.Name("l", b.Load(v));
-        auto* add = b.Name("add", b.Add<i32>(c, l));
+        auto* add = b.Name("add", b.Add(c, l));
         b.Return(fn, add);
     });
 
     auto* src = R"(
 $B1: {  # root
-  %v:ptr<private, i32, read_write> = var
+  %v:ptr<private, i32, read_write> = var undef
 }
 
 %foo = func():i32 {
@@ -443,7 +441,7 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %v:ptr<private, i32, read_write> = var
+  %v:ptr<private, i32, read_write> = var undef
 }
 
 %foo = func():i32 {
@@ -482,13 +480,13 @@ TEST_F(IR_ValueToLetTest, Call_ThenLoad_ThenUseLoadBeforeCall) {
     b.Append(fn->Block(), [&] {
         auto* c = b.Call<i32>(foo);
         auto* l = b.Name("l", b.Load(v));
-        auto* add = b.Name("add", b.Add<i32>(l, c));
+        auto* add = b.Name("add", b.Add(l, c));
         b.Return(fn, add);
     });
 
     auto* src = R"(
 $B1: {  # root
-  %v:ptr<private, i32, read_write> = var
+  %v:ptr<private, i32, read_write> = var undef
 }
 
 %foo = func():i32 {
@@ -510,7 +508,7 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %v:ptr<private, i32, read_write> = var
+  %v:ptr<private, i32, read_write> = var undef
 }
 
 %foo = func():i32 {
@@ -548,13 +546,13 @@ TEST_F(IR_ValueToLetTest, Call_WithUseThatIsNeverUsed) {
     auto* fn = b.Function("F", ty.void_());
     b.Append(fn->Block(), [&] {
         auto* c = b.Name("call", b.Call<i32>(foo));
-        b.Name("add", b.Add<i32>(c, 1_i));
+        b.Name("add", b.Add(c, 1_i));
         b.Return(fn);
     });
 
     auto* src = R"(
 $B1: {  # root
-  %v:ptr<private, i32, read_write> = var
+  %v:ptr<private, i32, read_write> = var undef
 }
 
 %foo = func():i32 {
@@ -575,7 +573,7 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %v:ptr<private, i32, read_write> = var
+  %v:ptr<private, i32, read_write> = var undef
 }
 
 %foo = func():i32 {
@@ -618,7 +616,7 @@ TEST_F(IR_ValueToLetTest, ConstructIsNeverUsed) {
 
     auto* src = R"(
 $B1: {  # root
-  %v:ptr<private, i32, read_write> = var
+  %v:ptr<private, i32, read_write> = var undef
 }
 
 %foo = func():i32 {
@@ -639,7 +637,7 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %v:ptr<private, i32, read_write> = var
+  %v:ptr<private, i32, read_write> = var undef
 }
 
 %foo = func():i32 {
@@ -682,7 +680,7 @@ TEST_F(IR_ValueToLetTest, ConvertIsNeverUsed) {
 
     auto* src = R"(
 $B1: {  # root
-  %v:ptr<private, i32, read_write> = var
+  %v:ptr<private, i32, read_write> = var undef
 }
 
 %foo = func():i32 {
@@ -703,7 +701,7 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %v:ptr<private, i32, read_write> = var
+  %v:ptr<private, i32, read_write> = var undef
 }
 
 %foo = func():i32 {
@@ -735,7 +733,7 @@ TEST_F(IR_ValueToLetTest, TwoCalls_ThenUseReturnValues) {
     auto* rmw = b.Function("rmw", ty.i32());
     rmw->SetParams({p});
     b.Append(rmw->Block(), [&] {
-        auto* v = b.Let("v", b.Add<i32>(b.Load(i), p));
+        auto* v = b.Let("v", b.Add(b.Load(i), p));
         b.Store(i, v);
         b.Return(rmw, v);
     });
@@ -744,13 +742,13 @@ TEST_F(IR_ValueToLetTest, TwoCalls_ThenUseReturnValues) {
     b.Append(fn->Block(), [&] {
         auto* x = b.Name("x", b.Call(rmw, 1_i));
         auto* y = b.Name("y", b.Call(rmw, 2_i));
-        auto* z = b.Name("z", b.Add<i32>(x, y));
+        auto* z = b.Name("z", b.Add(x, y));
         b.Return(fn, z);
     });
 
     auto* src = R"(
 $B1: {  # root
-  %i:ptr<private, i32, read_write> = var
+  %i:ptr<private, i32, read_write> = var undef
 }
 
 %rmw = func(%p:i32):i32 {
@@ -775,7 +773,7 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %i:ptr<private, i32, read_write> = var
+  %i:ptr<private, i32, read_write> = var undef
 }
 
 %rmw = func(%p:i32):i32 {
@@ -815,7 +813,7 @@ TEST_F(IR_ValueToLetTest, SequencedUsedInDifferentBlock) {
     auto* rmw = b.Function("rmw", ty.i32());
     rmw->SetParams({p});
     b.Append(rmw->Block(), [&] {
-        auto* v = b.Let("v", b.Add<i32>(b.Load(i), p));
+        auto* v = b.Let("v", b.Add(b.Load(i), p));
         b.Store(i, v);
         b.Return(rmw, v);
     });
@@ -832,7 +830,7 @@ TEST_F(IR_ValueToLetTest, SequencedUsedInDifferentBlock) {
 
     auto* src = R"(
 $B1: {  # root
-  %i:ptr<private, i32, read_write> = var
+  %i:ptr<private, i32, read_write> = var undef
 }
 
 %rmw = func(%p:i32):i32 {
@@ -860,7 +858,7 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %i:ptr<private, i32, read_write> = var
+  %i:ptr<private, i32, read_write> = var undef
 }
 
 %rmw = func(%p:i32):i32 {
@@ -900,7 +898,7 @@ TEST_F(IR_ValueToLetTest, NameMe1) {
     b.Append(fn->Block(), [&] {
         auto* v = b.Var<function, i32>("v");
         auto* x = b.Load(v);
-        auto* y = b.Add<i32>(x, 1_i);
+        auto* y = b.Add(x, 1_i);
         b.Store(v, 2_i);
         b.Return(fn, y);
     });
@@ -908,7 +906,7 @@ TEST_F(IR_ValueToLetTest, NameMe1) {
     auto* src = R"(
 %F = func():i32 {
   $B1: {
-    %v:ptr<function, i32, read_write> = var
+    %v:ptr<function, i32, read_write> = var undef
     %3:i32 = load %v
     %4:i32 = add %3, 1i
     store %v, 2i
@@ -921,7 +919,7 @@ TEST_F(IR_ValueToLetTest, NameMe1) {
     auto* expect = R"(
 %F = func():i32 {
   $B1: {
-    %v:ptr<function, i32, read_write> = var
+    %v:ptr<function, i32, read_write> = var undef
     %3:i32 = load %v
     %4:i32 = add %3, 1i
     %5:i32 = let %4
@@ -943,11 +941,11 @@ TEST_F(IR_ValueToLetTest, NameMe1) {
 TEST_F(IR_ValueToLetTest, NameMe2) {
     auto* fn = b.Function("F", ty.void_());
     b.Append(fn->Block(), [&] {
-        auto* i = b.Name("i", b.Call<i32>(core::BuiltinFn::kMax, 1_i, 2_i));
+        auto* i = b.Name("i", b.Max(1_i, 2_i));
         auto* v = b.Var<function>("v", i);
-        auto* x = b.Name("x", b.Call<i32>(core::BuiltinFn::kMax, 3_i, 4_i));
+        auto* x = b.Name("x", b.Max(3_i, 4_i));
         auto* y = b.Name("y", b.Load(v));
-        auto* z = b.Name("z", b.Add<i32>(y, x));
+        auto* z = b.Name("z", b.Add(y, x));
         b.Store(v, z);
         b.Return(fn);
     });
@@ -956,7 +954,7 @@ TEST_F(IR_ValueToLetTest, NameMe2) {
 %F = func():void {
   $B1: {
     %i:i32 = max 1i, 2i
-    %v:ptr<function, i32, read_write> = var, %i
+    %v:ptr<function, i32, read_write> = var %i
     %x:i32 = max 3i, 4i
     %y:i32 = load %v
     %z:i32 = add %y, %x
@@ -971,9 +969,8 @@ TEST_F(IR_ValueToLetTest, NameMe2) {
 %F = func():void {
   $B1: {
     %i:i32 = max 1i, 2i
-    %v:ptr<function, i32, read_write> = var, %i
-    %4:i32 = max 3i, 4i
-    %x:i32 = let %4
+    %v:ptr<function, i32, read_write> = var %i
+    %x:i32 = max 3i, 4i
     %y:i32 = load %v
     %z:i32 = add %y, %x
     store %v, %z
@@ -993,18 +990,16 @@ TEST_F(IR_ValueToLetTest, TextureInline) {
     core::ir::Var* tex = nullptr;
     core::ir::Var* sampler = nullptr;
     b.Append(b.ir.root_block, [&] {
-        tex = b.Var(
-            ty.ptr(handle, ty.Get<core::type::DepthTexture>(core::type::TextureDimension::k2d)));
+        tex = b.Var(ty.ptr(handle, ty.depth_texture(core::type::TextureDimension::k2d)));
         tex->SetBindingPoint(0, 0);
 
-        sampler =
-            b.Var(ty.ptr(handle, ty.Get<core::type::Sampler>(core::type::SamplerKind::kSampler)));
+        sampler = b.Var(ty.ptr(handle, ty.sampler()));
         sampler->SetBindingPoint(0, 1);
     });
 
     auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
-        auto* coords = b.Construct(ty.vec2<f32>(), b.Value(1_f), b.Value(2_f));
+        auto* coords = b.Construct(ty.vec2f(), b.Value(1_f), b.Value(2_f));
 
         auto* t = b.Load(tex);
         auto* s = b.Load(sampler);
@@ -1014,8 +1009,8 @@ TEST_F(IR_ValueToLetTest, TextureInline) {
 
     auto* src = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_depth_2d, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_depth_2d, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -1033,8 +1028,8 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %1:ptr<handle, texture_depth_2d, read> = var @binding_point(0, 0)
-  %2:ptr<handle, sampler, read> = var @binding_point(0, 1)
+  %1:ptr<handle, texture_depth_2d, read> = var undef @binding_point(0, 0)
+  %2:ptr<handle, sampler, read> = var undef @binding_point(0, 1)
 }
 
 %foo = @fragment func():void {
@@ -1061,7 +1056,7 @@ TEST_F(IR_ValueToLetTest, AccessToLetWithFunctionParams) {
     b.Append(f->Block(), [&] { b.Return(f, 0_i); });
 
     auto* g = b.Function("g", ty.i32());
-    b.Append(g->Block(), [&] { b.Return(f, 0_i); });
+    b.Append(g->Block(), [&] { b.Return(g, 0_i); });
 
     auto* foo = b.Function("foo", ty.void_());
     b.Append(foo->Block(), [&] {
@@ -1088,7 +1083,7 @@ TEST_F(IR_ValueToLetTest, AccessToLetWithFunctionParams) {
 }
 %foo = func():void {
   $B3: {
-    %arr:ptr<function, array<i32, 4>, read_write> = var
+    %arr:ptr<function, array<i32, 4>, read_write> = var undef
     %5:i32 = call %f
     %6:ptr<function, i32, read_write> = access %arr, %5
     %p:ptr<function, i32, read_write> = let %6
@@ -1115,7 +1110,7 @@ TEST_F(IR_ValueToLetTest, AccessToLetWithFunctionParams) {
 }
 %foo = func():void {
   $B3: {
-    %arr:ptr<function, array<i32, 4>, read_write> = var
+    %arr:ptr<function, array<i32, 4>, read_write> = var undef
     %5:i32 = call %f
     %6:i32 = let %5
     %7:ptr<function, i32, read_write> = access %arr, %6
@@ -1142,13 +1137,13 @@ TEST_F(IR_ValueToLetTest, AccessToLetWithNestedFunctionParams) {
     b.Append(f->Block(), [&] { b.Return(f, 0_i); });
 
     auto* g = b.Function("g", ty.i32());
-    b.Append(g->Block(), [&] { b.Return(f, 0_i); });
+    b.Append(g->Block(), [&] { b.Return(g, 0_i); });
 
     auto* foo = b.Function("foo", ty.void_());
     b.Append(foo->Block(), [&] {
         auto* arr = b.Var("arr", ty.ptr<function, array<i32, 4>, read_write>());
         auto* c = b.Call(ty.i32(), f);
-        auto* d = b.Add(ty.i32(), c, 1_i);
+        auto* d = b.Add(c, 1_i);
         auto* access = b.Access(ty.ptr<function, i32, read_write>(), arr, d);
         auto* p = b.Let("p", access);
         auto* c2 = b.Call(ty.i32(), g);
@@ -1170,7 +1165,7 @@ TEST_F(IR_ValueToLetTest, AccessToLetWithNestedFunctionParams) {
 }
 %foo = func():void {
   $B3: {
-    %arr:ptr<function, array<i32, 4>, read_write> = var
+    %arr:ptr<function, array<i32, 4>, read_write> = var undef
     %5:i32 = call %f
     %6:i32 = add %5, 1i
     %7:ptr<function, i32, read_write> = access %arr, %6
@@ -1198,7 +1193,7 @@ TEST_F(IR_ValueToLetTest, AccessToLetWithNestedFunctionParams) {
 }
 %foo = func():void {
   $B3: {
-    %arr:ptr<function, array<i32, 4>, read_write> = var
+    %arr:ptr<function, array<i32, 4>, read_write> = var undef
     %5:i32 = call %f
     %6:i32 = add %5, 1i
     %7:i32 = let %6

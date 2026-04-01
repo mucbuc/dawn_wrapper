@@ -40,7 +40,6 @@
 ################################################################################
 tint_add_target(tint_utils_containers lib
   utils/containers/bitset.h
-  utils/containers/const_propagating_ptr.h
   utils/containers/containers.cc
   utils/containers/enum_set.h
   utils/containers/filtered_iterator.h
@@ -51,7 +50,6 @@ tint_add_target(tint_utils_containers lib
   utils/containers/predicates.h
   utils/containers/reverse.h
   utils/containers/scope_stack.h
-  utils/containers/slice.h
   utils/containers/transform.h
   utils/containers/unique_allocator.h
   utils/containers/unique_vector.h
@@ -64,7 +62,6 @@ tint_target_add_dependencies(tint_utils_containers lib
   tint_utils_math
   tint_utils_memory
   tint_utils_rtti
-  tint_utils_traits
 )
 
 tint_target_add_external_dependencies(tint_utils_containers lib
@@ -85,7 +82,6 @@ tint_add_target(tint_utils_containers_test test
   utils/containers/predicates_test.cc
   utils/containers/reverse_test.cc
   utils/containers/scope_stack_test.cc
-  utils/containers/slice_test.cc
   utils/containers/transform_test.cc
   utils/containers/unique_allocator_test.cc
   utils/containers/unique_vector_test.cc
@@ -93,28 +89,14 @@ tint_add_target(tint_utils_containers_test test
 )
 
 tint_target_add_dependencies(tint_utils_containers_test test
-  tint_api_common
-  tint_lang_core
-  tint_lang_core_constant
-  tint_lang_core_type
-  tint_lang_wgsl
-  tint_lang_wgsl_ast
-  tint_lang_wgsl_features
-  tint_lang_wgsl_program
-  tint_lang_wgsl_sem
   tint_utils_containers
-  tint_utils_diagnostic
   tint_utils_ice
-  tint_utils_id
   tint_utils_macros
   tint_utils_math
   tint_utils_memory
-  tint_utils_reflection
-  tint_utils_result
   tint_utils_rtti
   tint_utils_symbol
   tint_utils_text
-  tint_utils_traits
 )
 
 tint_target_add_external_dependencies(tint_utils_containers_test test

@@ -38,9 +38,13 @@ import (
 
 	"dawn.googlesource.com/dawn/tools/src/cmd/cts/common"
 	"dawn.googlesource.com/dawn/tools/src/fileutils"
+	"dawn.googlesource.com/dawn/tools/src/oswrapper"
+	"dawn.googlesource.com/dawn/tools/src/resultsdb"
 	"dawn.googlesource.com/dawn/tools/src/subcmd"
 
 	// Register sub-commands
+	_ "dawn.googlesource.com/dawn/tools/src/cmd/cts/credentialscheck"
+	_ "dawn.googlesource.com/dawn/tools/src/cmd/cts/expectationcoverage"
 	_ "dawn.googlesource.com/dawn/tools/src/cmd/cts/export"
 	_ "dawn.googlesource.com/dawn/tools/src/cmd/cts/format"
 	_ "dawn.googlesource.com/dawn/tools/src/cmd/cts/merge"
@@ -56,7 +60,13 @@ import (
 func main() {
 	ctx := context.Background()
 
-	cfg, err := common.LoadConfig(filepath.Join(fileutils.ThisDir(), "config.json"))
+	cfg, err := common.LoadConfig(filepath.Join(fileutils.ThisDir(), "config.json"), oswrapper.GetRealOSWrapper())
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+
+	cfg.Querier, err = resultsdb.NewBigQueryClient(ctx, resultsdb.DefaultQueryProject)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)

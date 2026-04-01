@@ -30,19 +30,39 @@
 #include <utility>
 
 #include "dawn/native/d3d/D3DError.h"
+#include "dawn/native/d3d/PlatformFunctions.h"
 #include "dawn/native/d3d11/DeviceD3D11.h"
+#include "dawn/native/d3d11/QueueD3D11.h"
+#include "dawn/utils/SystemHandle.h"
 
 namespace dawn::native::d3d11 {
+
+namespace {
+bool IsSameHandle(DeviceBase* device, HANDLE handle, HANDLE other) {
+    if (handle == other) {
+        return true;
+    }
+
+    return ::CompareObjectHandles(handle, other);
+}
+}  // namespace
 
 // static
 ResultOrError<Ref<SharedFence>> SharedFence::Create(
     Device* device,
     StringView label,
     const SharedFenceDXGISharedHandleDescriptor* descriptor) {
+    DAWN_ASSERT(!device->IsToggleEnabled(Toggle::D3D11DisableFence));
+
     DAWN_INVALID_IF(descriptor->handle == nullptr, "shared HANDLE is missing.");
 
-    SystemHandle ownedHandle;
-    DAWN_TRY_ASSIGN(ownedHandle, SystemHandle::Duplicate(descriptor->handle));
+    const auto& queueFence = ToBackend(device->GetQueue())->GetSharedFence();
+    if (queueFence &&
+        IsSameHandle(device, queueFence->GetSystemHandle().Get(), descriptor->handle)) {
+        return queueFence;
+    }
+
+    utils::SystemHandle ownedHandle = utils::SystemHandle::Duplicate(descriptor->handle);
 
     Ref<SharedFence> fence = AcquireRef(new SharedFence(device, label, std::move(ownedHandle)));
     DAWN_TRY(CheckHRESULT(device->GetD3D11Device5()->OpenSharedFence(descriptor->handle,
@@ -56,7 +76,7 @@ ResultOrError<Ref<SharedFence>> SharedFence::Create(
 ResultOrError<Ref<SharedFence>> SharedFence::Create(Device* device,
                                                     StringView label,
                                                     ComPtr<ID3D11Fence> d3d11Fence) {
-    SystemHandle ownedHandle;
+    utils::SystemHandle ownedHandle;
     DAWN_TRY(CheckHRESULT(
         d3d11Fence->CreateSharedHandle(nullptr, GENERIC_ALL, nullptr, ownedHandle.GetMut()),
         "D3D11: creating fence shared handle"));
@@ -66,7 +86,7 @@ ResultOrError<Ref<SharedFence>> SharedFence::Create(Device* device,
     return fence;
 }
 
-void SharedFence::DestroyImpl() {
+void SharedFence::DestroyImpl(DestroyReason reason) {
     mFence = nullptr;
 }
 

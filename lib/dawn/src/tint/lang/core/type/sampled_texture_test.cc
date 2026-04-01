@@ -27,12 +27,17 @@
 
 #include "src/tint/lang/core/type/sampled_texture.h"
 
+#include "src/tint/lang/core/enums.h"
 #include "src/tint/lang/core/type/depth_texture.h"
 #include "src/tint/lang/core/type/external_texture.h"
+#include "src/tint/lang/core/type/f32.h"
 #include "src/tint/lang/core/type/helper_test.h"
+#include "src/tint/lang/core/type/i32.h"
 #include "src/tint/lang/core/type/input_attachment.h"
+#include "src/tint/lang/core/type/manager.h"
 #include "src/tint/lang/core/type/storage_texture.h"
 #include "src/tint/lang/core/type/texture_dimension.h"
+#include "src/tint/lang/core/type/void.h"
 
 namespace tint::core::type {
 namespace {
@@ -40,36 +45,58 @@ namespace {
 using SampledTextureTest = TestHelper;
 
 TEST_F(SampledTextureTest, Creation) {
-    auto* a = create<SampledTexture>(TextureDimension::kCube, create<F32>());
-    auto* b = create<SampledTexture>(TextureDimension::kCube, create<F32>());
-    auto* c = create<SampledTexture>(TextureDimension::k2d, create<F32>());
-    auto* d = create<SampledTexture>(TextureDimension::kCube, create<I32>());
+    Manager ty;
+    auto* a = ty.sampled_texture(TextureDimension::kCube, ty.f32());
+    auto* b = ty.sampled_texture(TextureDimension::kCube, ty.f32());
+    auto* c = ty.sampled_texture(TextureDimension::k2d, ty.f32());
+    auto* d = ty.sampled_texture(TextureDimension::kCube, ty.i32());
+    auto* e = ty.sampled_texture(TextureDimension::kCube, ty.f32(), TextureFilterable::kFilterable);
+    auto* f = ty.sampled_texture(TextureDimension::kCube, ty.f32(), TextureFilterable::kFilterable);
+    auto* g =
+        ty.sampled_texture(TextureDimension::kCube, ty.f32(), TextureFilterable::kUnfilterable);
 
     EXPECT_TRUE(a->Type()->Is<F32>());
     EXPECT_EQ(a->Dim(), TextureDimension::kCube);
 
+    EXPECT_EQ(a->Filterable(), TextureFilterable::kUndefined);
+    EXPECT_EQ(e->Filterable(), TextureFilterable::kFilterable);
+
     EXPECT_EQ(a, b);
     EXPECT_NE(a, c);
     EXPECT_NE(a, d);
+    EXPECT_NE(a, e);
+    EXPECT_EQ(e, f);
+    EXPECT_NE(e, g);
 }
 
 TEST_F(SampledTextureTest, Hash) {
-    auto* a = create<SampledTexture>(TextureDimension::kCube, create<F32>());
-    auto* b = create<SampledTexture>(TextureDimension::kCube, create<F32>());
+    Manager ty;
+    auto* a = ty.sampled_texture(TextureDimension::kCube, ty.f32());
+    auto* b = ty.sampled_texture(TextureDimension::kCube, ty.f32());
+    auto* c = ty.sampled_texture(TextureDimension::kCube, ty.f32(), TextureFilterable::kFilterable);
 
     EXPECT_EQ(a->unique_hash, b->unique_hash);
+    EXPECT_NE(a->unique_hash, c->unique_hash);
 }
 
 TEST_F(SampledTextureTest, Equals) {
-    auto* a = create<SampledTexture>(TextureDimension::kCube, create<F32>());
-    auto* b = create<SampledTexture>(TextureDimension::kCube, create<F32>());
-    auto* c = create<SampledTexture>(TextureDimension::k2d, create<F32>());
-    auto* d = create<SampledTexture>(TextureDimension::kCube, create<I32>());
+    Manager ty;
+    auto* a = ty.sampled_texture(TextureDimension::kCube, ty.f32());
+    auto* b = ty.sampled_texture(TextureDimension::kCube, ty.f32());
+    auto* c = ty.sampled_texture(TextureDimension::k2d, ty.f32());
+    auto* d = ty.sampled_texture(TextureDimension::kCube, ty.i32());
+    auto* e = ty.sampled_texture(TextureDimension::kCube, ty.f32(), TextureFilterable::kFilterable);
+    auto* f = ty.sampled_texture(TextureDimension::kCube, ty.f32(), TextureFilterable::kFilterable);
+    auto* g =
+        ty.sampled_texture(TextureDimension::kCube, ty.f32(), TextureFilterable::kUnfilterable);
 
     EXPECT_TRUE(a->Equals(*b));
     EXPECT_FALSE(a->Equals(*c));
     EXPECT_FALSE(a->Equals(*d));
     EXPECT_FALSE(a->Equals(Void{}));
+    EXPECT_FALSE(a->Equals(*e));
+    EXPECT_TRUE(e->Equals(*f));
+    EXPECT_FALSE(e->Equals(*g));
 }
 
 TEST_F(SampledTextureTest, IsTexture) {
@@ -101,8 +128,15 @@ TEST_F(SampledTextureTest, FriendlyName) {
     EXPECT_EQ(s.FriendlyName(), "texture_3d<f32>");
 }
 
+TEST_F(SampledTextureTest, FriendlyNameFilterable) {
+    F32 f32;
+    SampledTexture s(TextureDimension::k3d, &f32, TextureFilterable::kFilterable);
+    EXPECT_EQ(s.FriendlyName(), "texture_3d<f32, filterable>");
+}
+
 TEST_F(SampledTextureTest, Clone) {
-    auto* a = create<SampledTexture>(TextureDimension::kCube, create<F32>());
+    Manager ty;
+    auto* a = ty.sampled_texture(TextureDimension::kCube, ty.f32());
 
     core::type::Manager mgr;
     core::type::CloneContext ctx{{nullptr}, {nullptr, &mgr}};
@@ -110,6 +144,21 @@ TEST_F(SampledTextureTest, Clone) {
     auto* mt = a->Clone(ctx);
     EXPECT_EQ(mt->Dim(), TextureDimension::kCube);
     EXPECT_TRUE(mt->Type()->Is<F32>());
+    EXPECT_EQ(mt->Filterable(), TextureFilterable::kUndefined);
+}
+
+TEST_F(SampledTextureTest, CloneFilterable) {
+    Manager ty;
+    auto* a =
+        ty.sampled_texture(TextureDimension::kCube, ty.f32(), TextureFilterable::kUnfilterable);
+
+    core::type::Manager mgr;
+    core::type::CloneContext ctx{{nullptr}, {nullptr, &mgr}};
+
+    auto* mt = a->Clone(ctx);
+    EXPECT_EQ(mt->Dim(), TextureDimension::kCube);
+    EXPECT_TRUE(mt->Type()->Is<F32>());
+    EXPECT_EQ(mt->Filterable(), TextureFilterable::kUnfilterable);
 }
 
 }  // namespace

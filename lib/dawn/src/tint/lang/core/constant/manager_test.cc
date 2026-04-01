@@ -38,22 +38,13 @@
 #include "src/tint/lang/core/type/i8.h"
 #include "src/tint/lang/core/type/manager.h"
 #include "src/tint/lang/core/type/u32.h"
+#include "src/tint/lang/core/type/u64.h"
 #include "src/tint/lang/core/type/u8.h"
 
 namespace tint::core::constant {
 namespace {
 
 using namespace tint::core::number_suffixes;  // NOLINT
-
-template <typename T>
-size_t count(const T& range_loopable) {
-    size_t n = 0;
-    for (auto it : range_loopable) {
-        (void)it;
-        n++;
-    }
-    return n;
-}
 
 using ManagerTest = testing::Test;
 
@@ -132,6 +123,15 @@ TEST_F(ManagerTest, Get_u32) {
     EXPECT_EQ(c->value, 1_u);
 }
 
+TEST_F(ManagerTest, Get_u64) {
+    constant::Manager cm;
+
+    auto* c = cm.Get(u64(1));
+    static_assert(std::is_same_v<const Scalar<u64>*, decltype(c)>);
+    ASSERT_TRUE(Is<core::type::U64>(c->Type()));
+    EXPECT_EQ(c->value, u64(1));
+}
+
 TEST_F(ManagerTest, Get_u8) {
     constant::Manager cm;
 
@@ -184,36 +184,6 @@ TEST_F(ManagerTest, Get_AInt) {
     static_assert(std::is_same_v<const Scalar<AInt>*, decltype(c)>);
     ASSERT_TRUE(Is<core::type::AbstractInt>(c->Type()));
     EXPECT_EQ(c->value, 1_a);
-}
-
-TEST_F(ManagerTest, WrapDoesntAffectInner_Constant) {
-    Manager inner;
-    Manager outer = Manager::Wrap(inner);
-
-    inner.Get(1_i);
-
-    EXPECT_EQ(count(inner), 1u);
-    EXPECT_EQ(count(outer), 0u);
-
-    outer.Get(1_i);
-
-    EXPECT_EQ(count(inner), 1u);
-    EXPECT_EQ(count(outer), 1u);
-}
-
-TEST_F(ManagerTest, WrapDoesntAffectInner_Types) {
-    Manager inner;
-    Manager outer = Manager::Wrap(inner);
-
-    inner.types.Get<core::type::I32>();
-
-    EXPECT_EQ(count(inner.types), 1u);
-    EXPECT_EQ(count(outer.types), 0u);
-
-    outer.types.Get<core::type::U32>();
-
-    EXPECT_EQ(count(inner.types), 1u);
-    EXPECT_EQ(count(outer.types), 1u);
 }
 
 }  // namespace

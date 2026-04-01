@@ -25,27 +25,21 @@
 // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#include "src/tint/lang/core/ir/transform/conversion_polyfill.h"
-
 #include "src/tint/cmd/fuzz/ir/fuzz.h"
+#include "src/tint/lang/core/ir/transform/conversion_polyfill.h"
 #include "src/tint/lang/core/ir/validator.h"
 
 namespace tint::core::ir::transform {
 namespace {
 
-void ConversionPolyfillFuzzer(Module& module, ConversionPolyfillConfig config) {
-    if (auto res = ConversionPolyfill(module, config); res != Success) {
-        return;
-    }
-
-    Capabilities capabilities;
-    if (auto res = Validate(module, capabilities); res != Success) {
-        TINT_ICE() << "result of ConversionPolyfill failed IR validation\n" << res.Failure();
-    }
+Result<SuccessType> ConversionPolyfillFuzzer(Module& ir,
+                                             const fuzz::ir::Context&,
+                                             const ConversionPolyfillConfig& config) {
+    return ConversionPolyfill(ir, config);
 }
 
 }  // namespace
 }  // namespace tint::core::ir::transform
 
 TINT_IR_MODULE_FUZZER(tint::core::ir::transform::ConversionPolyfillFuzzer,
-                      tint::core::ir::Capabilities{});
+                      tint::core::ir::transform::kConversionPolyfillCapabilities);

@@ -29,6 +29,7 @@
 #define SRC_DAWN_WIRE_CHUNKEDCOMMANDSERIALIZER_H_
 
 #include <algorithm>
+#include <atomic>
 #include <cstring>
 #include <functional>
 #include <memory>
@@ -75,6 +76,10 @@ class ChunkedCommandSerializer {
   public:
     explicit ChunkedCommandSerializer(CommandSerializer* serializer);
 
+    // This utility function is intended only for disconnect situations where we want the serializer
+    // to appear to keep working even though we are no longer serializing and flushing commands.
+    void SetCommandSerializerForDisconnect(CommandSerializer* serializer);
+
     template <typename Cmd>
     void SerializeCommand(const Cmd& cmd) {
         SerializeCommandImpl(
@@ -106,6 +111,8 @@ class ChunkedCommandSerializer {
             std::forward<Extensions>(extensions)...);
     }
 
+    void Flush();
+
   private:
     template <typename Cmd, typename SerializeCmdFn, typename... Extensions>
     void SerializeCommandImpl(const Cmd& cmd,
@@ -121,7 +128,7 @@ class ChunkedCommandSerializer {
                 WireResult rCmd = SerializeCmd(cmd, requiredSize, &serializeBuffer);
                 WireResult rExts =
                     detail::SerializeCommandExtension(&serializeBuffer, extensions...);
-                if (DAWN_UNLIKELY(rCmd != WireResult::Success || rExts != WireResult::Success)) {
+                if (rCmd != WireResult::Success || rExts != WireResult::Success) [[unlikely]] {
                     mSerializer->OnSerializeError();
                 }
             }
@@ -135,17 +142,18 @@ class ChunkedCommandSerializer {
         SerializeBuffer serializeBuffer(cmdSpace.get(), requiredSize);
         WireResult rCmd = SerializeCmd(cmd, requiredSize, &serializeBuffer);
         WireResult rExts = detail::SerializeCommandExtension(&serializeBuffer, extensions...);
-        if (DAWN_UNLIKELY(rCmd != WireResult::Success || rExts != WireResult::Success)) {
+        if (rCmd != WireResult::Success || rExts != WireResult::Success) [[unlikely]] {
             mSerializer->OnSerializeError();
             return;
         }
         SerializeChunkedCommand(cmdSpace.get(), requiredSize);
     }
 
-    void SerializeChunkedCommand(const char* allocatedBuffer, size_t remainingSize);
+    void SerializeChunkedCommand(const char* allocatedBuffer, size_t totalSize);
 
     raw_ptr<CommandSerializer> mSerializer;
     size_t mMaxAllocationSize;
+    std::atomic<uint64_t> mNextChunkedCommandId = 0;
 };
 
 }  // namespace dawn::wire

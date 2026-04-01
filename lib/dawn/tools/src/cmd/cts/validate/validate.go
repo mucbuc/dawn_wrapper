@@ -69,7 +69,7 @@ func (cmd) Desc() string {
 }
 
 func (c *cmd) RegisterFlags(ctx context.Context, cfg common.Config) ([]string, error) {
-	slowExpectations := common.DefaultSlowExpectationsPath()
+	slowExpectations := common.DefaultSlowExpectationsPath(cfg.OsWrapper)
 	flag.Var(&c.flags.expectations, "expectations", "path to CTS expectations file(s) to validate")
 	flag.StringVar(&c.flags.slow, "slow", slowExpectations, "path to CTS slow expectations file to validate")
 	return nil, nil
@@ -77,12 +77,12 @@ func (c *cmd) RegisterFlags(ctx context.Context, cfg common.Config) ([]string, e
 
 func (c *cmd) Run(ctx context.Context, cfg common.Config) error {
 	if len(c.flags.expectations) == 0 {
-		c.flags.expectations = common.DefaultExpectationsPaths()
+		c.flags.expectations = common.DefaultExpectationsPaths(cfg.OsWrapper)
 	}
 
 	for _, expectationFilename := range c.flags.expectations {
 		// Load expectations.txt
-		content, err := expectations.Load(expectationFilename)
+		content, err := expectations.Load(expectationFilename, cfg.OsWrapper)
 		if err != nil {
 			return err
 		}
@@ -96,7 +96,7 @@ func (c *cmd) Run(ctx context.Context, cfg common.Config) error {
 	}
 
 	// Load slow_tests.txt
-	content, err := expectations.Load(c.flags.slow)
+	content, err := expectations.Load(c.flags.slow, cfg.OsWrapper)
 	if err != nil {
 		return err
 	}
@@ -105,7 +105,7 @@ func (c *cmd) Run(ctx context.Context, cfg common.Config) error {
 	// Print any diagnostics
 	diags.Print(os.Stdout, c.flags.slow)
 	if numErrs := diags.NumErrors(); numErrs > 0 {
-		return fmt.Errorf("%v errors found", numErrs)
+		return fmt.Errorf("%v errors found in %v", numErrs, c.flags.slow)
 	}
 
 	fmt.Println("no issues found")

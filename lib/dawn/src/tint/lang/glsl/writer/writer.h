@@ -31,14 +31,10 @@
 #include <string>
 
 #include "src/tint/lang/glsl/writer/common/options.h"
-#include "src/tint/lang/glsl/writer/output.h"
-#include "src/tint/utils/diagnostic/diagnostic.h"
-#include "src/tint/utils/result/result.h"
+#include "src/tint/lang/glsl/writer/common/output.h"
+#include "src/tint/utils/result.h"
 
 // Forward declarations
-namespace tint {
-class Program;
-}  // namespace tint
 namespace tint::core::ir {
 class Module;
 }  // namespace tint::core::ir
@@ -50,11 +46,8 @@ namespace tint::glsl::writer {
 /// information.
 /// @param ir the IR module to translate to GLSL
 /// @param options the configuration options to use when generating GLSL
-/// @param entry_point the entry point to generate GLSL for
 /// @returns the resulting GLSL and supplementary information, or failure
-Result<Output> Generate(core::ir::Module& ir,
-                        const Options& options,
-                        const std::string& entry_point);
+Result<Output> Generate(core::ir::Module& ir, const Options& options);
 
 }  // namespace tint::glsl::writer
 

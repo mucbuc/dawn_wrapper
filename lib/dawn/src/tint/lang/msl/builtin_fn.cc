@@ -34,6 +34,8 @@
 //                       Do not modify this file directly
 ////////////////////////////////////////////////////////////////////////////////
 
+// clang-format off
+
 #include "src/tint/lang/msl/builtin_fn.h"
 
 namespace tint::msl {
@@ -64,6 +66,10 @@ const char* str(BuiltinFn i) {
             return "atomic_load_explicit";
         case BuiltinFn::kAtomicStoreExplicit:
             return "atomic_store_explicit";
+        case BuiltinFn::kAtomicMaxExplicit:
+            return "atomic_max_explicit";
+        case BuiltinFn::kAtomicMinExplicit:
+            return "atomic_min_explicit";
         case BuiltinFn::kFence:
             return "fence";
         case BuiltinFn::kGather:
@@ -110,8 +116,87 @@ const char* str(BuiltinFn i) {
             return "simd_ballot";
         case BuiltinFn::kQuadShuffleXor:
             return "quad_shuffle_xor";
+        case BuiltinFn::kConvert:
+            return "convert";
+        case BuiltinFn::kMakeFilledSimdgroupMatrix:
+            return "make_filled_simdgroup_matrix";
+        case BuiltinFn::kMakeDiagonalSimdgroupMatrix:
+            return "make_diagonal_simdgroup_matrix";
+        case BuiltinFn::kSimdgroupLoad:
+            return "simdgroup_load";
+        case BuiltinFn::kSimdgroupStore:
+            return "simdgroup_store";
+        case BuiltinFn::kSimdgroupMultiply:
+            return "simdgroup_multiply";
+        case BuiltinFn::kSimdgroupMultiplyAccumulate:
+            return "simdgroup_multiply_accumulate";
+        case BuiltinFn::kOsLog:
+            return "os_log";
+        case BuiltinFn::kPointerOffset:
+            return "pointer_offset";
     }
     return "<unknown>";
 }
 
+tint::core::ir::Instruction::Accesses GetSideEffects(BuiltinFn fn) {
+    switch (fn) {
+        case BuiltinFn::kAtomicCompareExchangeWeakExplicit:
+        case BuiltinFn::kAtomicExchangeExplicit:
+        case BuiltinFn::kAtomicFetchAddExplicit:
+        case BuiltinFn::kAtomicFetchAndExplicit:
+        case BuiltinFn::kAtomicFetchMaxExplicit:
+        case BuiltinFn::kAtomicFetchMinExplicit:
+        case BuiltinFn::kAtomicFetchOrExplicit:
+        case BuiltinFn::kAtomicFetchSubExplicit:
+        case BuiltinFn::kAtomicFetchXorExplicit:
+        case BuiltinFn::kAtomicStoreExplicit:
+        case BuiltinFn::kFence:
+        case BuiltinFn::kThreadgroupBarrier:
+        case BuiltinFn::kSimdBallot:
+        case BuiltinFn::kQuadShuffleXor:
+        case BuiltinFn::kAtomicMaxExplicit:
+        case BuiltinFn::kAtomicMinExplicit:
+            return core::ir::Instruction::Accesses{core::ir::Instruction::Access::kLoad, core::ir::Instruction::Access::kStore};
+
+        case BuiltinFn::kAtomicLoadExplicit:
+        case BuiltinFn::kGather:
+        case BuiltinFn::kGatherCompare:
+        case BuiltinFn::kRead:
+        case BuiltinFn::kSample:
+        case BuiltinFn::kSampleCompare:
+        case BuiltinFn::kSimdgroupLoad:
+            return core::ir::Instruction::Accesses{core::ir::Instruction::Access::kLoad};
+
+        case BuiltinFn::kWrite:
+        case BuiltinFn::kSimdgroupStore:
+            return core::ir::Instruction::Accesses{core::ir::Instruction::Access::kStore};
+
+        case BuiltinFn::kDistance:
+        case BuiltinFn::kDot:
+        case BuiltinFn::kFmod:
+        case BuiltinFn::kFrexp:
+        case BuiltinFn::kGetWidth:
+        case BuiltinFn::kGetHeight:
+        case BuiltinFn::kGetDepth:
+        case BuiltinFn::kGetArraySize:
+        case BuiltinFn::kGetNumMipLevels:
+        case BuiltinFn::kGetNumSamples:
+        case BuiltinFn::kLength:
+        case BuiltinFn::kModf:
+        case BuiltinFn::kSign:
+        case BuiltinFn::kNone:
+        case BuiltinFn::kConvert:
+        case BuiltinFn::kSimdgroupMultiply:
+        case BuiltinFn::kSimdgroupMultiplyAccumulate:
+        case BuiltinFn::kMakeDiagonalSimdgroupMatrix:
+        case BuiltinFn::kMakeFilledSimdgroupMatrix:
+        case BuiltinFn::kOsLog:
+        case BuiltinFn::kPointerOffset:
+            break;
+    }
+    return core::ir::Instruction::Accesses{};
+}
+
 }  // namespace tint::msl
+
+// clang-format on

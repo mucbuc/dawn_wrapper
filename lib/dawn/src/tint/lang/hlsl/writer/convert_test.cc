@@ -36,11 +36,18 @@ namespace {
 TEST_F(HlslWriterTest, ConvertU32) {
     auto* f = b.Function("a", ty.u32());
     b.Append(f->Block(), [&] {
-        auto* v = b.Var("v", 2_i);
+        auto* v = b.Let("v", 2_i);
         b.Return(f, b.Convert(ty.u32(), v));
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.hlsl;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(f));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.hlsl;
     EXPECT_EQ(output_.hlsl, R"(
 uint a() {
   int v = int(2);
@@ -48,7 +55,8 @@ uint a() {
 }
 
 [numthreads(1, 1, 1)]
-void unused_entry_point() {
+void main() {
+  uint x = a();
 }
 
 )");

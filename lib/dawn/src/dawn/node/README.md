@@ -2,12 +2,23 @@
 
 Note: This code is currently WIP. There are a number of [known issues](#known-issues).
 
+## npm package
+
+There is an npm package named `webgpu` which has dawn.node prebuilt and ready to use.
+See the [npm webgpu](https://www.npmjs.com/package/webgpu). It's build from the
+repo at: https://github.com/dawn-gpu/node-webgpu. See that repo for publishing/updating
+details.
+
 ## Building
 
 ### System requirements
 
-- [CMake 3.10](https://cmake.org/download/) or greater
-- [Go 1.13](https://golang.org/dl/) or greater
+- [GN](https://gn.googlesource.com/gn/) if using the GN build. This is installed as part of depot_tools (see below).
+- [CMake 3.16](https://cmake.org/download/) or greater, if using the CMake build.
+  (Check `cmake_minimum_required` in the [CMakeLists.txt](../../../CMakeLists.txt)
+  file in the project root.)
+- [Go 1.18](https://golang.org/dl/) or greater.
+  (Check the [go.mod](../../../go.mod) file in the project root.)
 
 ### Install `depot_tools`
 
@@ -35,7 +46,15 @@ If you don't have the `libx11-xbc-dev` supporting library, then you must use the
 
 ### Build
 
-Currently, the node bindings can only be built with CMake:
+#### With GN
+
+Set `dawn_build_node_bindings = true` in `args.gn` and build the `dawn_node` target:
+```sh
+gn gen out/Default --args='dawn_build_node_bindings=true'
+autoninja -C out/Default dawn_node
+```
+
+#### With CMake
 
 ```sh
 mkdir <build-output-path>
@@ -128,14 +147,13 @@ The `--flag` parameter must be passed in multiple times, once for each flag begi
 
 - `backend=<null|webgpu|d3d11|d3d12|metal|vulkan|opengl|opengles>`
 - `adapter=<name-of-adapter>` - specifies the adapter to use. May be a substring of the full adapter name. Pass an invalid adapter name and `--verbose` to see all possible adapters.
-- `dlldir=<path>` - used to add an extra DLL search path on Windows, primarily to load the right d3dcompiler_47.dll
 - `enable-dawn-features=<features>` - enable [Dawn toggles](https://dawn.googlesource.com/dawn/+/refs/heads/main/src/dawn/native/Toggles.cpp), e.g. `dump_shaders`
 - `disable-dawn-features=<features>` - disable [Dawn toggles](https://dawn.googlesource.com/dawn/+/refs/heads/main/src/dawn/native/Toggles.cpp)
 
-For example, on Windows, to use the d3dcompiler_47.dll from a Chromium checkout, and to dump shader output, we could run the following using Git Bash:
+For example, to dump shader output, we could run the following using Git Bash:
 
 ```sh
-./tools/run run-cts --verbose --bin=/c/src/dawn/out/active --cts=/c/src/webgpu-cts --flag=dlldir="C:\src\chromium\src\out\Release" --flag=enable-dawn-features=dump_shaders 'webgpu:shader,execution,builtin,abs:integer_builtin_functions,abs_unsigned:storageClass="storage";storageMode="read_write";containerType="vector";isAtomic=false;baseType="u32";type="vec2%3Cu32%3E"'
+./tools/run run-cts --verbose --bin=/c/src/dawn/out/active --cts=/c/src/webgpu-cts --flag=enable-dawn-features=dump_shaders 'webgpu:shader,execution,builtin,abs:integer_builtin_functions,abs_unsigned:storageClass="storage";storageMode="read_write";containerType="vector";isAtomic=false;baseType="u32";type="vec2%3Cu32%3E"'
 ```
 
 Note that we pass `--verbose` above so that all test output, including the dumped shader, is written to stdout.
@@ -166,7 +184,7 @@ Dawn needs to be built with clang and the `DAWN_EMIT_COVERAGE` CMake flag.
 
 LLVM is also required, either [built from source](https://github.com/llvm/llvm-project), or downloaded as part of an [LLVM release](https://releases.llvm.org/download.html). Make sure that the subdirectory `llvm/bin` is in your PATH, and that `llvm-cov` and `llvm-profdata` binaries are present.
 
-Optionally, the `LLVM_SOURCE_DIR` CMake flag can also be specified to point the the `./llvm` directory of [an LLVM checkout](https://github.com/llvm/llvm-project), which will build [`turbo-cov`](../../../tools/src/cmd/turbo-cov/README.md) and dramatically speed up the processing of coverage data. If `turbo-cov` is not built, `llvm-cov` will be used instead.
+Optionally, the `LLVM_SOURCE_DIR` CMake flag can also be specified to point the `./llvm` directory of [an LLVM checkout](https://github.com/llvm/llvm-project), which will build [`turbo-cov`](../../../tools/src/cmd/turbo-cov/README.md) and dramatically speed up the processing of coverage data. If `turbo-cov` is not built, `llvm-cov` will be used instead.
 
 It may be helpful to write a bash script like `use.sh` that sets up your build environment, for example:
 
@@ -219,7 +237,7 @@ Open or create the `.vscode/launch.json` file, and add:
         "--",
         "placeholder-arg",
         "--gpu-provider",
-        "[path-to-cts.js]", // REPLACE: [path-to-cts.js]
+        "[path-to-cts.cjs]", // REPLACE: [path-to-cts.cjs]
         "[test-query]" // REPLACE: [test-query]
       ],
       "cwd": "[cts-root]" // REPLACE: [cts-root]
@@ -231,7 +249,7 @@ Open or create the `.vscode/launch.json` file, and add:
 Replacing:
 
 - `[cts-root]` with the path to the CTS root directory. If you are editing the `.vscode/launch.json` from within the CTS workspace, then you may use `${workspaceFolder}`.
-- `[cts.js]` this is the path to the `cts.js` file that should be copied to the output directory by the [build step](#build)
+- `[cts.cjs]` this is the path to the `cts.cjs` file that should be copied to the output directory by the [build step](#build)
 - `test-query` with the test query string. Example: `webgpu:shader,execution,builtin,abs:*`
 
 ## Debugging C++
@@ -244,7 +262,7 @@ cd <cts-root-dir>
     -e "require('./src/common/tools/setup-ts-in-node.js');require('./src/common/runtime/cmdline.ts');" \
     -- \
     placeholder-arg \
-    --gpu-provider [path to cts.js] \
+    --gpu-provider [path to cts.cjs] \
     [test-query]
 ```
 
@@ -260,7 +278,7 @@ launch.json. For example:
 loop:nested_loops:preventValueOptimizations=false'
 <SNIP>
 Running:
-  Cmd: /home/user/src/dawn/third_party/node/node-linux-x64/bin/node -e "require('./out-node/common/runtime/cmdline.js');" -- placeholder-arg --gpu-provider /home/user/src/dawn/build-clang/cts.js --verbose --quiet --gpu-provider-flag verbose=1 --colors --unroll-const-eval-loops --gpu-provider-flag enable-dawn-features=allow_unsafe_apis "webgpu:shader,execution,flow_control,loop:nested_loops:preventValueOptimizations=false"
+  Cmd: /home/user/src/dawn/third_party/node/node-linux-x64/bin/node -e "require('./out-node/common/runtime/cmdline.js');" -- placeholder-arg --gpu-provider /home/user/src/dawn/build-clang/cts.cjs --verbose --quiet --gpu-provider-flag verbose=1 --colors --gpu-provider-flag enable-dawn-features=allow_unsafe_apis "webgpu:shader,execution,flow_control,loop:nested_loops:preventValueOptimizations=false"
   Dir: /home/user/src/dawn/third_party/webgpu-cts
 
   For VS Code launch.json:
@@ -271,13 +289,12 @@ Running:
         "--",
         "placeholder-arg",
         "--gpu-provider",
-        "/home/user/src/dawn/build-clang/cts.js",
+        "/home/user/src/dawn/build-clang/cts.cjs",
         "--verbose",
         "--quiet",
         "--gpu-provider-flag",
         "verbose=1",
         "--colors",
-        "--unroll-const-eval-loops",
         "--gpu-provider-flag",
         "enable-dawn-features=allow_unsafe_apis",
         "webgpu:shader,execution,flow_control,loop:nested_loops:preventValueOptimizations=false"

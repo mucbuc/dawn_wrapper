@@ -1,4 +1,4 @@
-// flags:  --hlsl_shader_model 62
+// flags:  --hlsl-shader-model 62
 enable f16;
 struct S {
     v: vec3<f16>,
@@ -6,6 +6,7 @@ struct S {
 
 var<private> P : S;
 
+@compute @workgroup_size(1)
 fn f() {
     var    v = P.v;
 

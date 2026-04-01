@@ -26,6 +26,7 @@
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <string>
+
 #include "dawn/tests/unittests/validation/ValidationTest.h"
 #include "dawn/utils/ComboRenderBundleEncoderDescriptor.h"
 #include "dawn/utils/ComboRenderPipelineDescriptor.h"
@@ -100,6 +101,25 @@ TEST_F(LabelTest, BindGroupLayout) {
     {
         descriptor.label = label.c_str();
         wgpu::BindGroupLayout bindGroupLayout = device.CreateBindGroupLayout(&descriptor);
+        std::string readbackLabel = native::GetObjectLabelForTesting(bindGroupLayout.Get());
+        ASSERT_EQ(label, readbackLabel);
+    }
+
+    // Test setting a label on a bad BindGroupLayout
+    {
+        wgpu::BindGroupLayoutEntry entry;
+        entry.binding = -1;
+        entry.visibility = wgpu::ShaderStage(0xFFFF);
+
+        descriptor.entryCount = 1;
+        descriptor.entries = &entry;
+
+        device.PushErrorScope(wgpu::ErrorFilter::Validation);
+        wgpu::BindGroupLayout bindGroupLayout = device.CreateBindGroupLayout(&descriptor);
+
+        device.PopErrorScope(wgpu::CallbackMode::AllowProcessEvents,
+                             [](wgpu::PopErrorScopeStatus, wgpu::ErrorType, wgpu::StringView) {});
+        bindGroupLayout.SetLabel(label.c_str());
         std::string readbackLabel = native::GetObjectLabelForTesting(bindGroupLayout.Get());
         ASSERT_EQ(label, readbackLabel);
     }
@@ -248,7 +268,8 @@ TEST_F(LabelTest, ExternalTexture) {
     descriptor.gamutConversionMatrix = mPlaceholderConstantArray.data();
     descriptor.srcTransferFunctionParameters = mPlaceholderConstantArray.data();
     descriptor.dstTransferFunctionParameters = mPlaceholderConstantArray.data();
-    descriptor.visibleSize = {1, 1};
+    descriptor.cropSize = {1, 1};
+    descriptor.apparentSize = {1, 1};
 
     // The label should be empty if one was not set.
     {
@@ -518,11 +539,11 @@ TEST_F(LabelTest, TextureView) {
 
     wgpu::Texture texture = device.CreateTexture(&descriptor);
 
-    // The label should be empty if one was not set.
+    // The label should be generated if no one was not set.
     {
         wgpu::TextureView textureView = texture.CreateView();
         std::string readbackLabel = native::GetObjectLabelForTesting(textureView.Get());
-        ASSERT_TRUE(readbackLabel.empty());
+        ASSERT_EQ(readbackLabel.rfind("defaulted from [Texture (unlabeled", 0), 0U);
     }
 
     // Test setting a label through API

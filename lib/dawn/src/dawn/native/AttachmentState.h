@@ -34,19 +34,18 @@
 
 #include "dawn/common/Constants.h"
 #include "dawn/common/ContentLessObjectCacheable.h"
+#include "dawn/common/RefCounted.h"
 #include "dawn/common/ityp_array.h"
 #include "dawn/common/ityp_bitset.h"
 #include "dawn/native/CachedObject.h"
 #include "dawn/native/IntegerTypes.h"
-#include "dawn/native/ObjectBase.h"
-
 #include "dawn/native/dawn_platform.h"
 
 namespace dawn::native {
 
 class DeviceBase;
 
-class AttachmentState final : public ObjectBase,
+class AttachmentState final : public RefCounted,
                               public CachedObject,
                               public ContentLessObjectCacheable<AttachmentState> {
   public:
@@ -59,12 +58,10 @@ class AttachmentState final : public ObjectBase,
     };
 
     // Note: Descriptors must be validated before the AttachmentState is constructed.
-    explicit AttachmentState(DeviceBase* device, const RenderBundleEncoderDescriptor* descriptor);
-    explicit AttachmentState(DeviceBase* device,
-                             const UnpackedPtr<RenderPipelineDescriptor>& descriptor,
+    explicit AttachmentState(const RenderBundleEncoderDescriptor* descriptor);
+    explicit AttachmentState(const UnpackedPtr<RenderPipelineDescriptor>& descriptor,
                              const PipelineLayoutBase* layout);
-    explicit AttachmentState(DeviceBase* device,
-                             const UnpackedPtr<RenderPassDescriptor>& descriptor);
+    explicit AttachmentState(const UnpackedPtr<RenderPassDescriptor>& descriptor);
 
     // Constructor used to avoid re-parsing descriptors when we already parsed them for cache keys.
     AttachmentState(const AttachmentState& blueprint);

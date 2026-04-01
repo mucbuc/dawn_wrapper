@@ -28,10 +28,20 @@
 #ifndef SRC_DAWN_COMMON_DYNAMICLIB_H_
 #define SRC_DAWN_COMMON_DYNAMICLIB_H_
 
+#include <span>
 #include <string>
 #include <type_traits>
 
 #include "dawn/common/Assert.h"
+#include "dawn/common/Platform.h"
+
+#if DAWN_PLATFORM_IS(WINDOWS)
+#include "partition_alloc/pointers/raw_ptr.h"
+#elif DAWN_PLATFORM_IS(POSIX)
+#include "partition_alloc/pointers/raw_ptr_exclusion.h"
+#else
+#error "Unsupported platform for DynamicLib"
+#endif
 
 namespace dawn {
 
@@ -48,22 +58,41 @@ class DynamicLib {
 
     bool Valid() const;
 
+#if DAWN_PLATFORM_IS(WINDOWS) && !DAWN_PLATFORM_IS(WINUWP)
+    bool OpenSystemLibrary(std::wstring_view filename, std::string* error = nullptr);
+#endif
     bool Open(const std::string& filename, std::string* error = nullptr);
+    bool Open(const std::string& filename,
+              std::span<const std::string> searchPaths,
+              std::string* error = nullptr);
+    bool OpenLoaded(const std::string& filename, std::string* error = nullptr);
     void Close();
 
     void* GetProc(const std::string& procName, std::string* error = nullptr) const;
 
     template <typename T>
+        requires std::is_function_v<T>
     bool GetProc(T** proc, const std::string& procName, std::string* error = nullptr) const {
         DAWN_ASSERT(proc != nullptr);
-        static_assert(std::is_function<T>::value);
 
         *proc = reinterpret_cast<T*>(GetProc(procName, error));
         return *proc != nullptr;
     }
 
   private:
-    void* mHandle = nullptr;
+#if DAWN_PLATFORM_IS(WINDOWS)
+    // This is an HMODULE (aka void*). It should point to real memory, so we can use raw_ptr:
+    // > A handle to a module. This is the base address of the module in memory.
+    raw_ptr<void> mHandle = nullptr;
+#elif DAWN_PLATFORM_IS(POSIX)
+    // On POSIX we use `dlopen`, which returns a "handle" which may not be a real pointer:
+    // > The value of this symbol table handle should not be interpreted in any way by the caller.
+    RAW_PTR_EXCLUSION void* mHandle = nullptr;
+#else
+#error "Unsupported platform for DynamicLib"
+#endif
+
+    bool mNeedsClose = false;
 };
 
 }  // namespace dawn

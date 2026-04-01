@@ -123,6 +123,9 @@ class QueryInternalShaderTests : public DawnTest {
         DAWN_TEST_UNSUPPORTED_IF(UsesWire());
         DAWN_TEST_UNSUPPORTED_IF(HasToggleEnabled("disable_timestamp_query_conversion"));
 
+        // The test flakily fails on Mali GPUs (see crbug.com/452388097).
+        DAWN_SUPPRESS_TEST_IF(IsARM());
+
         // If implicit device synchronization is turned on, EncodeConvertTimestampsToNanoseconds
         // will expect the device to be locked. But we are calling it directly without going through
         // wgpu API, hence the device won't be locked on this route. This would lead to assertion
@@ -237,6 +240,8 @@ class QueryInternalShaderTests : public DawnTest {
 //   timestamp period (here use GPU frequency (HZ) on Intel D3D12 to calculate the period in
 //   ns for testing).
 TEST_P(QueryInternalShaderTests, TimestampComputeShaderMultiplication) {
+    DAWN_SUPPRESS_TEST_IF(IsWARP());
+
     constexpr std::array<float, 5> kPeriodsToTest = {
         1,
         7,
@@ -264,6 +269,7 @@ TEST_P(QueryInternalShaderTests, TimestampComputeShaderMultiplication) {
 }
 
 TEST_P(QueryInternalShaderTests, TimestampComputeShaderQuantization) {
+    DAWN_SUPPRESS_TEST_IF(IsWARP());
     DAWN_TEST_UNSUPPORTED_IF(!HasToggleEnabled("timestamp_quantization"));
 
     constexpr std::array<uint32_t, 3> kQuantizationMasksToTest = {

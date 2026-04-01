@@ -28,10 +28,11 @@
 #ifndef SRC_DAWN_NATIVE_OPENGL_BUFFERGL_H_
 #define SRC_DAWN_NATIVE_OPENGL_BUFFERGL_H_
 
-#include "dawn/native/Buffer.h"
-#include "partition_alloc/pointers/raw_ptr.h"
+#include <vector>
 
+#include "dawn/native/Buffer.h"
 #include "dawn/native/opengl/opengl_platform.h"
+#include "partition_alloc/pointers/raw_ptr.h"
 
 namespace dawn::native::opengl {
 
@@ -42,31 +43,36 @@ class Buffer final : public BufferBase {
     static ResultOrError<Ref<Buffer>> CreateInternalBuffer(Device* device,
                                                            const BufferDescriptor* descriptor,
                                                            bool shouldLazyClear);
-
-    Buffer(Device* device, const UnpackedPtr<BufferDescriptor>& descriptor);
+    static ResultOrError<Ref<Buffer>> Create(Device* device,
+                                             const UnpackedPtr<BufferDescriptor>& descriptor);
 
     GLuint GetHandle() const;
 
-    bool EnsureDataInitialized();
-    bool EnsureDataInitializedAsDestination(uint64_t offset, uint64_t size);
-    bool EnsureDataInitializedAsDestination(const CopyTextureToBufferCmd* copy);
+    MaybeError EnsureDataInitialized(bool* outDidDataInitialization = nullptr);
+    MaybeError EnsureDataInitializedAsDestination(uint64_t offset,
+                                                  uint64_t size,
+                                                  bool* outDidDataInitialization = nullptr);
+    MaybeError EnsureDataInitializedAsDestination(const CopyTextureToBufferCmd* copy,
+                                                  bool* outDidDataInitialization = nullptr);
 
     void TrackUsage() { MarkUsedInPendingCommands(); }
 
   private:
-    Buffer(Device* device, const UnpackedPtr<BufferDescriptor>& descriptor, bool shouldLazyClear);
+    Buffer(Device* device, const UnpackedPtr<BufferDescriptor>& descriptor);
     ~Buffer() override;
     MaybeError MapAsyncImpl(wgpu::MapMode mode, size_t offset, size_t size) override;
-    void UnmapImpl() override;
-    void DestroyImpl() override;
+    MaybeError FinalizeMapImpl(BufferState newState) override;
+    void UnmapImpl(BufferState oldState, BufferState newState) override;
+    void DestroyImpl(DestroyReason reason) override;
     bool IsCPUWritableAtCreation() const override;
     MaybeError MapAtCreationImpl() override;
-    void* GetMappedPointer() override;
+    void* GetMappedPointerImpl() override;
 
-    void InitializeToZero();
+    MaybeError InitializeToZero();
 
     GLuint mBuffer = 0;
     raw_ptr<void> mMappedData = nullptr;
+    std::vector<char> mCPUStaging;  // used for GLDefer
 };
 
 }  // namespace dawn::native::opengl

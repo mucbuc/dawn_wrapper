@@ -27,8 +27,10 @@
 
 #include "dawn/native/RenderBundleEncoder.h"
 
+#include <string>
 #include <utility>
 
+#include "dawn/native/Adapter.h"
 #include "dawn/native/CommandValidation.h"
 #include "dawn/native/Commands.h"
 #include "dawn/native/Device.h"
@@ -46,7 +48,7 @@ MaybeError ValidateColorAttachmentFormat(const DeviceBase* device,
     DAWN_TRY(ValidateTextureFormat(textureFormat));
     const Format* format = nullptr;
     DAWN_TRY_ASSIGN(format, device->GetInternalFormat(textureFormat));
-    DAWN_INVALID_IF(!format->IsColor() || !format->isRenderable,
+    DAWN_INVALID_IF(!format->IsColor() || !format->IsRenderable(),
                     "Texture format %s is not color renderable.", textureFormat);
     return {};
 }
@@ -58,7 +60,7 @@ MaybeError ValidateDepthStencilAttachmentFormat(const DeviceBase* device,
     DAWN_TRY(ValidateTextureFormat(textureFormat));
     const Format* format = nullptr;
     DAWN_TRY_ASSIGN(format, device->GetInternalFormat(textureFormat));
-    DAWN_INVALID_IF(!format->HasDepthOrStencil() || !format->isRenderable,
+    DAWN_INVALID_IF(!format->HasDepthOrStencil() || !format->IsRenderable(),
                     "Texture format %s is not depth/stencil renderable.", textureFormat);
     return {};
 }
@@ -70,8 +72,10 @@ MaybeError ValidateRenderBundleEncoderDescriptor(DeviceBase* device,
 
     uint32_t maxColorAttachments = device->GetLimits().v1.maxColorAttachments;
     DAWN_INVALID_IF(descriptor->colorFormatCount > maxColorAttachments,
-                    "Color formats count (%u) exceeds maximum number of color attachements (%u).",
-                    descriptor->colorFormatCount, maxColorAttachments);
+                    "Color formats count (%u) exceeds maximum number of color attachments (%u).%s",
+                    descriptor->colorFormatCount, maxColorAttachments,
+                    DAWN_INCREASE_LIMIT_MESSAGE(device->GetAdapter()->GetLimits().v1,
+                                                maxColorAttachments, descriptor->colorFormatCount));
 
     bool allColorFormatsUndefined = true;
     ColorAttachmentFormats colorAttachmentFormats;
@@ -121,10 +125,10 @@ RenderBundleEncoder::~RenderBundleEncoder() {
     mEncodingContext = nullptr;
 }
 
-void RenderBundleEncoder::DestroyImpl() {
+void RenderBundleEncoder::DestroyImpl(DestroyReason reason) {
     mIndirectDrawMetadata.ClearIndexedIndirectBufferValidationInfo();
     mCommandBufferState.End();
-    RenderEncoderBase::DestroyImpl();
+    RenderEncoderBase::DestroyImpl(reason);
     mBundleEncodingContext.Destroy();
 }
 
@@ -148,6 +152,14 @@ CommandIterator RenderBundleEncoder::AcquireCommands() {
     return mBundleEncodingContext.AcquireCommands();
 }
 
+RenderPassResourceUsage RenderBundleEncoder::AcquireRenderPassUsages() {
+    return std::move(mUsages);
+}
+
+IndirectDrawMetadata RenderBundleEncoder::AcquireIndirectDrawMetadata() {
+    return std::move(mIndirectDrawMetadata);
+}
+
 RenderBundleBase* RenderBundleEncoder::APIFinish(const RenderBundleDescriptor* descriptor) {
     Ref<RenderBundleBase> result;
 
@@ -169,14 +181,12 @@ ResultOrError<Ref<RenderBundleBase>> RenderBundleEncoder::Finish(
     DAWN_TRY(mBundleEncodingContext.Finish());
     DAWN_TRY(GetDevice()->ValidateIsAlive());
 
-    RenderPassResourceUsage usages = mUsageTracker.AcquireResourceUsage();
+    mUsages = mUsageTracker.AcquireResourceUsage();
     if (IsValidationEnabled()) {
-        DAWN_TRY(ValidateFinish(usages));
+        DAWN_TRY(ValidateFinish(mUsages));
     }
 
-    return AcquireRef(new RenderBundleBase(this, descriptor, AcquireAttachmentState(),
-                                           IsDepthReadOnly(), IsStencilReadOnly(),
-                                           std::move(usages), std::move(mIndirectDrawMetadata)));
+    return GetDevice()->CreateRenderBundle(this, descriptor);
 }
 
 MaybeError RenderBundleEncoder::ValidateFinish(const RenderPassResourceUsage& usages) const {

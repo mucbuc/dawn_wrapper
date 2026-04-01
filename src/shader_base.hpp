@@ -19,11 +19,7 @@ protected:
             } else if (message.type == CompilationMessageType::Info) {
                 messages << "Info(" << i << "): ";
             }
-#ifndef __EMSCRIPTEN__
             messages << message.message.data << std::endl;
-#else
-            messages << message.message << std::endl;
-#endif
         }
 
         ASSERT(!errorCount);

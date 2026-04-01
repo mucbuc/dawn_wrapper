@@ -12,13 +12,16 @@ set_target_properties(Example PROPERTIES
 )
 
 add_compile_definitions(TARGET_HEADLESS)
+
 add_subdirectory(lib/dawn_wrapper)
 add_subdirectory(lib/asserter)
 
 if (EMSCRIPTEN)
+    target_compile_options(Example PRIVATE "-v")
     set_target_properties(Example PROPERTIES SUFFIX ".html")
     target_link_options(Example PRIVATE 
-        -sUSE_WEBGPU=1
+        --use-port=emdawnwebgpu
+        --closure=1
         --emrun
     )
 endif()

@@ -45,4 +45,6 @@ if (NOT EMSCRIPTEN)
         webgpu_dawn
         dawn_glfw
     )
+else()
+    target_compile_options(dawn_wrapper PRIVATE --use-port=emdawnwebgpu)
 endif()

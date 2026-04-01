@@ -33,6 +33,16 @@ target_sources(dawn_wrapper PRIVATE
     src/texture_wrapper_impl.hpp
 )
 
+include(FetchContent)
+
+FetchContent_Declare(
+    dawn
+    GIT_REPOSITORY https://dawn.googlesource.com/dawn
+    GIT_TAG        7ae353ac9aa94aa78fe51673d363463e821c9dca
+    SOURCE_DIR     "${CMAKE_CURRENT_SOURCE_DIR}/lib/dawn"
+)
+FetchContent_MakeAvailable(dawn)
+
 if (NOT EMSCRIPTEN)
     set(DAWN_FETCH_DEPENDENCIES ON)
     set(TINT_BUILD_TESTS FALSE)

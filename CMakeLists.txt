@@ -34,6 +34,7 @@ target_sources(dawn_wrapper PRIVATE
 )
 
 if (NOT EMSCRIPTEN)
+    set(DAWN_USE_GLFW OFF CACHE BOOL "")
     set(DAWN_FETCH_DEPENDENCIES ON)
     set(TINT_BUILD_TESTS FALSE)
     set(BUILD_SAMPLES OFF)
@@ -47,4 +48,8 @@ if (NOT EMSCRIPTEN)
     )
 else()
     target_compile_options(dawn_wrapper PRIVATE --use-port=emdawnwebgpu)
+    target_link_options(dawn_wrapper PRIVATE 
+        --use-port=emdawnwebgpu
+        --closure=1
+        )
 endif()

@@ -19,8 +19,6 @@ add_subdirectory(lib/asserter)
 if (EMSCRIPTEN)
     set_target_properties(Example PROPERTIES SUFFIX ".html")
     target_link_options(Example PRIVATE 
-        --use-port=emdawnwebgpu
-        --closure=1
         --emrun
     )
 endif()

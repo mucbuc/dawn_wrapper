@@ -16,10 +16,6 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Init submodules
-        run: |
-          git submodule update --init --recursive lib/dawn
-
       - name: Build and run
         run: |
           cd test 

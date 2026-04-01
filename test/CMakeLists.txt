@@ -17,7 +17,6 @@ add_subdirectory(lib/dawn_wrapper)
 add_subdirectory(lib/asserter)
 
 if (EMSCRIPTEN)
-    target_compile_options(Example PRIVATE "-v")
     set_target_properties(Example PROPERTIES SUFFIX ".html")
     target_link_options(Example PRIVATE 
         --use-port=emdawnwebgpu

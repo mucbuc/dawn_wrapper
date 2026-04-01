@@ -18,6 +18,7 @@ jobs:
 
       - name: Fetch dependencies 
         run: |
+          cd lib/dawn
           python tools/fetch_dawn_dependencies.py
 
       - name: Build and run

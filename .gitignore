@@ -2,5 +2,4 @@
 test/build
 test/web-build
 **/.ignore_git
-lib/dawn
 

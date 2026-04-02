@@ -5,7 +5,7 @@
 namespace dawn_wrapper {
 struct shader_base {
 protected:
-    static void compilation_callback(CompilationInfoRequestStatus status, CompilationInfo const * compilationInfo, void* userdata)
+    static void compilation_callback(CompilationInfoRequestStatus status, CompilationInfo const* compilationInfo, void* userdata)
     {
         std::stringstream messages;
         size_t errorCount = 0;

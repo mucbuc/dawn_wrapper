@@ -34,7 +34,7 @@ struct buffer_wrapper::pimpl
         write(colors.data());
     }
 
-    static void callback2(MapAsyncStatus status, const char* message, void * userData)
+    static void callback2(MapAsyncStatus status, const char* message, void* userData)
     {
         pimpl* instance = (pimpl*)userData;
         if (status == MapAsyncStatus::Success) {
@@ -57,7 +57,7 @@ struct buffer_wrapper::pimpl
         m_done = false;
 
         m_self_ref = shared_from_this();
-        m_buffer.MapAsync(MapMode::Read, 0, buffer_size, CallbackMode::AllowSpontaneous, &callback2, (void*) this);
+        m_buffer.MapAsync(MapMode::Read, 0, buffer_size, CallbackMode::AllowSpontaneous, &callback2, (void*)this);
     }
 
     bool done() const

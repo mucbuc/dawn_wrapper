@@ -72,9 +72,9 @@ void run_compute(dawn_plugin plugin)
             cout << p[i] << endl;
         }
 
-    #ifdef __EMSCRIPTEN__
+#ifdef __EMSCRIPTEN__
         emscripten_force_exit(0);
-    #endif 
+#endif
     });
 
 #ifndef __EMSCRIPTEN__
@@ -82,7 +82,6 @@ void run_compute(dawn_plugin plugin)
         plugin.run();
     }
 #endif
-
 }
 
 int main()

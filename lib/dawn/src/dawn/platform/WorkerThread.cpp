@@ -27,77 +27,162 @@
 
 #include "dawn/platform/WorkerThread.h"
 
-#include <condition_variable>
 #include <functional>
-#include <thread>
+#include <iterator>
+#include <utility>
 
 #include "dawn/common/Assert.h"
 
-namespace {
-
-class AsyncWaitableEventImpl {
-  public:
-    AsyncWaitableEventImpl() : mIsComplete(false) {}
-
-    void Wait() {
-        std::unique_lock<std::mutex> lock(mMutex);
-        mCondition.wait(lock, [this] { return mIsComplete; });
-    }
-
-    bool IsComplete() {
-        std::lock_guard<std::mutex> lock(mMutex);
-        return mIsComplete;
-    }
-
-    void MarkAsComplete() {
-        {
-            std::lock_guard<std::mutex> lock(mMutex);
-            mIsComplete = true;
-        }
-        mCondition.notify_all();
-    }
-
-  private:
-    std::mutex mMutex;
-    std::condition_variable mCondition;
-    bool mIsComplete;
-};
-
-class AsyncWaitableEvent final : public dawn::platform::WaitableEvent {
-  public:
-    AsyncWaitableEvent() : mWaitableEventImpl(std::make_shared<AsyncWaitableEventImpl>()) {}
-
-    void Wait() override { mWaitableEventImpl->Wait(); }
-
-    bool IsComplete() override { return mWaitableEventImpl->IsComplete(); }
-
-    std::shared_ptr<AsyncWaitableEventImpl> GetWaitableEventImpl() const {
-        return mWaitableEventImpl;
-    }
-
-  private:
-    std::shared_ptr<AsyncWaitableEventImpl> mWaitableEventImpl;
-};
-
-}  // anonymous namespace
-
 namespace dawn::platform {
 
-std::unique_ptr<dawn::platform::WaitableEvent> AsyncWorkerThreadPool::PostWorkerTask(
-    dawn::platform::PostWorkerTaskCallback callback,
+namespace {
+class AsyncWaitableEvent final : public WaitableEvent {
+  public:
+    explicit AsyncWaitableEvent(Ref<AsyncTaskHandleImpl> impl) : mImpl(std::move(impl)) {}
+
+    void Wait() override { mImpl->Wait(); }
+    bool IsComplete() override { return mImpl->IsComplete(); }
+
+  private:
+    dawn::Ref<AsyncTaskHandleImpl> mImpl;
+};
+
+class AsyncJobHandle final : public JobHandle, private dawn::Ref<AsyncJobHandleImpl> {
+  public:
+    explicit AsyncJobHandle(Ref<AsyncJobHandleImpl> impl) : mImpl(std::move(impl)) {}
+
+    void Cancel() override { mImpl->Cancel(); }
+    void Join() override { mImpl->Join(); }
+
+  private:
+    dawn::Ref<AsyncJobHandleImpl> mImpl;
+};
+}  // anonymous namespace
+
+// AsyncTaskHandleImpl
+
+AsyncTaskHandleImpl::AsyncTaskHandleImpl(PostWorkerTaskCallback cb, void* userdata)
+    : mCallback(cb), mUserdata(userdata) {}
+
+AsyncTaskHandleImpl::~AsyncTaskHandleImpl() {
+    DAWN_ASSERT(mCompleted);
+}
+
+void AsyncTaskHandleImpl::Wait() {
+    mCompleted.wait(false, std::memory_order::acquire);
+}
+
+bool AsyncTaskHandleImpl::IsComplete() const {
+    return mCompleted;
+}
+
+void AsyncTaskHandleImpl::Complete() {
+    mCallback(mUserdata.ExtractAsDangling());
+    mCompleted = true;
+    mCompleted.notify_all();
+}
+
+// AsyncJobHandleImpl
+
+AsyncJobHandleImpl::AsyncJobHandleImpl(PostWorkerJobCallback cb, void* userdata)
+    : mThread(&AsyncJobHandleImpl::JobThreadLoop, this, cb, userdata) {}
+
+AsyncJobHandleImpl::~AsyncJobHandleImpl() {
+    DAWN_ASSERT(mJoined);
+}
+
+void AsyncJobHandleImpl::Cancel() {
+    mCancelled = true;
+}
+
+void AsyncJobHandleImpl::Join() {
+    std::call_once(mJoinFlag, [&]() {
+        mThread.join();
+        mJoined = true;
+    });
+}
+
+void AsyncJobHandleImpl::JobThreadLoop(PostWorkerJobCallback cb, void* userdata) {
+    JobStatus status = JobStatus::Continue;
+    while (!mCancelled && status == JobStatus::Continue) {
+        status = cb(userdata);
+    }
+}
+
+// AsyncWorkerThreadPool
+
+AsyncWorkerThreadPool::AsyncWorkerThreadPool(uint32_t maxThreadCount)
+    : mMaxTaskThreads(maxThreadCount) {
+    mJobHandles->reserve(mMaxTaskThreads);
+}
+
+AsyncWorkerThreadPool::~AsyncWorkerThreadPool() {
+    std::vector<dawn::Ref<AsyncJobHandleImpl>> jobs;
+    mJobHandles.Use([&](auto jobHandles) { jobs = std::move(*jobHandles); });
+
+    for (auto& job : jobs) {
+        job->Cancel();
+    }
+    for (auto& job : jobs) {
+        job->Join();
+    }
+}
+
+std::unique_ptr<WaitableEvent> AsyncWorkerThreadPool::PostWorkerTask(
+    PostWorkerTaskCallback callback,
     void* userdata) {
-    std::unique_ptr<AsyncWaitableEvent> waitableEvent = std::make_unique<AsyncWaitableEvent>();
+    Ref<AsyncTaskHandleImpl> handle = AcquireRef(new AsyncTaskHandleImpl(callback, userdata));
+    Ref<AsyncJobHandleImpl> job;
+    mTaskTracking.Use<NotifyType::One>([&](auto taskTracking) {
+        taskTracking->tasks.emplace(handle);
 
-    std::function<void()> doTask = [callback, userdata,
-                                    waitableEventImpl = waitableEvent->GetWaitableEventImpl()] {
-        callback(userdata);
-        waitableEventImpl->MarkAsComplete();
-    };
+        // Ensure that there are threads to process the task. This is inlined because it's a bit
+        // cumbersome to pass the condition variable guard to a helper.
+        if (taskTracking->numJobs == mMaxTaskThreads) {
+            return;
+        }
 
-    std::thread thread(doTask);
-    thread.detach();
+        // If we currently have more tasks than jobs start a new job up to the pool limit.
+        // TODO(crbug.com/430452846): Better heuristic for this?
+        if (taskTracking->numJobs < taskTracking->tasks.size()) {
+            job = AcquireRef(new AsyncJobHandleImpl(
+                [](void* self) {
+                    return static_cast<AsyncWorkerThreadPool*>(self)->TaskHandlingJobLoop();
+                },
+                this));
+        }
+    });
 
-    return waitableEvent;
+    if (job) {
+        mJobHandles->push_back(job);
+    }
+
+    return std::make_unique<AsyncWaitableEvent>(handle);
+}
+
+std::unique_ptr<JobHandle> AsyncWorkerThreadPool::PostWorkerJob(PostWorkerJobCallback cb,
+                                                                void* userdata) {
+    Ref<AsyncJobHandleImpl> job = AcquireRef(new AsyncJobHandleImpl(cb, userdata));
+    mJobHandles.Use([&](auto handles) { handles->push_back(job); });
+    return std::make_unique<AsyncJobHandle>(job);
+}
+
+JobStatus AsyncWorkerThreadPool::TaskHandlingJobLoop() {
+    // By default, wait for 100ms between yielding.
+    static constexpr Nanoseconds kWaitDuration = Nanoseconds(100000000);
+
+    Ref<AsyncTaskHandleImpl> task = nullptr;
+    mTaskTracking.Use<NotifyType::None>([&](auto taskTracking) {
+        if (taskTracking.WaitFor(kWaitDuration, [](auto& x) { return !(x.tasks.empty()); })) {
+            task = taskTracking->tasks.front();
+            taskTracking->tasks.pop();
+        }
+    });
+
+    if (task) {
+        task->Complete();
+    }
+    return JobStatus::Continue;
 }
 
 }  // namespace dawn::platform

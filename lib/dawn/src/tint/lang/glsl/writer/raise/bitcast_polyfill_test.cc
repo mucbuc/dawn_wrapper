@@ -53,7 +53,7 @@ TEST_F(GlslWriter_BitcastPolyfillTest, FloatToFloat) {
 %foo = @fragment func():void {
   $B1: {
     %a:f32 = let 1.0f
-    %3:f32 = bitcast %a
+    %3:f32 = bitcast<f32> %a
     %x:f32 = let %3
     ret
   }
@@ -87,7 +87,7 @@ TEST_F(GlslWriter_BitcastPolyfillTest, IntToFloat) {
 %foo = @fragment func():void {
   $B1: {
     %a:i32 = let 1i
-    %3:f32 = bitcast %a
+    %3:f32 = bitcast<f32> %a
     %x:f32 = let %3
     ret
   }
@@ -122,7 +122,7 @@ TEST_F(GlslWriter_BitcastPolyfillTest, UintToFloat) {
 %foo = @fragment func():void {
   $B1: {
     %a:u32 = let 1u
-    %3:f32 = bitcast %a
+    %3:f32 = bitcast<f32> %a
     %x:f32 = let %3
     ret
   }
@@ -157,7 +157,7 @@ TEST_F(GlslWriter_BitcastPolyfillTest, Vec3UintToVec3Float) {
 %foo = @fragment func():void {
   $B1: {
     %a:vec3<u32> = let vec3<u32>(1u)
-    %3:vec3<f32> = bitcast %a
+    %3:vec3<f32> = bitcast<vec3<f32>> %a
     %x:vec3<f32> = let %3
     ret
   }
@@ -192,7 +192,7 @@ TEST_F(GlslWriter_BitcastPolyfillTest, FloatToInt) {
 %foo = @fragment func():void {
   $B1: {
     %a:f32 = let 1.0f
-    %3:i32 = bitcast %a
+    %3:i32 = bitcast<i32> %a
     %x:i32 = let %3
     ret
   }
@@ -227,7 +227,7 @@ TEST_F(GlslWriter_BitcastPolyfillTest, FloatToUint) {
 %foo = @fragment func():void {
   $B1: {
     %a:f32 = let 1.0f
-    %3:u32 = bitcast %a
+    %3:u32 = bitcast<u32> %a
     %x:u32 = let %3
     ret
   }
@@ -262,7 +262,7 @@ TEST_F(GlslWriter_BitcastPolyfillTest, UintToInt) {
 %foo = @fragment func():void {
   $B1: {
     %a:u32 = let 1u
-    %3:i32 = bitcast %a
+    %3:i32 = bitcast<i32> %a
     %x:i32 = let %3
     ret
   }
@@ -297,7 +297,7 @@ TEST_F(GlslWriter_BitcastPolyfillTest, IntToUint) {
 %foo = @fragment func():void {
   $B1: {
     %a:i32 = let 1i
-    %3:u32 = bitcast %a
+    %3:u32 = bitcast<u32> %a
     %x:u32 = let %3
     ret
   }
@@ -332,7 +332,7 @@ TEST_F(GlslWriter_BitcastPolyfillTest, I32ToVec2F16) {
 %foo = @fragment func():void {
   $B1: {
     %a:i32 = let 1i
-    %3:vec2<f16> = bitcast %a
+    %3:vec2<f16> = bitcast<vec2<f16>> %a
     %x:vec2<f16> = let %3
     ret
   }
@@ -375,7 +375,7 @@ TEST_F(GlslWriter_BitcastPolyfillTest, Vec2F16ToI32) {
   $B1: {
     %2:vec2<f16> = construct 1.0h, 2.0h
     %a:vec2<f16> = let %2
-    %4:i32 = bitcast %a
+    %4:i32 = bitcast<i32> %a
     %x:i32 = let %4
     ret
   }
@@ -418,7 +418,7 @@ TEST_F(GlslWriter_BitcastPolyfillTest, U32ToVec2F16) {
 %foo = @fragment func():void {
   $B1: {
     %a:u32 = let 1u
-    %3:vec2<f16> = bitcast %a
+    %3:vec2<f16> = bitcast<vec2<f16>> %a
     %x:vec2<f16> = let %3
     ret
   }
@@ -437,9 +437,8 @@ TEST_F(GlslWriter_BitcastPolyfillTest, U32ToVec2F16) {
 }
 %tint_bitcast_to_f16 = func(%src:u32):vec2<f16> {
   $B2: {
-    %7:u32 = convert %src
-    %8:vec2<f16> = glsl.unpackFloat2x16 %7
-    ret %8
+    %7:vec2<f16> = glsl.unpackFloat2x16 %src
+    ret %7
   }
 }
 )";
@@ -461,7 +460,7 @@ TEST_F(GlslWriter_BitcastPolyfillTest, Vec2F16ToU32) {
   $B1: {
     %2:vec2<f16> = construct 1.0h, 2.0h
     %a:vec2<f16> = let %2
-    %4:u32 = bitcast %a
+    %4:u32 = bitcast<u32> %a
     %x:u32 = let %4
     ret
   }
@@ -482,8 +481,7 @@ TEST_F(GlslWriter_BitcastPolyfillTest, Vec2F16ToU32) {
 %tint_bitcast_from_f16 = func(%src:vec2<f16>):u32 {
   $B2: {
     %8:u32 = glsl.packFloat2x16 %src
-    %9:u32 = convert %8
-    ret %9
+    ret %8
   }
 }
 )";
@@ -504,7 +502,7 @@ TEST_F(GlslWriter_BitcastPolyfillTest, F32ToVec2F16) {
 %foo = @fragment func():void {
   $B1: {
     %a:f32 = let 1.0f
-    %3:vec2<f16> = bitcast %a
+    %3:vec2<f16> = bitcast<vec2<f16>> %a
     %x:vec2<f16> = let %3
     ret
   }
@@ -547,7 +545,7 @@ TEST_F(GlslWriter_BitcastPolyfillTest, Vec2F16ToF32) {
   $B1: {
     %2:vec2<f16> = construct 1.0h, 2.0h
     %a:vec2<f16> = let %2
-    %4:f32 = bitcast %a
+    %4:f32 = bitcast<f32> %a
     %x:f32 = let %4
     ret
   }
@@ -591,7 +589,7 @@ TEST_F(GlslWriter_BitcastPolyfillTest, Vec2I32ToVec4F16) {
   $B1: {
     %2:vec2<i32> = construct 1i, 2i
     %a:vec2<i32> = let %2
-    %4:vec4<f16> = bitcast %a
+    %4:vec4<f16> = bitcast<vec4<f16>> %a
     %x:vec4<f16> = let %4
     ret
   }
@@ -639,7 +637,7 @@ TEST_F(GlslWriter_BitcastPolyfillTest, Vec4F16ToVec2I32) {
   $B1: {
     %2:vec4<f16> = construct 1.0h, 2.0h, 3.0h, 4.0h
     %a:vec4<f16> = let %2
-    %4:vec2<i32> = bitcast %a
+    %4:vec2<i32> = bitcast<vec2<i32>> %a
     %x:vec2<i32> = let %4
     ret
   }
@@ -687,7 +685,7 @@ TEST_F(GlslWriter_BitcastPolyfillTest, Vec2U32ToVec4F16) {
   $B1: {
     %2:vec2<u32> = construct 1u, 2u
     %a:vec2<u32> = let %2
-    %4:vec4<f16> = bitcast %a
+    %4:vec4<f16> = bitcast<vec4<f16>> %a
     %x:vec4<f16> = let %4
     ret
   }
@@ -707,13 +705,12 @@ TEST_F(GlslWriter_BitcastPolyfillTest, Vec2U32ToVec4F16) {
 }
 %tint_bitcast_to_f16 = func(%src:vec2<u32>):vec4<f16> {
   $B2: {
-    %8:vec2<u32> = convert %src
-    %9:u32 = swizzle %8, x
-    %10:vec2<f16> = glsl.unpackFloat2x16 %9
-    %11:u32 = swizzle %8, y
-    %12:vec2<f16> = glsl.unpackFloat2x16 %11
-    %13:vec4<f16> = construct %10, %12
-    ret %13
+    %8:u32 = swizzle %src, x
+    %9:vec2<f16> = glsl.unpackFloat2x16 %8
+    %10:u32 = swizzle %src, y
+    %11:vec2<f16> = glsl.unpackFloat2x16 %10
+    %12:vec4<f16> = construct %9, %11
+    ret %12
   }
 }
 )";
@@ -735,7 +732,7 @@ TEST_F(GlslWriter_BitcastPolyfillTest, Vec4F16ToVec2U32) {
   $B1: {
     %2:vec4<f16> = construct 1.0h, 2.0h, 3.0h, 4.0h
     %a:vec4<f16> = let %2
-    %4:vec2<u32> = bitcast %a
+    %4:vec2<u32> = bitcast<vec2<u32>> %a
     %x:vec2<u32> = let %4
     ret
   }
@@ -760,8 +757,7 @@ TEST_F(GlslWriter_BitcastPolyfillTest, Vec4F16ToVec2U32) {
     %10:vec2<f16> = swizzle %src, zw
     %11:u32 = glsl.packFloat2x16 %10
     %12:vec2<u32> = construct %9, %11
-    %13:vec2<u32> = convert %12
-    ret %13
+    ret %12
   }
 }
 )";
@@ -783,7 +779,7 @@ TEST_F(GlslWriter_BitcastPolyfillTest, Vec2F32ToVec4F16) {
   $B1: {
     %2:vec2<f32> = construct 1.0f, 2.0f
     %a:vec2<f32> = let %2
-    %4:vec4<f16> = bitcast %a
+    %4:vec4<f16> = bitcast<vec4<f16>> %a
     %x:vec4<f16> = let %4
     ret
   }
@@ -831,7 +827,7 @@ TEST_F(GlslWriter_BitcastPolyfillTest, Vec4F16ToVec2F32) {
   $B1: {
     %2:vec4<f16> = construct 1.0h, 2.0h, 3.0h, 4.0h
     %a:vec4<f16> = let %2
-    %4:vec2<f32> = bitcast %a
+    %4:vec2<f32> = bitcast<vec2<f32>> %a
     %x:vec2<f32> = let %4
     ret
   }

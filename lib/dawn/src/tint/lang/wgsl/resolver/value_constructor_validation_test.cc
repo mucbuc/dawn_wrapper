@@ -491,6 +491,48 @@ TEST_F(ResolverValueConstructorValidationTest, ConversionConstructorInvalid_Inva
                 HasSubstr("12:34 error: no matching constructor for 'f32(array<f32, 4>)"));
 }
 
+TEST_F(ResolverValueConstructorValidationTest, ConversionConstructorInvalid_ConstructI8) {
+    Enable(wgsl::Extension::kChromiumExperimentalSubgroupMatrix);
+
+    auto* a = Var("a", ty.i8(), Call(Source{{12, 34}}, ty.i8()));
+    WrapInFunction(a);
+
+    ASSERT_FALSE(r()->Resolve());
+    EXPECT_THAT(r()->error(), HasSubstr("12:34 error: type is not constructible"));
+}
+
+TEST_F(ResolverValueConstructorValidationTest, ConversionConstructorInvalid_ConstructU8) {
+    Enable(wgsl::Extension::kChromiumExperimentalSubgroupMatrix);
+
+    auto* a = Var("a", ty.u8(), Call(Source{{12, 34}}, ty.u8()));
+    WrapInFunction(a);
+
+    ASSERT_FALSE(r()->Resolve());
+    EXPECT_THAT(r()->error(), HasSubstr("12:34 error: type is not constructible"));
+}
+
+TEST_F(ResolverValueConstructorValidationTest,
+       ConversionConstructorInvalid_ConstructI8WithoutExtension) {
+    auto* a = Var("a", ty.i8(), Call(Source{{12, 34}}, ty.i8()));
+    WrapInFunction(a);
+
+    ASSERT_FALSE(r()->Resolve());
+    EXPECT_THAT(r()->error(),
+                HasSubstr("error: 'i8' type used without 'chromium_experimental_subgroup_matrix' "
+                          "extension enabled"));
+}
+
+TEST_F(ResolverValueConstructorValidationTest,
+       ConversionConstructorInvalid_ConstructU8WithoutExtension) {
+    auto* a = Var("a", ty.u8(), Call(Source{{12, 34}}, ty.u8()));
+    WrapInFunction(a);
+
+    ASSERT_FALSE(r()->Resolve());
+    EXPECT_THAT(r()->error(),
+                HasSubstr("error: 'u8' type used without 'chromium_experimental_subgroup_matrix' "
+                          "extension enabled"));
+}
+
 }  // namespace ConversionConstructTest
 
 namespace ArrayConstructor {
@@ -3171,7 +3213,8 @@ TEST_F(ResolverValueConstructorValidationTest, NonConstructibleType_Atomic) {
 }
 
 TEST_F(ResolverValueConstructorValidationTest, NonConstructibleType_AtomicArray) {
-    WrapInFunction(Assign(Phony(), Call(Source{{12, 34}}, ty.array(ty.atomic(ty.i32()), 4_i))));
+    WrapInFunction(
+        Assign(Phony(), Call(Source{{12, 34}}, ty.array(ty.atomic(ty.i32()), Expr(4_i)))));
 
     EXPECT_FALSE(r()->Resolve());
     EXPECT_EQ(r()->error(), "12:34 error: array constructor has non-constructible element type");

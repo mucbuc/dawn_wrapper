@@ -29,8 +29,8 @@
 #define SRC_TINT_LANG_CORE_IR_TRANSFORM_VALUE_TO_LET_H_
 
 #include "src/tint/lang/core/ir/validator.h"
-#include "src/tint/utils/reflection/reflection.h"
-#include "src/tint/utils/result/result.h"
+#include "src/tint/utils/reflection.h"
+#include "src/tint/utils/result.h"
 
 // Forward declarations.
 namespace tint::core::ir {
@@ -42,10 +42,19 @@ namespace tint::core::ir::transform {
 /// The capabilities that the transform can support.
 const core::ir::Capabilities kValueToLetCapabilities{
     core::ir::Capability::kAllow8BitIntegers,
-    core::ir::Capability::kAllowPointersInStructures,
+    core::ir::Capability::kAllow16BitIntegers,
+    core::ir::Capability::kAllow64BitIntegers,
+
+    core::ir::Capability::kAllowPointSizeBuiltin,
     core::ir::Capability::kAllowVectorElementPointer,
     core::ir::Capability::kAllowHandleVarsWithoutBindings,
-    core::ir::Capability::kAllowClipDistancesOnF32,
+    core::ir::Capability::kAllowClipDistancesOnF32ScalarAndVector,
+    core::ir::Capability::kAllowAnyLetType,
+    core::ir::Capability::kMslAllowEntryPointInterface,
+    core::ir::Capability::kAllowModuleScopeLets,
+    core::ir::Capability::kAllowDuplicateBindings,
+    core::ir::Capability::kAllowNonCoreTypes,
+    core::ir::Capability::kLoosenValidationForShaderIO,
 };
 
 /// Configuration for ValueToLet transform.
@@ -58,7 +67,7 @@ struct ValueToLetConfig {
 };
 
 /// ValueToLet is a transform that moves "non-inlinable" instruction values to let instructions.
-/// An expression is considered "non-inlinable" if any of the the following are true:
+/// An expression is considered "non-inlinable" if any of the following are true:
 /// * The value has multiple uses.
 /// * The value's instruction is a load that when inlined would cross a store instruction.
 /// * The value's instruction is a store instruction that when inlined would cross a load or store
@@ -67,7 +76,7 @@ struct ValueToLetConfig {
 ///
 /// @param module the module to transform
 /// @param cfg the configuration
-/// @returns error diagnostics on failure
+/// @returns error on failure
 Result<SuccessType> ValueToLet(Module& module, const ValueToLetConfig& cfg);
 
 }  // namespace tint::core::ir::transform

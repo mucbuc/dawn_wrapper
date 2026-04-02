@@ -43,15 +43,59 @@ constexpr uint32_t kBindingSize = 8;
 
 class DynamicBufferOffsetTests : public DawnTest {
   protected:
+    uint32_t mMinUniformBufferOffsetAlignment;
+    uint32_t mMinStorageBufferOffsetAlignment;
+    wgpu::BindGroup mBindGroups[2];
+    wgpu::BindGroupLayout mBindGroupLayouts[2];
+
+    // All buffers are usually 256 bytes / 4 + 2 = 66 u32 elements
+    //
+    // mUniformBuffers[0]:
+    //   - not dynamic
+    //   - @group(0) @binding(0)
+    //   - [1, 2, 0 ... 0]
+    // mUniformBuffers[1]:
+    //   - dynamic
+    //   - @group(0) @binding(3)
+    //   - [1, 2, 0, ..., 0, 5, 6]
+    // mUniformBuffers[2]:
+    //   - not dynamic
+    //   - @group(1) @binding(0)
+    //   - [1, 2, 0 ... 0] (used for inheritance tests)
+    wgpu::Buffer mUniformBuffers[3];
+    // mStorageBuffers[0]:
+    //   - not dynamic
+    //   - @group(0) @binding(1)
+    //   - shader sets this.xy to mUniformBuffers[0].xy, so [1, 2]
+    // mStorageBuffers[1]:
+    //   - dynamic
+    //   - @group(0) @binding(4)
+    //   - shader sets this.xy to (mUniformBuffers[0].xy + mUniformBuffers[1]) * multipleNumber
+    wgpu::Buffer mStorageBuffers[2];
+
+    wgpu::Texture mColorAttachment;
+
+    void GetRequiredLimits(const dawn::utils::ComboLimits& supported,
+                           dawn::utils::ComboLimits& required) override {
+        // TODO(crbug.com/383593270): Enable all the limits.
+        required.maxStorageBuffersInFragmentStage = supported.maxStorageBuffersInFragmentStage;
+        required.maxStorageBuffersPerShaderStage = supported.maxStorageBuffersPerShaderStage;
+        required.minStorageBufferOffsetAlignment = supported.minStorageBufferOffsetAlignment;
+    }
+
     void SetUp() override {
         DawnTest::SetUp();
 
-        mMinUniformBufferOffsetAlignment =
-            GetSupportedLimits().limits.minUniformBufferOffsetAlignment;
+        DAWN_TEST_UNSUPPORTED_IF(GetSupportedLimits().maxStorageBuffersInFragmentStage < 1);
+
+        mMinUniformBufferOffsetAlignment = GetSupportedLimits().minUniformBufferOffsetAlignment;
+        mMinStorageBufferOffsetAlignment = GetSupportedLimits().minStorageBufferOffsetAlignment;
 
         // Mix up dynamic and non dynamic resources in one bind group and using not continuous
         // binding number to cover more cases.
-        std::vector<uint32_t> uniformData(mMinUniformBufferOffsetAlignment / sizeof(uint32_t) + 2);
+        const uint32_t maxAlignment =
+            std::max(mMinUniformBufferOffsetAlignment, mMinStorageBufferOffsetAlignment);
+        std::vector<uint32_t> uniformData(maxAlignment / sizeof(uint32_t) + 2);
         uniformData[0] = 1;
         uniformData[1] = 2;
 
@@ -109,14 +153,6 @@ class DynamicBufferOffsetTests : public DawnTest {
         mBindGroups[1] = utils::MakeBindGroup(device, mBindGroupLayouts[1],
                                               {{0, mUniformBuffers[2], 0, kBindingSize}});
     }
-    // Create objects to use as resources inside test bind groups.
-
-    uint32_t mMinUniformBufferOffsetAlignment;
-    wgpu::BindGroup mBindGroups[2];
-    wgpu::BindGroupLayout mBindGroupLayouts[2];
-    wgpu::Buffer mUniformBuffers[3];
-    wgpu::Buffer mStorageBuffers[2];
-    wgpu::Texture mColorAttachment;
 
     wgpu::RenderPipeline CreateRenderPipeline(bool isInheritedPipeline = false) {
         wgpu::ShaderModule vsModule = utils::CreateShaderModule(device, R"(
@@ -248,12 +284,15 @@ TEST_P(DynamicBufferOffsetTests, BasicRenderPipeline) {
 
 // Have non-zero dynamic offsets.
 TEST_P(DynamicBufferOffsetTests, SetDynamicOffsetsRenderPipeline) {
+    // TODO(42242119): fail on Qualcomm Adreno X1.
+    DAWN_SUPPRESS_TEST_IF(IsD3D11() && IsQualcomm());
+
     wgpu::RenderPipeline pipeline = CreateRenderPipeline();
     utils::BasicRenderPass renderPass = utils::CreateBasicRenderPass(device, kRTSize, kRTSize);
 
     wgpu::CommandEncoder commandEncoder = device.CreateCommandEncoder();
     std::array<uint32_t, 2> offsets = {mMinUniformBufferOffsetAlignment,
-                                       mMinUniformBufferOffsetAlignment};
+                                       mMinStorageBufferOffsetAlignment};
     wgpu::RenderPassEncoder renderPassEncoder =
         commandEncoder.BeginRenderPass(&renderPass.renderPassInfo);
     renderPassEncoder.SetPipeline(pipeline);
@@ -266,7 +305,7 @@ TEST_P(DynamicBufferOffsetTests, SetDynamicOffsetsRenderPipeline) {
     std::vector<uint32_t> expectedData = {6, 8};
     EXPECT_PIXEL_RGBA8_EQ(utils::RGBA8(5, 6, 255, 255), renderPass.color, 0, 0);
     EXPECT_BUFFER_U32_RANGE_EQ(expectedData.data(), mStorageBuffers[1],
-                               mMinUniformBufferOffsetAlignment, expectedData.size());
+                               mMinStorageBufferOffsetAlignment, expectedData.size());
 }
 
 // Dynamic offsets are all zero and no effect to result.
@@ -290,10 +329,13 @@ TEST_P(DynamicBufferOffsetTests, BasicComputePipeline) {
 
 // Have non-zero dynamic offsets.
 TEST_P(DynamicBufferOffsetTests, SetDynamicOffsetsComputePipeline) {
+    // TODO(42242119): fail on Qualcomm Adreno X1.
+    DAWN_SUPPRESS_TEST_IF(IsD3D11() && IsQualcomm());
+
     wgpu::ComputePipeline pipeline = CreateComputePipeline();
 
     std::array<uint32_t, 2> offsets = {mMinUniformBufferOffsetAlignment,
-                                       mMinUniformBufferOffsetAlignment};
+                                       mMinStorageBufferOffsetAlignment};
 
     wgpu::CommandEncoder commandEncoder = device.CreateCommandEncoder();
     wgpu::ComputePassEncoder computePassEncoder = commandEncoder.BeginComputePass();
@@ -306,11 +348,17 @@ TEST_P(DynamicBufferOffsetTests, SetDynamicOffsetsComputePipeline) {
 
     std::vector<uint32_t> expectedData = {6, 8};
     EXPECT_BUFFER_U32_RANGE_EQ(expectedData.data(), mStorageBuffers[1],
-                               mMinUniformBufferOffsetAlignment, expectedData.size());
+                               mMinStorageBufferOffsetAlignment, expectedData.size());
 }
 
 // Test basic inherit on render pipeline
 TEST_P(DynamicBufferOffsetTests, BasicInheritRenderPipeline) {
+    // TODO(42242119): fail on Qualcomm Adreno X1.
+    DAWN_SUPPRESS_TEST_IF(IsD3D11() && IsQualcomm());
+
+    // TODO(crbug.com/40238674): Fails on Pixel 10.
+    DAWN_SUPPRESS_TEST_IF(IsImgTec());
+
     wgpu::ShaderModule vsModule = utils::CreateShaderModule(device, R"(
             @vertex
             fn main(@builtin(vertex_index) VertexIndex : u32) -> @builtin(position) vec4f {
@@ -383,7 +431,7 @@ TEST_P(DynamicBufferOffsetTests, BasicInheritRenderPipeline) {
     wgpu::CommandEncoder commandEncoder = device.CreateCommandEncoder();
     std::array<uint32_t, 2> offsets0 = {0, 0};
     std::array<uint32_t, 2> offsets1 = {mMinUniformBufferOffsetAlignment,
-                                        mMinUniformBufferOffsetAlignment};
+                                        mMinStorageBufferOffsetAlignment};
     wgpu::RenderPassEncoder renderPassEncoder =
         commandEncoder.BeginRenderPass(&renderPass.renderPassInfo);
     renderPassEncoder.SetPipeline(pipeline0);
@@ -401,7 +449,7 @@ TEST_P(DynamicBufferOffsetTests, BasicInheritRenderPipeline) {
     std::vector<uint32_t> expectedData = {6, 8};
     EXPECT_PIXEL_RGBA8_EQ(utils::RGBA8(5, 6, 255, 255), renderPass.color, 0, 0);
     EXPECT_BUFFER_U32_RANGE_EQ(expectedData.data(), mStorageBuffers[1],
-                               mMinUniformBufferOffsetAlignment, expectedData.size());
+                               mMinStorageBufferOffsetAlignment, expectedData.size());
 }
 
 // Test inherit dynamic offsets on render pipeline
@@ -410,7 +458,10 @@ TEST_P(DynamicBufferOffsetTests, InheritDynamicOffsetsRenderPipeline) {
     // devices.
     DAWN_SUPPRESS_TEST_IF(IsApple());
     // TODO(crbug.com/40287156): Remove when test is no longer flaky on Pixel 6
-    DAWN_SUPPRESS_TEST_IF(IsVulkan() && IsAndroid() && IsARM());
+    DAWN_SUPPRESS_TEST_IF(IsAndroid() && IsARM());
+
+    // TODO(42242119): fail on Qualcomm Adreno X1.
+    DAWN_SUPPRESS_TEST_IF(IsD3D11() && IsQualcomm());
 
     // Using default pipeline and setting dynamic offsets
     wgpu::RenderPipeline pipeline = CreateRenderPipeline();
@@ -420,7 +471,7 @@ TEST_P(DynamicBufferOffsetTests, InheritDynamicOffsetsRenderPipeline) {
 
     wgpu::CommandEncoder commandEncoder = device.CreateCommandEncoder();
     std::array<uint32_t, 2> offsets = {mMinUniformBufferOffsetAlignment,
-                                       mMinUniformBufferOffsetAlignment};
+                                       mMinStorageBufferOffsetAlignment};
     wgpu::RenderPassEncoder renderPassEncoder =
         commandEncoder.BeginRenderPass(&renderPass.renderPassInfo);
     renderPassEncoder.SetPipeline(pipeline);
@@ -436,16 +487,19 @@ TEST_P(DynamicBufferOffsetTests, InheritDynamicOffsetsRenderPipeline) {
     std::vector<uint32_t> expectedData = {12, 16};
     EXPECT_PIXEL_RGBA8_EQ(utils::RGBA8(5, 6, 255, 255), renderPass.color, 0, 0);
     EXPECT_BUFFER_U32_RANGE_EQ(expectedData.data(), mStorageBuffers[1],
-                               mMinUniformBufferOffsetAlignment, expectedData.size());
+                               mMinStorageBufferOffsetAlignment, expectedData.size());
 }
 
 // Test inherit dynamic offsets on compute pipeline
 TEST_P(DynamicBufferOffsetTests, InheritDynamicOffsetsComputePipeline) {
+    // TODO(42242119): fail on Qualcomm Adreno X1.
+    DAWN_SUPPRESS_TEST_IF(IsD3D11() && IsQualcomm());
+
     wgpu::ComputePipeline pipeline = CreateComputePipeline();
     wgpu::ComputePipeline testPipeline = CreateComputePipeline(true);
 
     std::array<uint32_t, 2> offsets = {mMinUniformBufferOffsetAlignment,
-                                       mMinUniformBufferOffsetAlignment};
+                                       mMinStorageBufferOffsetAlignment};
 
     wgpu::CommandEncoder commandEncoder = device.CreateCommandEncoder();
     wgpu::ComputePassEncoder computePassEncoder = commandEncoder.BeginComputePass();
@@ -461,7 +515,7 @@ TEST_P(DynamicBufferOffsetTests, InheritDynamicOffsetsComputePipeline) {
 
     std::vector<uint32_t> expectedData = {12, 16};
     EXPECT_BUFFER_U32_RANGE_EQ(expectedData.data(), mStorageBuffers[1],
-                               mMinUniformBufferOffsetAlignment, expectedData.size());
+                               mMinStorageBufferOffsetAlignment, expectedData.size());
 }
 
 // Setting multiple dynamic offsets for the same bindgroup in one render pass.
@@ -473,7 +527,7 @@ TEST_P(DynamicBufferOffsetTests, UpdateDynamicOffsetsMultipleTimesRenderPipeline
 
     wgpu::CommandEncoder commandEncoder = device.CreateCommandEncoder();
     std::array<uint32_t, 2> offsets = {mMinUniformBufferOffsetAlignment,
-                                       mMinUniformBufferOffsetAlignment};
+                                       mMinStorageBufferOffsetAlignment};
     std::array<uint32_t, 2> testOffsets = {0, 0};
 
     wgpu::RenderPassEncoder renderPassEncoder =
@@ -497,7 +551,7 @@ TEST_P(DynamicBufferOffsetTests, UpdateDynamicOffsetsMultipleTimesComputePipelin
     wgpu::ComputePipeline pipeline = CreateComputePipeline();
 
     std::array<uint32_t, 2> offsets = {mMinUniformBufferOffsetAlignment,
-                                       mMinUniformBufferOffsetAlignment};
+                                       mMinStorageBufferOffsetAlignment};
     std::array<uint32_t, 2> testOffsets = {0, 0};
 
     wgpu::CommandEncoder commandEncoder = device.CreateCommandEncoder();
@@ -604,10 +658,8 @@ TEST_P(ClampedOOBDynamicBufferOffsetTests, CheckOOBAccess) {
         pipeline = device.CreateComputePipeline(&pipelineDesc);
     }
 
-    uint32_t minUniformBufferOffsetAlignment =
-        GetSupportedLimits().limits.minUniformBufferOffsetAlignment;
-    uint32_t minStorageBufferOffsetAlignment =
-        GetSupportedLimits().limits.minStorageBufferOffsetAlignment;
+    uint32_t minUniformBufferOffsetAlignment = GetSupportedLimits().minUniformBufferOffsetAlignment;
+    uint32_t minStorageBufferOffsetAlignment = GetSupportedLimits().minStorageBufferOffsetAlignment;
 
     uint32_t arrayByteLength = kArrayLength * 4 * sizeof(uint32_t);
 
@@ -690,7 +742,8 @@ DAWN_INSTANTIATE_TEST(DynamicBufferOffsetTests,
                       MetalBackend(),
                       OpenGLBackend(),
                       OpenGLESBackend(),
-                      VulkanBackend());
+                      VulkanBackend(),
+                      WebGPUBackend());
 
 // Only instantiate on D3D12 / Metal where we are sure of the robustness implementation.
 // Tint injects clamping in the shader. OpenGL(ES) / Vulkan robustness is less constrained.

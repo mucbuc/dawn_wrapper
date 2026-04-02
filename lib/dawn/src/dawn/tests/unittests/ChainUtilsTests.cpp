@@ -29,6 +29,7 @@
 #include <gtest/gtest.h>
 
 #include "dawn/native/ChainUtils.h"
+#include "dawn/native/DawnNative.h"
 #include "dawn/native/dawn_platform.h"
 
 namespace dawn::native {
@@ -83,6 +84,29 @@ TEST(ChainUtilsTests, ValidateAndUnpackUnexpected) {
         desc.nextInChain = &chain;
         EXPECT_THAT(ValidateAndUnpack(&desc).AcquireError()->GetFormattedMessage(),
                     HasSubstr("Unexpected"));
+    }
+}
+
+// Inject invalid chain extensions cause an error.
+TEST(ChainUtilsTests, ValidateAndUnpackInjected) {
+    {
+        // TextureViewDescriptor (as of when this test was written) does not have any valid chains
+        // in the JSON nor via additional extensions.
+        TextureViewDescriptor desc;
+        DawnInjectedInvalidSType chain;
+        chain.invalidSType = wgpu::SType::ShaderSourceWGSL;
+        desc.nextInChain = &chain;
+        EXPECT_THAT(ValidateAndUnpack(&desc).AcquireError()->GetFormattedMessage(),
+                    HasSubstr("ShaderSourceWGSL"));
+    }
+    {
+        // InstanceDescriptor has at least 1 valid chain extension.
+        InstanceDescriptor desc;
+        DawnInjectedInvalidSType chain;
+        chain.invalidSType = wgpu::SType::ShaderSourceWGSL;
+        desc.nextInChain = &chain;
+        EXPECT_THAT(ValidateAndUnpack(&desc).AcquireError()->GetFormattedMessage(),
+                    HasSubstr("ShaderSourceWGSL"));
     }
 }
 

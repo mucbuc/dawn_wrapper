@@ -36,6 +36,7 @@
 #include "src/tint/lang/core/type/i8.h"
 #include "src/tint/lang/core/type/matrix.h"
 #include "src/tint/lang/core/type/u32.h"
+#include "src/tint/lang/core/type/u64.h"
 #include "src/tint/lang/core/type/u8.h"
 
 namespace tint::core::type {
@@ -102,6 +103,10 @@ TEST_F(ManagerTest, CppToType) {
     const Type* u32_2 = tm.Get<U32>();
     ASSERT_EQ(u32_1, u32_2);
 
+    const Type* u64_1 = tm.Get<u64>();
+    const Type* u64_2 = tm.Get<U64>();
+    ASSERT_EQ(u64_1, u64_2);
+
     const Type* u8_1 = tm.Get<u8>();
     const Type* u8_2 = tm.Get<U8>();
     ASSERT_EQ(u8_1, u8_2);
@@ -141,14 +146,12 @@ TEST_F(ManagerTest, WrapDoesntAffectInner) {
 TEST_F(ManagerTest, ArrayImplicitStride) {
     Manager tm;
     auto* arr = tm.array<mat4x4<f32>, 4>();
-    EXPECT_EQ(arr->Stride(), 64u);
     EXPECT_EQ(arr->ImplicitStride(), 64u);
 }
 
 TEST_F(ManagerTest, RuntimeSizedArrayImplicitStride) {
     Manager tm;
     auto* arr = tm.array<mat4x4<f32>>();
-    EXPECT_EQ(arr->Stride(), 64u);
     EXPECT_EQ(arr->ImplicitStride(), 64u);
 }
 

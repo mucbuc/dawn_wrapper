@@ -25,27 +25,19 @@
 // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#include "src/tint/lang/core/ir/transform/block_decorated_structs.h"
-
 #include "src/tint/cmd/fuzz/ir/fuzz.h"
+#include "src/tint/lang/core/ir/transform/block_decorated_structs.h"
 #include "src/tint/lang/core/ir/validator.h"
 
 namespace tint::core::ir::transform {
 namespace {
 
-void BlockDecoratedStructsFuzzer(Module& module) {
-    if (auto res = BlockDecoratedStructs(module); res != Success) {
-        return;
-    }
-
-    Capabilities capabilities;
-    if (auto res = Validate(module, capabilities); res != Success) {
-        TINT_ICE() << "result of BlockDecoratedStructs failed IR validation\n" << res.Failure();
-    }
+Result<SuccessType> BlockDecoratedStructsFuzzer(Module& ir, const fuzz::ir::Context&) {
+    return BlockDecoratedStructs(ir);
 }
 
 }  // namespace
 }  // namespace tint::core::ir::transform
 
 TINT_IR_MODULE_FUZZER(tint::core::ir::transform::BlockDecoratedStructsFuzzer,
-                      tint::core::ir::Capabilities{});
+                      tint::core::ir::transform::kBlockDecoratedStructsCapabilities);

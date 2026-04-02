@@ -28,16 +28,13 @@
 #ifndef SRC_TINT_LANG_CORE_IR_TRANSFORM_HELPER_TEST_H_
 #define SRC_TINT_LANG_CORE_IR_TRANSFORM_HELPER_TEST_H_
 
-#include <memory>
 #include <string>
 #include <utility>
-#include <vector>
 
 #include "gtest/gtest.h"
 #include "src/tint/lang/core/ir/builder.h"
 #include "src/tint/lang/core/ir/disassembler.h"
 #include "src/tint/lang/core/ir/validator.h"
-#include "src/tint/utils/containers/enum_set.h"
 
 namespace tint::core::ir::transform {
 
@@ -50,6 +47,8 @@ class TransformTestBase : public BASE {
     /// @param args the arguments to the transform function
     template <typename TRANSFORM, typename... ARGS>
     void Run(TRANSFORM&& transform_func, ARGS&&... args) {
+        mod.enable_validation_asserts = true;
+
         // Run the transform.
         auto result = transform_func(mod, std::forward<ARGS>(args)...);
         EXPECT_EQ(result, Success);
@@ -58,7 +57,7 @@ class TransformTestBase : public BASE {
         }
 
         // Validate the output IR.
-        EXPECT_EQ(ir::Validate(mod, capabilities), Success);
+        EXPECT_EQ(ir::Validate(mod, capabilities, "after transform"), Success);
     }
 
     /// Calls the `transform` but return the result instead of validating.

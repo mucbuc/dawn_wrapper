@@ -28,21 +28,20 @@
 #ifndef SRC_DAWN_NATIVE_METAL_DEVICEMTL_H_
 #define SRC_DAWN_NATIVE_METAL_DEVICEMTL_H_
 
+#import <IOSurface/IOSurfaceRef.h>
+#import <Metal/Metal.h>
+#import <QuartzCore/QuartzCore.h>
+
 #include <atomic>
 #include <memory>
 #include <mutex>
 #include <vector>
 
-#include "dawn/native/dawn_platform.h"
-
 #include "dawn/native/Commands.h"
 #include "dawn/native/Device.h"
+#include "dawn/native/dawn_platform.h"
 #include "dawn/native/metal/CommandRecordingContext.h"
 #include "dawn/native/metal/Forward.h"
-
-#import <IOSurface/IOSurfaceRef.h>
-#import <Metal/Metal.h>
-#import <QuartzCore/QuartzCore.h>
 
 namespace dawn::native::metal {
 
@@ -63,13 +62,13 @@ class Device final : public DeviceBase {
 
     id<MTLDevice> GetMTLDevice() const;
 
-    MaybeError CopyFromStagingToBufferImpl(BufferBase* source,
-                                           uint64_t sourceOffset,
-                                           BufferBase* destination,
-                                           uint64_t destinationOffset,
-                                           uint64_t size) override;
-    MaybeError CopyFromStagingToTextureImpl(const BufferBase* source,
-                                            const TextureDataLayout& dataLayout,
+    MaybeError CopyFromStagingToBuffer(BufferBase* source,
+                                       uint64_t sourceOffset,
+                                       BufferBase* destination,
+                                       uint64_t destinationOffset,
+                                       uint64_t size) override;
+    MaybeError CopyFromStagingToTextureImpl(BufferBase* source,
+                                            const TexelCopyBufferLayout& dataLayout,
                                             const TextureCopy& dst,
                                             const Extent3D& copySizePixels) override;
 
@@ -97,9 +96,9 @@ class Device final : public DeviceBase {
            Ref<DeviceBase::DeviceLostEvent>&& lostEvent);
 
     ResultOrError<Ref<BindGroupBase>> CreateBindGroupImpl(
-        const BindGroupDescriptor* descriptor) override;
+        const UnpackedPtr<BindGroupDescriptor>& descriptor) override;
     ResultOrError<Ref<BindGroupLayoutInternalBase>> CreateBindGroupLayoutImpl(
-        const BindGroupLayoutDescriptor* descriptor) override;
+        const UnpackedPtr<BindGroupLayoutDescriptor>& descriptor) override;
     ResultOrError<Ref<BufferBase>> CreateBufferImpl(
         const UnpackedPtr<BufferDescriptor>& descriptor) override;
     ResultOrError<Ref<CommandBufferBase>> CreateCommandBuffer(
@@ -109,12 +108,12 @@ class Device final : public DeviceBase {
         const UnpackedPtr<PipelineLayoutDescriptor>& descriptor) override;
     ResultOrError<Ref<QuerySetBase>> CreateQuerySetImpl(
         const QuerySetDescriptor* descriptor) override;
+    ResultOrError<Ref<ResourceTableBase>> CreateResourceTableImpl(
+        const ResourceTableDescriptor* descriptor) override;
     ResultOrError<Ref<SamplerBase>> CreateSamplerImpl(const SamplerDescriptor* descriptor) override;
     ResultOrError<Ref<ShaderModuleBase>> CreateShaderModuleImpl(
         const UnpackedPtr<ShaderModuleDescriptor>& descriptor,
-        const std::vector<tint::wgsl::Extension>& internalExtensions,
-        ShaderModuleParseResult* parseResult,
-        OwnedCompilationMessages* compilationMessages) override;
+        const std::vector<tint::wgsl::Extension>& internalExtensions) override;
     ResultOrError<Ref<SwapChainBase>> CreateSwapChainImpl(
         Surface* surface,
         SwapChainBase* previousSwapChain,
@@ -136,7 +135,11 @@ class Device final : public DeviceBase {
     ResultOrError<Ref<SharedFenceBase>> ImportSharedFenceImpl(
         const SharedFenceDescriptor* descriptor) override;
 
-    void DestroyImpl() override;
+    void StartTrace();
+    void StopTrace();
+    bool mTraceInProgress = false;
+
+    void DestroyImpl(DestroyReason reason) override;
 
     NSPRef<id<MTLDevice>> mMtlDevice;
 
@@ -144,8 +147,8 @@ class Device final : public DeviceBase {
     float mTimestampPeriod = 1.0f;
     // The base of CPU timestamp and GPU timestamp to measure the linear regression between GPU
     // and CPU timestamps.
-    MTLTimestamp mCpuTimestamp API_AVAILABLE(macos(10.15), ios(14.0)) = 0;
-    MTLTimestamp mGpuTimestamp API_AVAILABLE(macos(10.15), ios(14.0)) = 0;
+    MTLTimestamp mCpuTimestamp = 0;
+    MTLTimestamp mGpuTimestamp = 0;
     // The parameters for kalman filter
     std::unique_ptr<KalmanInfo> mKalmanInfo;
     bool mIsTimestampQueryEnabled = false;

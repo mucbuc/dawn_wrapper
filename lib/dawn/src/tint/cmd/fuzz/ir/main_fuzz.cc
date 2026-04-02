@@ -25,15 +25,17 @@
 // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+#include <cstddef>
+#include <span>
+
 #include "src/tint/cmd/fuzz/ir/fuzz.h"
 #include "src/tint/lang/core/ir/module.h"
 #include "src/tint/lang/core/ir/validator.h"
-#include "src/tint/utils/result/result.h"
 
 #if TINT_BUILD_IR_BINARY
 
 #include "src/tint/lang/core/ir/binary/decode.h"
-#include "src/tint/utils/cli/cli.h"
+#include "src/tint/utils/command/cli.h"
 #include "src/tint/utils/containers/vector.h"
 #include "src/tint/utils/macros/defer.h"
 
@@ -53,7 +55,7 @@ DEFINE_BINARY_PROTO_FUZZER(const tint::cmd::fuzz::ir::pb::Root& pb) {
     /// As the fuzzers are free to mutate the module, we need to deserialize a new module for each
     /// sub-fuzzer. Because the protobuf may error when deserializing and the module may be invalid,
     /// we early deserialize. If this fails, then we do not call Run().
-    std::optional<tint::core::ir::Module> module;
+    thread_local std::optional<tint::core::ir::Module> module;
     {
         auto decoded = tint::core::ir::binary::Decode(pb.module());
         if (decoded != tint::Success) {
@@ -64,10 +66,10 @@ DEFINE_BINARY_PROTO_FUZZER(const tint::cmd::fuzz::ir::pb::Root& pb) {
     auto acquire_module = [&] {
         if (!module) {
             auto decoded = tint::core::ir::binary::Decode(pb.module());
-            if (decoded != tint::Success) {
-                TINT_ICE() << "module successfully decoded once, then failed a subsequent time\n"
-                           << decoded.Failure().reason;
-            }
+            TINT_ASSERT(decoded == tint::Success)
+                << "module successfully decoded once, then failed a subsequent time\n"
+                << decoded.Failure();
+
             module = std::move(decoded.Move());
         }
 
@@ -76,12 +78,15 @@ DEFINE_BINARY_PROTO_FUZZER(const tint::cmd::fuzz::ir::pb::Root& pb) {
         return out;
     };
 
-    tint::Slice<const std::byte> data(reinterpret_cast<const std::byte*>(pb.data().data()),
-                                      pb.data().length());
+    std::span<const std::byte> data(reinterpret_cast<const std::byte*>(pb.data().data()),
+                                    pb.data().length());
     tint::fuzz::ir::Run(acquire_module, options, data);
 }
 
-extern "C" int LLVMFuzzerInitialize(int* argc, char*** argv) {
+// Explicitly specify the visibility to prevent the linker from stripping the function on macOS, as
+// the LibFuzzer runtime uses dlsym() instead of calling the function directly.
+extern "C" __attribute__((visibility("default"))) int LLVMFuzzerInitialize(int* argc,
+                                                                           char*** argv) {
     tint::cli::OptionSet opts;
 
     tint::Vector<std::string_view, 8> arguments;
@@ -110,6 +115,11 @@ extern "C" int LLVMFuzzerInitialize(int* argc, char*** argv) {
         opts.Add<tint::cli::BoolOption>("concurrent", "runs the fuzzers concurrently");
     auto& opt_verbose =
         opts.Add<tint::cli::BoolOption>("verbose", "prints the name of each fuzzer before running");
+#if TINT_BUILD_FUZZER_VULKAN_SUPPORT
+    auto& opt_vk_icd = opts.Add<tint::cli::StringOption>("vk_icd", "path to Vulkan ICD JSON");
+#endif
+    auto& opt_dump_ir =
+        opts.Add<tint::cli::BoolOption>("dump-ir", "Dump IR at each stage of the compilation flow");
 
     tint::cli::ParseOptions parse_opts;
     parse_opts.ignore_unknown = true;
@@ -127,6 +137,11 @@ extern "C" int LLVMFuzzerInitialize(int* argc, char*** argv) {
     options.filter = opt_filter.value.value_or("");
     options.run_concurrently = opt_concurrent.value.value_or(false);
     options.verbose = opt_verbose.value.value_or(false);
+#if TINT_BUILD_FUZZER_VULKAN_SUPPORT
+    options.vk_icd = opt_vk_icd.value.value_or("");
+#endif
+    options.dump_ir_when_validating = opt_dump_ir.value.value_or(false);
+
     return 0;
 }
 

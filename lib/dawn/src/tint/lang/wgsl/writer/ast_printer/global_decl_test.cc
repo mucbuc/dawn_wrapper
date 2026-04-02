@@ -25,13 +25,12 @@
 // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+#include "gmock/gmock.h"
 #include "src/tint/lang/core/type/sampled_texture.h"
 #include "src/tint/lang/core/type/texture_dimension.h"
 #include "src/tint/lang/wgsl/ast/stage_attribute.h"
 #include "src/tint/lang/wgsl/ast/variable_decl_statement.h"
 #include "src/tint/lang/wgsl/writer/ast_printer/helper_test.h"
-
-#include "gmock/gmock.h"
 
 using namespace tint::core::number_suffixes;  // NOLINT
 
@@ -51,7 +50,7 @@ TEST_F(WgslASTPrinterTest, Emit_GlobalDeclAfterFunction) {
     gen.IncrementIndent();
     gen.Generate();
     EXPECT_THAT(gen.Diagnostics(), testing::IsEmpty());
-    EXPECT_EQ(gen.Result(), R"(  @compute @workgroup_size(1i, 1i, 1i)
+    EXPECT_EQ(gen.Result(), R"(  @compute @workgroup_size(1u, 1u, 1u)
   fn test_function() {
     var a : f32;
   }

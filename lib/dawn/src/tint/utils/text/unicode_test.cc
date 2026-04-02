@@ -273,14 +273,12 @@ class UTF8Test : public testing::TestWithParam<UTF8Case> {};
 
 TEST_P(UTF8Test, Decode) {
     auto param = GetParam();
-
-    const uint8_t* data = reinterpret_cast<const uint8_t*>(param.string.data());
-    const size_t len = param.string.size();
+    std::span<const uint8_t> data{param.string};
 
     std::vector<CodePointAndWidth> got;
     size_t offset = 0;
-    while (offset < len) {
-        auto [code_point, width] = utf8::Decode(data + offset, len - offset);
+    while (offset < data.size()) {
+        auto [code_point, width] = utf8::Decode(data.subspan(offset));
         if (width == 0) {
             FAIL() << "Decode() failed at byte offset " << offset;
         }
@@ -294,17 +292,17 @@ TEST_P(UTF8Test, Decode) {
 TEST_P(UTF8Test, Encode) {
     auto param = GetParam();
 
-    Slice<const uint8_t> str{reinterpret_cast<const uint8_t*>(param.string.data()),
-                             param.string.size()};
+    std::span<const uint8_t> str{param.string};
     for (auto codepoint : param.code_points) {
-        EXPECT_EQ(utf8::Encode(codepoint.code_point, nullptr), codepoint.width);
+        EXPECT_EQ(utf8::Encode(codepoint.code_point, {}), codepoint.width);
 
-        uint8_t encoded[4];
+        std::array<uint8_t, 4> encoded;
         size_t len = utf8::Encode(codepoint.code_point, encoded);
         ASSERT_EQ(len, codepoint.width);
-        EXPECT_THAT(Slice<const uint8_t>(encoded, len),
-                    ::testing::ElementsAreArray(str.Truncate(len)));
-        str = str.Offset(len);
+        for (size_t i = 0; i < len; i++) {
+            EXPECT_EQ(encoded[i], str[i]);
+        }
+        str = str.subspan(len);
     }
 }
 
@@ -512,7 +510,7 @@ INSTANTIATE_TEST_SUITE_P(Random,
 class DecodeUTF8InvalidTest : public testing::TestWithParam<std::vector<uint8_t>> {};
 
 TEST_P(DecodeUTF8InvalidTest, Invalid) {
-    auto [code_point, width] = utf8::Decode(GetParam().data(), GetParam().size());
+    auto [code_point, width] = utf8::Decode(GetParam());
     EXPECT_EQ(code_point, CodePoint(0));
     EXPECT_EQ(width, 0u);
 }
@@ -558,6 +556,8 @@ INSTANTIATE_TEST_SUITE_P(Invalid,
                              {0xf4, 0xff, 0x8f, 0x8f},  // 4-bytes, second byte's second-MSB set
                              {0xf4, 0x8f, 0xff, 0x8f},  // 4-bytes, third byte's second-MSB set
                              {0xf4, 0x8f, 0x8f, 0xff},  // 4-bytes, fourth byte's second-MSB set
+
+                             {0xe0, 0x9d, 0x81},  // Value out of range for 3-byte
                          }));
 
 }  // namespace utf8_tests
@@ -586,14 +586,12 @@ class UTF16Test : public testing::TestWithParam<UTF16Case> {};
 
 TEST_P(UTF16Test, Decode) {
     auto param = GetParam();
-
-    const uint16_t* data = reinterpret_cast<const uint16_t*>(param.string.data());
-    const size_t len = param.string.size();
+    std::span<const uint16_t> data{param.string};
 
     std::vector<CodePointAndWidth> got;
     size_t offset = 0;
-    while (offset < len) {
-        auto [code_point, width] = utf16::Decode(data + offset, len - offset);
+    while (offset < data.size()) {
+        auto [code_point, width] = utf16::Decode(data.subspan(offset));
         if (width == 0) {
             FAIL() << "Decode() failed at byte offset " << offset;
         }
@@ -606,18 +604,18 @@ TEST_P(UTF16Test, Decode) {
 
 TEST_P(UTF16Test, Encode) {
     auto param = GetParam();
+    std::span<const uint16_t> str{param.string};
 
-    Slice<const uint16_t> str{reinterpret_cast<const uint16_t*>(param.string.data()),
-                              param.string.size()};
     for (auto codepoint : param.code_points) {
-        EXPECT_EQ(utf16::Encode(codepoint.code_point, nullptr), codepoint.width);
+        EXPECT_EQ(utf16::Encode(codepoint.code_point, {}), codepoint.width);
 
-        uint16_t encoded[2];
+        std::array<uint16_t, 2> encoded;
         size_t len = utf16::Encode(codepoint.code_point, encoded);
         ASSERT_EQ(len, codepoint.width);
-        EXPECT_THAT(Slice<const uint16_t>(encoded, len),
-                    ::testing::ElementsAreArray(str.Truncate(len)));
-        str = str.Offset(len);
+        for (size_t i = 0; i < len; i++) {
+            EXPECT_EQ(encoded[i], str[i]);
+        }
+        str = str.subspan(len);
     }
 }
 
@@ -833,10 +831,11 @@ INSTANTIATE_TEST_SUITE_P(Random,
 class DecodeUTF16InvalidTest : public testing::TestWithParam<std::vector<uint16_t>> {};
 
 TEST_P(DecodeUTF16InvalidTest, Invalid) {
-    auto [code_point, width] = utf16::Decode(GetParam().data(), GetParam().size());
+    auto [code_point, width] = utf16::Decode(GetParam());
     EXPECT_EQ(code_point, CodePoint(0));
     EXPECT_EQ(width, 0u);
 }
+
 INSTANTIATE_TEST_SUITE_P(Invalid,
                          DecodeUTF16InvalidTest,
                          ::testing::ValuesIn(std::vector<std::vector<uint16_t>>{

@@ -1119,7 +1119,7 @@ TEST_F(PixelLocalStorageTest, RenderPipelineOnlyStorageAttachment) {
 }
 
 // Check that the size of the render pass is correctly deduced when there is only a storage
-// attachment. Use the SetViewport validation to check this.
+// attachment. Use the SetScissorRect validation to check this.
 TEST_F(PixelLocalStorageTest, RenderPassSizeDetectionWithOnlyStorageAttachment) {
     wgpu::TextureDescriptor tDesc;
     tDesc.format = wgpu::TextureFormat::R32Uint;
@@ -1143,29 +1143,29 @@ TEST_F(PixelLocalStorageTest, RenderPassSizeDetectionWithOnlyStorageAttachment) 
     rpDesc.colorAttachmentCount = 0;
     rpDesc.depthStencilAttachment = nullptr;
 
-    // Success case: viewport is exactly the size of the render pass.
+    // Success case: scissor rect is exactly the size of the render pass.
     {
         wgpu::CommandEncoder encoder = device.CreateCommandEncoder();
         wgpu::RenderPassEncoder pass = encoder.BeginRenderPass(&rpDesc);
-        pass.SetViewport(0, 0, tDesc.size.width, tDesc.size.height, 0.0, 1.0);
+        pass.SetScissorRect(0, 0, tDesc.size.width, tDesc.size.height);
         pass.End();
         encoder.Finish();
     }
 
-    // Error case: viewport width is larger than the render pass's.
+    // Error case: scissor rect width is larger than the render pass's.
     {
         wgpu::CommandEncoder encoder = device.CreateCommandEncoder();
         wgpu::RenderPassEncoder pass = encoder.BeginRenderPass(&rpDesc);
-        pass.SetViewport(0, 0, tDesc.size.width + 1, tDesc.size.height, 0.0, 1.0);
+        pass.SetScissorRect(0, 0, tDesc.size.width + 1, tDesc.size.height);
         pass.End();
         ASSERT_DEVICE_ERROR(encoder.Finish());
     }
 
-    // Error case: viewport width is larger than the render pass's.
+    // Error case: scissor rect height is larger than the render pass's.
     {
         wgpu::CommandEncoder encoder = device.CreateCommandEncoder();
         wgpu::RenderPassEncoder pass = encoder.BeginRenderPass(&rpDesc);
-        pass.SetViewport(0, 0, tDesc.size.width, tDesc.size.height + 1, 0.0, 1.0);
+        pass.SetScissorRect(0, 0, tDesc.size.width, tDesc.size.height + 1);
         pass.End();
         ASSERT_DEVICE_ERROR(encoder.Finish());
     }
@@ -1188,16 +1188,15 @@ TEST_F(PixelLocalStorageAndRenderToSingleSampledTest, CombinationIsNotAllowed) {
     RecordRenderPass(&desc.rpDesc);
 
     // Error case: MSAA render to single sampled is added to the color attachment.
-    wgpu::DawnRenderPassColorAttachmentRenderToSingleSampled msaaRenderToSingleSampledDesc;
-    msaaRenderToSingleSampledDesc.implicitSampleCount = 4;
-    desc.colorAttachment.nextInChain = &msaaRenderToSingleSampledDesc;
+    wgpu::DawnRenderPassSampleCount renderPassSampleCount;
+    renderPassSampleCount.sampleCount = 4;
+    desc.rpDesc.nextInChain = &renderPassSampleCount;
     ASSERT_DEVICE_ERROR(RecordRenderPass(&desc.rpDesc));
 }
 
 class PixelLocalStorageAndTransientAttachmentTest : public PixelLocalStorageTest {
     std::vector<wgpu::FeatureName> GetRequiredFeatures() override {
-        return {wgpu::FeatureName::PixelLocalStorageNonCoherent,
-                wgpu::FeatureName::TransientAttachments};
+        return {wgpu::FeatureName::PixelLocalStorageNonCoherent};
     }
 };
 

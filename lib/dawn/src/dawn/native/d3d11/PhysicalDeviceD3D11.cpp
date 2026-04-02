@@ -32,6 +32,7 @@
 #include <utility>
 
 #include "dawn/common/Constants.h"
+#include "dawn/common/GPUInfo.h"
 #include "dawn/native/ChainUtils.h"
 #include "dawn/native/Instance.h"
 #include "dawn/native/d3d/D3DError.h"
@@ -44,7 +45,7 @@
 namespace dawn::native::d3d11 {
 
 PhysicalDevice::PhysicalDevice(Backend* backend,
-                               ComPtr<IDXGIAdapter4> hardwareAdapter,
+                               ComPtr<IDXGIAdapter3> hardwareAdapter,
                                ComPtr<ID3D11Device> d3d11Device)
     : Base(backend, std::move(hardwareAdapter), wgpu::BackendType::D3D11),
       mIsSharedD3D11Device(!!d3d11Device),
@@ -56,16 +57,20 @@ bool PhysicalDevice::SupportsExternalImages() const {
     return true;
 }
 
-bool PhysicalDevice::SupportsFeatureLevel(FeatureLevel featureLevel) const {
+bool PhysicalDevice::SupportsFeatureLevel(wgpu::FeatureLevel featureLevel,
+                                          InstanceBase* instance) const {
     // TODO(dawn:1820): compare D3D11 feature levels with Dawn feature levels.
     switch (featureLevel) {
-        case FeatureLevel::Core: {
+        case wgpu::FeatureLevel::Core: {
             return mFeatureLevel >= D3D_FEATURE_LEVEL_11_1;
         }
-        case FeatureLevel::Compatibility: {
-            return true;
+        case wgpu::FeatureLevel::Compatibility: {
+            return mFeatureLevel >= D3D_FEATURE_LEVEL_11_0;
         }
+        case wgpu::FeatureLevel::Undefined:
+            break;
     }
+    DAWN_UNREACHABLE();
 }
 
 const DeviceInfo& PhysicalDevice::GetDeviceInfo() const {
@@ -141,21 +146,24 @@ void PhysicalDevice::InitializeSupportedFeaturesImpl() {
     EnableFeature(Feature::Depth32FloatStencil8);
     EnableFeature(Feature::DepthClipControl);
     EnableFeature(Feature::TextureCompressionBC);
+    EnableFeature(Feature::TextureCompressionBCSliced3D);
     EnableFeature(Feature::D3D11MultithreadProtected);
     EnableFeature(Feature::Float32Filterable);
     EnableFeature(Feature::Float32Blendable);
     EnableFeature(Feature::DualSourceBlending);
     EnableFeature(Feature::ClipDistances);
     EnableFeature(Feature::Unorm16TextureFormats);
-    EnableFeature(Feature::Snorm16TextureFormats);
-    EnableFeature(Feature::Norm16TextureFormats);
+    EnableFeature(Feature::Unorm16Filterable);
+    EnableFeature(Feature::Unorm16FormatsForExternalTexture);
     EnableFeature(Feature::AdapterPropertiesMemoryHeaps);
     EnableFeature(Feature::AdapterPropertiesD3D);
-    EnableFeature(Feature::R8UnormStorage);
     EnableFeature(Feature::ShaderModuleCompilationOptions);
     EnableFeature(Feature::DawnLoadResolveTexture);
     EnableFeature(Feature::DawnPartialLoadResolveTexture);
     EnableFeature(Feature::RG11B10UfloatRenderable);
+    EnableFeature(Feature::TextureFormatsTier1);
+    EnableFeature(Feature::PrimitiveIndex);
+
     if (mDeviceInfo.isUMA && mDeviceInfo.supportsMapNoOverwriteDynamicBuffers) {
         // With UMA we should allow mapping usages on more type of buffers.
         EnableFeature(Feature::BufferMapExtendedUsages);
@@ -172,9 +180,8 @@ void PhysicalDevice::InitializeSupportedFeaturesImpl() {
     }
 
     EnableFeature(Feature::SharedTextureMemoryD3D11Texture2D);
-    if (mDeviceInfo.supportsSharedResourceCapabilityTier2) {
-        EnableFeature(Feature::SharedTextureMemoryDXGISharedHandle);
-    }
+    EnableFeature(Feature::SharedTextureMemoryDXGISharedHandle);
+
     if (mDeviceInfo.supportsMonitoredFence || mDeviceInfo.supportsNonMonitoredFence) {
         EnableFeature(Feature::SharedFenceDXGISharedHandle);
     }
@@ -185,10 +192,13 @@ void PhysicalDevice::InitializeSupportedFeaturesImpl() {
     if (formatSupport & D3D11_FORMAT_SUPPORT_TYPED_UNORDERED_ACCESS_VIEW) {
         EnableFeature(Feature::BGRA8UnormStorage);
     }
+
+    EnableFeature(Feature::DawnTexelCopyBufferRowAlignment);
+    EnableFeature(Feature::FlexibleTextureViews);
 }
 
 MaybeError PhysicalDevice::InitializeSupportedLimitsImpl(CombinedLimits* limits) {
-    GetDefaultLimitsForSupportedFeatureLevel(&limits->v1);
+    GetDefaultLimitsForSupportedFeatureLevel(limits);
 
     // // https://docs.microsoft.com/en-us/windows/win32/direct3d12/hardware-feature-levels
 
@@ -203,11 +213,24 @@ MaybeError PhysicalDevice::InitializeSupportedLimitsImpl(CombinedLimits* limits)
     // Both SV_VertexID and SV_InstanceID will consume vertex input slots.
     limits->v1.maxVertexAttributes = D3D11_IA_VERTEX_INPUT_RESOURCE_SLOT_COUNT - 2;
 
-    uint32_t maxUAVsAllStages = mFeatureLevel == D3D_FEATURE_LEVEL_11_1
-                                    ? D3D11_1_UAV_SLOT_COUNT
-                                    : D3D11_PS_CS_UAV_REGISTER_COUNT;
+    uint32_t maxUAVsAllStages;
+    uint32_t maxUAVsPerStage;
+
+    if (mFeatureLevel >= D3D_FEATURE_LEVEL_11_1) {
+        // In D3D 11.1, max UAV slots are shared between fragment & vertex stage so divide it by 2
+        // to get per stage limit.
+        maxUAVsAllStages = D3D11_1_UAV_SLOT_COUNT;
+        maxUAVsPerStage = maxUAVsAllStages / 2;
+    } else {
+        // We don't support feature level < 11.0
+        DAWN_INVALID_IF(mFeatureLevel < D3D_FEATURE_LEVEL_11_0, "Unsupported D3D feature level %u",
+                        mFeatureLevel);
+        // In D3D 11.0, only fragment and compute have UAVs. Vertex doesn't have UAV so we don't
+        // need to divide the slot count between fragment & vertex.
+        maxUAVsAllStages = D3D11_PS_CS_UAV_REGISTER_COUNT;
+        maxUAVsPerStage = maxUAVsAllStages;
+    }
     mUAVSlotCount = maxUAVsAllStages;
-    uint32_t maxUAVsPerStage = maxUAVsAllStages / 2;
 
     // Reserve one slot for builtin constants.
     constexpr uint32_t kReservedCBVSlots = 1;
@@ -217,6 +240,15 @@ MaybeError PhysicalDevice::InitializeSupportedLimitsImpl(CombinedLimits* limits)
     // Allocate half of the UAVs to storage buffers, and half to storage textures.
     limits->v1.maxStorageTexturesPerShaderStage = maxUAVsPerStage / 2;
     limits->v1.maxStorageBuffersPerShaderStage = maxUAVsPerStage / 2;
+    limits->compat.maxStorageTexturesInFragmentStage = limits->v1.maxStorageTexturesPerShaderStage;
+    limits->compat.maxStorageBuffersInFragmentStage = limits->v1.maxStorageBuffersPerShaderStage;
+    // If the device only has feature level 11.0, technically, vertex stage doesn't have any UAV
+    // slot (writable storage buffers). However, since Dawn spec requires that storage buffers must
+    // be readonly in VS, it's safe to advertise that we have storage buffers in VS. Readonly
+    // storage buffers will use SRV slots which are available in all stages.
+    // The same for read-only storage textures in VS.
+    limits->compat.maxStorageTexturesInVertexStage = limits->v1.maxStorageTexturesPerShaderStage;
+    limits->compat.maxStorageBuffersInVertexStage = limits->v1.maxStorageBuffersPerShaderStage;
     limits->v1.maxSampledTexturesPerShaderStage = D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT;
     limits->v1.maxSamplersPerShaderStage = D3D11_COMMONSHADER_SAMPLER_SLOT_COUNT;
     limits->v1.maxColorAttachments = D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT;
@@ -245,13 +277,12 @@ MaybeError PhysicalDevice::InitializeSupportedLimitsImpl(CombinedLimits* limits)
     // Max number of "constants" where each constant is a 16-byte float4
     limits->v1.maxUniformBufferBindingSize = D3D11_REQ_CONSTANT_BUFFER_ELEMENT_COUNT * 16;
 
-    if (gpu_info::IsQualcomm_ACPI(GetVendorId())) {
-        // limit of number of texels in a buffer == (1 << 27)
-        // D3D11_REQ_BUFFER_RESOURCE_TEXEL_COUNT_2_TO_EXP
-        // This limit doesn't apply to a raw buffer, but only applies to
-        // typed, or structured buffer. so this could be a QC driver bug.
-        limits->v1.maxStorageBufferBindingSize = uint64_t(1)
-                                                 << D3D11_REQ_BUFFER_RESOURCE_TEXEL_COUNT_2_TO_EXP;
+    if (gpu_info::IsQualcommACPI(GetVendorId()) &&
+        gpu_info::GetQualcommACPIGen(GetVendorId(), GetDeviceId()) <
+            gpu_info::QualcommACPIGen::Adreno8xx) {
+        // Due to hardware limitation, Raw Buffers can only address 2^28 bytes instead of the
+        // guaranteed 2^31 bytes.
+        limits->v1.maxStorageBufferBindingSize = 1 << 28;
     } else {
         limits->v1.maxStorageBufferBindingSize = kAssumedMaxBufferSize;
     }
@@ -262,8 +293,19 @@ MaybeError PhysicalDevice::InitializeSupportedLimitsImpl(CombinedLimits* limits)
     // 1 for SV_Position and 1 for (SV_IsFrontFace OR SV_SampleIndex).
     // See the discussions in https://github.com/gpuweb/gpuweb/issues/1962 for more details.
     limits->v1.maxInterStageShaderVariables = D3D11_PS_INPUT_REGISTER_COUNT - 2;
-    limits->v1.maxInterStageShaderComponents =
-        limits->v1.maxInterStageShaderVariables * D3D11_PS_INPUT_REGISTER_COMPONENTS;
+
+    // D3D11 uses internal uniform buffers to support immediate data. The space is enough for
+    // 64 bytes.
+    limits->v1.maxImmediateSize = kMaxImmediateDataBytes;
+
+    // The BlitTextureToBuffer helper requires the alignment to be 4.
+    limits->texelCopyBufferRowAlignmentLimits.minTexelCopyBufferRowAlignment = 4;
+
+    // D3D11 Debug layer enforces that when creating a RAW Shader Resource View, the offset of the
+    // first element from the start of the buffer must be a multiple of 16 bytes. There is no
+    // official document about it but we have to adhere to the debug layer. So set SSBO alignment
+    // to 16.
+    limits->v1.minStorageBufferOffsetAlignment = 16;
 
     return {};
 }
@@ -285,11 +327,26 @@ void PhysicalDevice::SetupBackendDeviceToggles(dawn::platform::Platform* platfor
     // D3D11 can only clear RTV with float values.
     deviceToggles->Default(Toggle::ApplyClearBigIntegerColorValueWithDraw, true);
     deviceToggles->Default(Toggle::UseBlitForBufferToStencilTextureCopy, true);
-    deviceToggles->Default(Toggle::D3D11UseUnmonitoredFence, !mDeviceInfo.supportsMonitoredFence);
+    if (!mDeviceInfo.supportsMonitoredFence) {
+        deviceToggles->Default(Toggle::D3D11UseUnmonitoredFence,
+                               mDeviceInfo.supportsNonMonitoredFence);
+        deviceToggles->ForceSet(Toggle::D3D11DisableFence, !mDeviceInfo.supportsNonMonitoredFence);
+    }
     deviceToggles->Default(Toggle::UseBlitForT2B, true);
+    deviceToggles->Default(Toggle::UseBlitForB2T, true);
 
     auto deviceId = GetDeviceId();
     auto vendorId = GetVendorId();
+
+    // Use D3D11's DiscardView for discarding render pass' attachments having StoreOp::Discard.
+    if (gpu_info::IsNvidia(vendorId) && deviceId == 0x1CB3) {
+        // TODO(crbug.com/485540062): Quadro P400 (PCI ID 0x1CB3) has performance regressions if
+        // DiscardView is used.
+        deviceToggles->Default(Toggle::D3D11UseDiscardView, false);
+    } else {
+        deviceToggles->Default(Toggle::D3D11UseDiscardView, true);
+    }
+
     // D3D11 ClearRenderTargetView() could be buggy with some old driver or GPUs. Intel Gen12+ GPUs
     // don't have the problem.
     // https://crbug.com/329702368
@@ -297,13 +354,31 @@ void PhysicalDevice::SetupBackendDeviceToggles(dawn::platform::Platform* platfor
     // The workaround still can't cover lazy clear,
     // TODO(crbug.com/364834368): Move handling of workaround at command submission time instead of
     // recording time.
-    if (gpu_info::IsIntelGen11OrOlder(vendorId, deviceId)) {
+    if (gpu_info::IsIntel(vendorId) &&
+        gpu_info::GetIntelGen(vendorId, deviceId) <= gpu_info::IntelGen::Gen11) {
         deviceToggles->Default(Toggle::ClearColorWithDraw, true);
     }
 
-    // Use the Tint IR backend by default if the corresponding platform feature is enabled.
-    deviceToggles->Default(Toggle::UseTintIR,
-                           platform->IsFeatureEnabled(platform::Features::kWebGPUUseTintIR));
+    // TODO(crbug.com/458062283): older intel drivers seems to produce buggy shaders. Especially if
+    // they are very complex. Current workaround is disable FXC optimizations.
+    if (gpu_info::IsIntel(vendorId) &&
+        gpu_info::GetIntelGen(vendorId, deviceId) <= gpu_info::IntelGen::Gen9) {
+        const gpu_info::IntelWindowsDriverVersion kKnownGoodDriverVersion = {31, 0, 101, 2121};
+        if (gpu_info::IntelWindowsDriverVersion(GetDriverVersion()) < kKnownGoodDriverVersion) {
+            deviceToggles->Default(Toggle::D3DSkipShaderOptimizations, true);
+        }
+    }
+
+    // Enable the integer range analysis for shader robustness by default if the corresponding
+    // platform feature is enabled.
+    deviceToggles->Default(
+        Toggle::EnableIntegerRangeAnalysisInRobustness,
+        platform->IsFeatureEnabled(platform::Features::kWebGPUEnableRangeAnalysisForRobustness));
+
+    // TODO(crbug.com/454782021): hang on Qualcomm Adreno X1.
+    if (gpu_info::IsQualcommACPI(vendorId)) {
+        deviceToggles->ForceSet(Toggle::D3D11DelayFlushToGPU, false);
+    }
 }
 
 ResultOrError<Ref<DeviceBase>> PhysicalDevice::CreateDeviceImpl(
@@ -326,7 +401,8 @@ MaybeError PhysicalDevice::ResetInternalDeviceForTestingImpl() {
     return {};
 }
 
-void PhysicalDevice::PopulateBackendProperties(UnpackedPtr<AdapterInfo>& info) const {
+void PhysicalDevice::PopulateBackendProperties(UnpackedPtr<AdapterInfo>& info,
+                                               const TogglesState&) const {
     if (auto* memoryHeapProperties = info.Get<AdapterPropertiesMemoryHeaps>()) {
         // https://microsoft.github.io/DirectX-Specs/d3d/D3D12GPUUploadHeaps.html describes
         // the properties of D3D12 Default/Upload/Readback heaps. The assumption is that these are

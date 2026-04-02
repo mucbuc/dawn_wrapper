@@ -33,21 +33,27 @@ namespace dawn::native::d3d11 {
 
 ResultOrError<Ref<BindGroupLayout>> BindGroupLayout::Create(
     Device* device,
-    const BindGroupLayoutDescriptor* descriptor) {
+    const UnpackedPtr<BindGroupLayoutDescriptor>& descriptor) {
     return AcquireRef(new BindGroupLayout(device, descriptor));
 }
 
-BindGroupLayout::BindGroupLayout(Device* device, const BindGroupLayoutDescriptor* descriptor)
+BindGroupLayout::BindGroupLayout(Device* device,
+                                 const UnpackedPtr<BindGroupLayoutDescriptor>& descriptor)
     : BindGroupLayoutInternalBase(device, descriptor),
       mBindGroupAllocator(MakeFrontendBindGroupAllocator<BindGroup>(4096)) {}
 
-Ref<BindGroup> BindGroupLayout::AllocateBindGroup(Device* device,
-                                                  const BindGroupDescriptor* descriptor) {
+Ref<BindGroup> BindGroupLayout::AllocateBindGroup(
+    Device* device,
+    const UnpackedPtr<BindGroupDescriptor>& descriptor) {
     return AcquireRef(mBindGroupAllocator->Allocate(device, descriptor));
 }
 
 void BindGroupLayout::DeallocateBindGroup(BindGroup* bindGroup) {
     mBindGroupAllocator->Deallocate(bindGroup);
+}
+
+void BindGroupLayout::ReduceMemoryUsage() {
+    mBindGroupAllocator->DeleteEmptySlabs();
 }
 
 }  // namespace dawn::native::d3d11

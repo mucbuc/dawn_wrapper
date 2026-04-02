@@ -32,6 +32,7 @@
 #include <wrl/client.h>
 
 #include <memory>
+#include <optional>
 
 #include "dawn/native/D3DBackend.h"
 

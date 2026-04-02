@@ -29,15 +29,14 @@
 #include <unordered_set>
 #include <vector>
 
+#include "dawn/common/Constants.h"
 #include "dawn/common/StringViewUtils.h"
 #include "dawn/tests/MockCallback.h"
 #include "dawn/tests/StringViewMatchers.h"
 #include "dawn/tests/unittests/wire/WireFutureTest.h"
 #include "dawn/tests/unittests/wire/WireTest.h"
-
 #include "dawn/wire/WireClient.h"
 #include "dawn/wire/WireServer.h"
-
 #include "webgpu/webgpu_cpp.h"
 
 namespace dawn::wire {
@@ -45,7 +44,6 @@ namespace {
 
 using testing::_;
 using testing::EmptySizedString;
-using testing::Invoke;
 using testing::InvokeWithoutArgs;
 using testing::IsNull;
 using testing::NonEmptySizedString;
@@ -72,7 +70,7 @@ TEST_F(WireInstanceBasicTest, ReserveAndInject) {
     FlushClient();
 }
 
-using WireInstanceTestBase = WireFutureTest<wgpu::RequestAdapterCallback2<void>*>;
+using WireInstanceTestBase = WireFutureTest<wgpu::RequestAdapterCallback<void>*>;
 class WireInstanceTests : public WireInstanceTestBase {
   protected:
     void RequestAdapter(wgpu::RequestAdapterOptions const* options) {
@@ -94,14 +92,14 @@ TEST_P(WireInstanceTests, RequestAdapterPassesOptions) {
 
         RequestAdapter(&options);
 
-        EXPECT_CALL(api, OnInstanceRequestAdapter2(apiInstance, NotNull(), _))
-            .WillOnce(WithArg<1>(Invoke([&](const WGPURequestAdapterOptions* apiOptions) {
+        EXPECT_CALL(api, OnInstanceRequestAdapter(apiInstance, NotNull(), _))
+            .WillOnce(WithArg<1>([&](const WGPURequestAdapterOptions* apiOptions) {
                 EXPECT_EQ(apiOptions->powerPreference,
                           static_cast<WGPUPowerPreference>(options.powerPreference));
                 EXPECT_EQ(apiOptions->forceFallbackAdapter, options.forceFallbackAdapter);
-                api.CallInstanceRequestAdapter2Callback(apiInstance, WGPURequestAdapterStatus_Error,
-                                                        nullptr, kEmptyOutputStringView);
-            })));
+                api.CallInstanceRequestAdapterCallback(apiInstance, WGPURequestAdapterStatus_Error,
+                                                       nullptr, kEmptyOutputStringView);
+            }));
 
         FlushClient();
         FlushFutures();
@@ -127,10 +125,12 @@ TEST_P(WireInstanceTests, RequestAdapterSuccess) {
     fakeInfo.adapterType = WGPUAdapterType_IntegratedGPU;
     fakeInfo.vendorID = 0x134;
     fakeInfo.deviceID = 0x918;
+    fakeInfo.subgroupMinSize = kDefaultSubgroupMinSize;
+    fakeInfo.subgroupMaxSize = kDefaultSubgroupMaxSize;
 
-    wgpu::SupportedLimits fakeLimits = {};
-    fakeLimits.limits.maxTextureDimension1D = 433;
-    fakeLimits.limits.maxVertexAttributes = 1243;
+    wgpu::Limits fakeLimits = {};
+    fakeLimits.maxTextureDimension1D = 433;
+    fakeLimits.maxVertexAttributes = 1243;
 
     std::initializer_list<WGPUFeatureName> fakeFeaturesList = {
         WGPUFeatureName_Depth32FloatStencil8,
@@ -140,28 +140,28 @@ TEST_P(WireInstanceTests, RequestAdapterSuccess) {
 
     // Expect the server to receive the message. Then, mock a fake reply.
     WGPUAdapter apiAdapter = api.GetNewAdapter();
-    EXPECT_CALL(api, OnInstanceRequestAdapter2(apiInstance, NotNull(), _))
+    EXPECT_CALL(api, OnInstanceRequestAdapter(apiInstance, NotNull(), _))
         .WillOnce(InvokeWithoutArgs([&] {
             EXPECT_CALL(api, AdapterHasFeature(apiAdapter, _)).WillRepeatedly(Return(false));
 
             EXPECT_CALL(api, AdapterGetInfo(apiAdapter, NotNull()))
-                .WillOnce(WithArg<1>(Invoke([&](WGPUAdapterInfo* info) {
+                .WillOnce(WithArg<1>([&](WGPUAdapterInfo* info) {
                     *info = fakeInfo;
                     return WGPUStatus_Success;
-                })));
+                }));
 
             EXPECT_CALL(api, AdapterGetLimits(apiAdapter, NotNull()))
-                .WillOnce(WithArg<1>(Invoke([&](WGPUSupportedLimits* limits) {
-                    *reinterpret_cast<wgpu::SupportedLimits*>(limits) = fakeLimits;
+                .WillOnce(WithArg<1>([&](WGPULimits* limits) {
+                    *reinterpret_cast<wgpu::Limits*>(limits) = fakeLimits;
                     return WGPUStatus_Success;
-                })));
+                }));
 
             EXPECT_CALL(api, AdapterGetFeatures(apiAdapter, NotNull()))
-                .WillOnce(WithArg<1>(
-                    Invoke([&](WGPUSupportedFeatures* features) { *features = fakeFeatures; })));
+                .WillOnce(
+                    WithArg<1>([&](WGPUSupportedFeatures* features) { *features = fakeFeatures; }));
 
-            api.CallInstanceRequestAdapter2Callback(apiInstance, WGPURequestAdapterStatus_Success,
-                                                    apiAdapter, kEmptyOutputStringView);
+            api.CallInstanceRequestAdapterCallback(apiInstance, WGPURequestAdapterStatus_Success,
+                                                   apiAdapter, kEmptyOutputStringView);
         }));
 
     FlushClient();
@@ -171,7 +171,7 @@ TEST_P(WireInstanceTests, RequestAdapterSuccess) {
     ExpectWireCallbacksWhen([&](auto& mockCb) {
         EXPECT_CALL(mockCb,
                     Call(wgpu::RequestAdapterStatus::Success, NotNull(), EmptySizedString()))
-            .WillOnce(WithArg<1>(Invoke([&](wgpu::Adapter adapter) {
+            .WillOnce(WithArg<1>([&](wgpu::Adapter adapter) {
                 WGPUAdapterInfo info = {};
                 adapter.GetInfo(reinterpret_cast<wgpu::AdapterInfo*>(&info));
                 EXPECT_NE(info.vendor.length, WGPU_STRLEN);
@@ -186,12 +186,13 @@ TEST_P(WireInstanceTests, RequestAdapterSuccess) {
                 EXPECT_EQ(info.adapterType, fakeInfo.adapterType);
                 EXPECT_EQ(info.vendorID, fakeInfo.vendorID);
                 EXPECT_EQ(info.deviceID, fakeInfo.deviceID);
+                EXPECT_EQ(info.subgroupMinSize, fakeInfo.subgroupMinSize);
+                EXPECT_EQ(info.subgroupMaxSize, fakeInfo.subgroupMaxSize);
 
-                wgpu::SupportedLimits limits = {};
+                wgpu::Limits limits = {};
                 EXPECT_EQ(adapter.GetLimits(&limits), wgpu::Status::Success);
-                EXPECT_EQ(limits.limits.maxTextureDimension1D,
-                          fakeLimits.limits.maxTextureDimension1D);
-                EXPECT_EQ(limits.limits.maxVertexAttributes, fakeLimits.limits.maxVertexAttributes);
+                EXPECT_EQ(limits.maxTextureDimension1D, fakeLimits.maxTextureDimension1D);
+                EXPECT_EQ(limits.maxVertexAttributes, fakeLimits.maxVertexAttributes);
 
                 WGPUSupportedFeatures features = {};
                 adapter.GetFeatures(reinterpret_cast<wgpu::SupportedFeatures*>(&features));
@@ -203,7 +204,7 @@ TEST_P(WireInstanceTests, RequestAdapterSuccess) {
                 for (WGPUFeatureName feature : featuresList) {
                     EXPECT_EQ(featureSet.erase(feature), 1u);
                 }
-            })));
+            }));
 
         FlushCallbacks();
     });
@@ -233,25 +234,52 @@ TEST_P(WireInstanceTests, RequestAdapterPassesChainedProperties) {
     fakeVkProperties.chain.sType = WGPUSType_AdapterPropertiesVk;
     fakeVkProperties.driverVersion = 0x801F6000;
 
+    WGPUSubgroupMatrixConfig fakeMatrixConfigs[3] = {
+        {WGPUSubgroupMatrixComponentType_F32, WGPUSubgroupMatrixComponentType_F32, 8, 4, 2},
+        {WGPUSubgroupMatrixComponentType_U32, WGPUSubgroupMatrixComponentType_I32, 4, 8, 16},
+        {WGPUSubgroupMatrixComponentType_F16, WGPUSubgroupMatrixComponentType_F32, 2, 16, 4},
+    };
+
+    WGPUAdapterPropertiesSubgroupMatrixConfigs fakeSubgroupMatrixConfigs = {};
+    fakeSubgroupMatrixConfigs.chain.sType = WGPUSType_AdapterPropertiesSubgroupMatrixConfigs;
+    fakeSubgroupMatrixConfigs.configCount = 3;
+    fakeSubgroupMatrixConfigs.configs = fakeMatrixConfigs;
+
+    WGPUDawnAdapterPropertiesPowerPreference fakePowerProperties = {};
+    fakePowerProperties.chain.sType = WGPUSType_DawnAdapterPropertiesPowerPreference;
+    fakePowerProperties.powerPreference = WGPUPowerPreference::WGPUPowerPreference_LowPower;
+
+    WGPUAdapterPropertiesExplicitComputeSubgroupSizeConfigs fakeExplicitComputeSubgroupSizeConfigs =
+        {};
+    fakeExplicitComputeSubgroupSizeConfigs.chain.sType =
+        WGPUSType_AdapterPropertiesExplicitComputeSubgroupSizeConfigs;
+    fakeExplicitComputeSubgroupSizeConfigs.minExplicitComputeSubgroupSize = 8;
+    fakeExplicitComputeSubgroupSizeConfigs.maxExplicitComputeSubgroupSize = 32;
+
     std::initializer_list<WGPUFeatureName> fakeFeaturesList = {
         WGPUFeatureName_AdapterPropertiesMemoryHeaps,
         WGPUFeatureName_AdapterPropertiesD3D,
         WGPUFeatureName_AdapterPropertiesVk,
+        WGPUFeatureName_ChromiumExperimentalSubgroupMatrix,
+        WGPUFeatureName_ChromiumExperimentalSubgroupSizeControl,
     };
+    WGPUSupportedFeatures fakeFeatures = {fakeFeaturesList.size(), std::data(fakeFeaturesList)};
 
     // Expect the server to receive the message. Then, mock a fake reply.
     WGPUAdapter apiAdapter = api.GetNewAdapter();
-    EXPECT_CALL(api, OnInstanceRequestAdapter2(apiInstance, NotNull(), _))
+    EXPECT_CALL(api, OnInstanceRequestAdapter(apiInstance, NotNull(), _))
         .WillOnce(InvokeWithoutArgs([&] {
             EXPECT_CALL(api, AdapterGetLimits(apiAdapter, NotNull())).Times(1);
-            EXPECT_CALL(api, AdapterGetFeatures(apiAdapter, NotNull())).Times(1);
+            EXPECT_CALL(api, AdapterGetFeatures(apiAdapter, NotNull()))
+                .WillOnce(
+                    WithArg<1>([&](WGPUSupportedFeatures* features) { *features = fakeFeatures; }));
 
             for (WGPUFeatureName feature : fakeFeaturesList) {
                 EXPECT_CALL(api, AdapterHasFeature(apiAdapter, feature)).WillOnce(Return(true));
             }
             EXPECT_CALL(api, AdapterGetInfo(apiAdapter, NotNull()))
-                .WillOnce(WithArg<1>(Invoke([&](WGPUAdapterInfo* info) {
-                    WGPUChainedStructOut* chain = info->nextInChain;
+                .WillOnce(WithArg<1>([&](WGPUAdapterInfo* info) {
+                    WGPUChainedStruct* chain = info->nextInChain;
                     while (chain != nullptr) {
                         auto* next = chain->next;
                         switch (chain->sType) {
@@ -267,6 +295,19 @@ TEST_P(WireInstanceTests, RequestAdapterPassesChainedProperties) {
                                 *reinterpret_cast<WGPUAdapterPropertiesVk*>(chain) =
                                     fakeVkProperties;
                                 break;
+                            case WGPUSType_AdapterPropertiesSubgroupMatrixConfigs:
+                                *reinterpret_cast<WGPUAdapterPropertiesSubgroupMatrixConfigs*>(
+                                    chain) = fakeSubgroupMatrixConfigs;
+                                break;
+                            case WGPUSType_DawnAdapterPropertiesPowerPreference:
+                                *reinterpret_cast<WGPUDawnAdapterPropertiesPowerPreference*>(
+                                    chain) = fakePowerProperties;
+                                break;
+                            case WGPUSType_AdapterPropertiesExplicitComputeSubgroupSizeConfigs:
+                                *reinterpret_cast<
+                                    WGPUAdapterPropertiesExplicitComputeSubgroupSizeConfigs*>(
+                                    chain) = fakeExplicitComputeSubgroupSizeConfigs;
+                                break;
                             default:
                                 ADD_FAILURE() << "Unexpected chain";
                                 return WGPUStatus_Error;
@@ -277,10 +318,10 @@ TEST_P(WireInstanceTests, RequestAdapterPassesChainedProperties) {
                         chain = next;
                     }
                     return WGPUStatus_Success;
-                })));
+                }));
 
-            api.CallInstanceRequestAdapter2Callback(apiInstance, WGPURequestAdapterStatus_Success,
-                                                    apiAdapter, kEmptyOutputStringView);
+            api.CallInstanceRequestAdapterCallback(apiInstance, WGPURequestAdapterStatus_Success,
+                                                   apiAdapter, kEmptyOutputStringView);
         }));
 
     FlushClient();
@@ -290,7 +331,7 @@ TEST_P(WireInstanceTests, RequestAdapterPassesChainedProperties) {
     ExpectWireCallbacksWhen([&](auto& mockCb) {
         EXPECT_CALL(mockCb,
                     Call(wgpu::RequestAdapterStatus::Success, NotNull(), EmptySizedString()))
-            .WillOnce(WithArg<1>(Invoke([&](wgpu::Adapter adapter) {
+            .WillOnce(WithArg<1>([&](wgpu::Adapter adapter) {
                 // Request info without a chained struct.
                 // It should be nullptr.
                 WGPUAdapterInfo info = {};
@@ -327,7 +368,49 @@ TEST_P(WireInstanceTests, RequestAdapterPassesChainedProperties) {
                 adapter.GetInfo(reinterpret_cast<wgpu::AdapterInfo*>(&info));
                 // Expect them to match.
                 EXPECT_EQ(vkProperties.driverVersion, fakeVkProperties.driverVersion);
-            })));
+
+                // Get the subgroup matrix properties.
+                WGPUAdapterPropertiesSubgroupMatrixConfigs subgroupMatrixConfigs = {};
+                subgroupMatrixConfigs.chain.sType =
+                    WGPUSType_AdapterPropertiesSubgroupMatrixConfigs;
+                info.nextInChain = &subgroupMatrixConfigs.chain;
+                adapter.GetInfo(reinterpret_cast<wgpu::AdapterInfo*>(&info));
+
+                // Expect everything matches the fake properties returned by the server.
+                EXPECT_EQ(subgroupMatrixConfigs.configCount, fakeSubgroupMatrixConfigs.configCount);
+                for (size_t i = 0; i < fakeSubgroupMatrixConfigs.configCount; ++i) {
+                    EXPECT_EQ(subgroupMatrixConfigs.configs[i].componentType,
+                              fakeSubgroupMatrixConfigs.configs[i].componentType);
+                    EXPECT_EQ(subgroupMatrixConfigs.configs[i].resultComponentType,
+                              fakeSubgroupMatrixConfigs.configs[i].resultComponentType);
+                    EXPECT_EQ(subgroupMatrixConfigs.configs[i].M,
+                              fakeSubgroupMatrixConfigs.configs[i].M);
+                    EXPECT_EQ(subgroupMatrixConfigs.configs[i].N,
+                              fakeSubgroupMatrixConfigs.configs[i].N);
+                    EXPECT_EQ(subgroupMatrixConfigs.configs[i].K,
+                              fakeSubgroupMatrixConfigs.configs[i].K);
+                }
+
+                // Get the power properties.
+                WGPUDawnAdapterPropertiesPowerPreference powerProperties = {};
+                powerProperties.chain.sType = WGPUSType_DawnAdapterPropertiesPowerPreference;
+                info.nextInChain = &powerProperties.chain;
+                adapter.GetInfo(reinterpret_cast<wgpu::AdapterInfo*>(&info));
+                // Expect them to match.
+                EXPECT_EQ(powerProperties.powerPreference, fakePowerProperties.powerPreference);
+
+                // Get the explicit compute subgroup size properties
+                WGPUAdapterPropertiesExplicitComputeSubgroupSizeConfigs subgroupSizeConfigs = {};
+                subgroupSizeConfigs.chain.sType =
+                    WGPUSType_AdapterPropertiesExplicitComputeSubgroupSizeConfigs;
+                info.nextInChain = &subgroupSizeConfigs.chain;
+                adapter.GetInfo(reinterpret_cast<wgpu::AdapterInfo*>(&info));
+                // Expect them to match
+                EXPECT_EQ(subgroupSizeConfigs.minExplicitComputeSubgroupSize,
+                          fakeExplicitComputeSubgroupSizeConfigs.minExplicitComputeSubgroupSize);
+                EXPECT_EQ(subgroupSizeConfigs.maxExplicitComputeSubgroupSize,
+                          fakeExplicitComputeSubgroupSizeConfigs.maxExplicitComputeSubgroupSize);
+            }));
 
         FlushCallbacks();
     });
@@ -341,25 +424,25 @@ TEST_P(WireInstanceTests, RequestAdapterWireLacksFeatureSupport) {
 
     std::initializer_list<WGPUFeatureName> fakeFeaturesList = {
         WGPUFeatureName_Depth32FloatStencil8,
-        // Some value that is not a valid feature
-        static_cast<WGPUFeatureName>(-2),
+        // Default feature is an undefined feature.
+        {},
     };
     WGPUSupportedFeatures fakeFeatures = {fakeFeaturesList.size(), std::data(fakeFeaturesList)};
 
     // Expect the server to receive the message. Then, mock a fake reply.
     WGPUAdapter apiAdapter = api.GetNewAdapter();
-    EXPECT_CALL(api, OnInstanceRequestAdapter2(apiInstance, NotNull(), _))
+    EXPECT_CALL(api, OnInstanceRequestAdapter(apiInstance, NotNull(), _))
         .WillOnce(InvokeWithoutArgs([&] {
             EXPECT_CALL(api, AdapterHasFeature(apiAdapter, _)).WillRepeatedly(Return(false));
             EXPECT_CALL(api, AdapterGetInfo(apiAdapter, NotNull())).Times(1);
             EXPECT_CALL(api, AdapterGetLimits(apiAdapter, NotNull())).Times(1);
 
             EXPECT_CALL(api, AdapterGetFeatures(apiAdapter, NotNull()))
-                .WillOnce(WithArg<1>(
-                    Invoke([&](WGPUSupportedFeatures* features) { *features = fakeFeatures; })));
+                .WillOnce(
+                    WithArg<1>([&](WGPUSupportedFeatures* features) { *features = fakeFeatures; }));
 
-            api.CallInstanceRequestAdapter2Callback(apiInstance, WGPURequestAdapterStatus_Success,
-                                                    apiAdapter, kEmptyOutputStringView);
+            api.CallInstanceRequestAdapterCallback(apiInstance, WGPURequestAdapterStatus_Success,
+                                                   apiAdapter, kEmptyOutputStringView);
         }));
 
     FlushClient();
@@ -369,12 +452,12 @@ TEST_P(WireInstanceTests, RequestAdapterWireLacksFeatureSupport) {
     ExpectWireCallbacksWhen([&](auto& mockCb) {
         EXPECT_CALL(mockCb,
                     Call(wgpu::RequestAdapterStatus::Success, NotNull(), EmptySizedString()))
-            .WillOnce(WithArg<1>(Invoke([&](wgpu::Adapter adapter) {
+            .WillOnce(WithArg<1>([&](wgpu::Adapter adapter) {
                 WGPUSupportedFeatures features = {};
                 adapter.GetFeatures(reinterpret_cast<wgpu::SupportedFeatures*>(&features));
                 ASSERT_EQ(features.featureCount, 1u);
                 EXPECT_EQ(*features.features, WGPUFeatureName_Depth32FloatStencil8);
-            })));
+            }));
 
         FlushCallbacks();
     });
@@ -386,10 +469,10 @@ TEST_P(WireInstanceTests, RequestAdapterError) {
     RequestAdapter(&options);
 
     // Expect the server to receive the message. Then, mock an error.
-    EXPECT_CALL(api, OnInstanceRequestAdapter2(apiInstance, NotNull(), _))
+    EXPECT_CALL(api, OnInstanceRequestAdapter(apiInstance, NotNull(), _))
         .WillOnce(InvokeWithoutArgs([&] {
-            api.CallInstanceRequestAdapter2Callback(apiInstance, WGPURequestAdapterStatus_Error,
-                                                    nullptr, ToOutputStringView("Some error"));
+            api.CallInstanceRequestAdapterCallback(apiInstance, WGPURequestAdapterStatus_Error,
+                                                   nullptr, ToOutputStringView("Some error"));
         }));
 
     FlushClient();
@@ -416,7 +499,7 @@ TEST_P(WireInstanceTests, RequestAdapterInstanceDestroyedBeforeCallback) {
     RequestAdapter(&options);
 
     ExpectWireCallbacksWhen([&](auto& mockCb) {
-        EXPECT_CALL(mockCb, Call(wgpu::RequestAdapterStatus::InstanceDropped, IsNull(),
+        EXPECT_CALL(mockCb, Call(wgpu::RequestAdapterStatus::CallbackCancelled, IsNull(),
                                  NonEmptySizedString()))
             .Times(1);
 
@@ -431,7 +514,7 @@ TEST_P(WireInstanceTests, RequestAdapterWireDisconnectBeforeCallback) {
     RequestAdapter(&options);
 
     ExpectWireCallbacksWhen([&](auto& mockCb) {
-        EXPECT_CALL(mockCb, Call(wgpu::RequestAdapterStatus::InstanceDropped, IsNull(),
+        EXPECT_CALL(mockCb, Call(wgpu::RequestAdapterStatus::CallbackCancelled, IsNull(),
                                  NonEmptySizedString()))
             .Times(1);
 

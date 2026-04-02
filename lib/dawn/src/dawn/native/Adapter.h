@@ -50,7 +50,7 @@ class AdapterBase : public RefCounted, public WeakRefSupport<AdapterBase> {
   public:
     AdapterBase(InstanceBase* instance,
                 Ref<PhysicalDeviceBase> physicalDevice,
-                FeatureLevel featureLevel,
+                wgpu::FeatureLevel featureLevel,
                 const TogglesState& requiredAdapterToggles,
                 wgpu::PowerPreference powerPreference);
     ~AdapterBase() override;
@@ -60,26 +60,21 @@ class AdapterBase : public RefCounted, public WeakRefSupport<AdapterBase> {
 
     // WebGPU API
     InstanceBase* APIGetInstance() const;
-    wgpu::Status APIGetLimits(SupportedLimits* limits) const;
+    wgpu::Status APIGetLimits(Limits* limits) const;
     wgpu::Status APIGetInfo(AdapterInfo* info) const;
     bool APIHasFeature(wgpu::FeatureName feature) const;
-    size_t APIEnumerateFeatures(wgpu::FeatureName* features) const;
     void APIGetFeatures(SupportedFeatures* features) const;
     void APIGetFeatures(wgpu::SupportedFeatures* features) const;
-    void APIRequestDevice(const DeviceDescriptor* descriptor,
-                          WGPURequestDeviceCallback callback,
-                          void* userdata);
-    Future APIRequestDeviceF(const DeviceDescriptor* descriptor,
-                             const RequestDeviceCallbackInfo& callbackInfo);
-    Future APIRequestDevice2(const DeviceDescriptor* descriptor,
-                             const WGPURequestDeviceCallbackInfo2& callbackInfo);
+    Future APIRequestDevice(const DeviceDescriptor* descriptor,
+                            const WGPURequestDeviceCallbackInfo& callbackInfo);
     DeviceBase* APICreateDevice(const DeviceDescriptor* descriptor = nullptr);
     wgpu::Status APIGetFormatCapabilities(wgpu::TextureFormat format,
-                                          FormatCapabilities* capabilities);
+                                          DawnFormatCapabilities* capabilities);
 
+    // Return the limits for the adapter.
+    const CombinedLimits& GetLimits() const;
+    // Set if the adapter uses tiered limits, may result in a change in the adapter's limits.
     void SetUseTieredLimits(bool useTieredLimits);
-
-    FeaturesSet GetSupportedFeatures() const;
 
     // Return the underlying PhysicalDevice.
     PhysicalDeviceBase* GetPhysicalDevice();
@@ -88,7 +83,11 @@ class AdapterBase : public RefCounted, public WeakRefSupport<AdapterBase> {
     // Get the actual toggles state of the adapter.
     const TogglesState& GetTogglesState() const;
 
-    FeatureLevel GetFeatureLevel() const;
+    // Get a vector of used toggle names of the adapter.
+    std::vector<const char*> GetTogglesUsed() const;
+
+    // Get the defaulting feature level of the adapter.
+    wgpu::FeatureLevel GetFeatureLevel() const;
 
     // Get a human readable label for the adapter (in practice, the physical device name)
     const std::string& GetName() const;
@@ -99,10 +98,17 @@ class AdapterBase : public RefCounted, public WeakRefSupport<AdapterBase> {
     ResultOrError<Ref<DeviceBase>> CreateDeviceInternal(const DeviceDescriptor* rawDescriptor,
                                                         Ref<DeviceBase::DeviceLostEvent> lostEvent);
 
+    // Generate the adapter's limits based on current adapter status. Should be called during
+    // AdapterBase creation and when the adapter's limits-related status changes, e.g.
+    // SetUseTieredLimits.
+    void UpdateLimits();
+
     Ref<InstanceBase> mInstance;
     Ref<PhysicalDeviceBase> mPhysicalDevice;
-    FeatureLevel mFeatureLevel;
+    wgpu::FeatureLevel mFeatureLevel;
     bool mUseTieredLimits = false;
+    // Limits for the adapter, tiered if mUseTieredLimits is set.
+    CombinedLimits mLimits;
 
     // Supported features under adapter toggles.
     FeaturesSet mSupportedFeatures;
@@ -111,10 +117,14 @@ class AdapterBase : public RefCounted, public WeakRefSupport<AdapterBase> {
     TogglesState mTogglesState;
 
     wgpu::PowerPreference mPowerPreference;
+
+    // The adapter becomes "consumed" once it has successfully been used to
+    // create a device.
+    bool mAdapterIsConsumed = false;
 };
 
 std::vector<Ref<AdapterBase>> SortAdapters(std::vector<Ref<AdapterBase>> adapters,
-                                           const RequestAdapterOptions* options);
+                                           const UnpackedPtr<RequestAdapterOptions>& options);
 
 }  // namespace dawn::native
 

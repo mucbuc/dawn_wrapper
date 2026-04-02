@@ -27,6 +27,7 @@
 
 #include "dawn/native/DynamicUploader.h"
 
+#include <atomic>
 #include <utility>
 
 #include "dawn/common/Math.h"
@@ -36,16 +37,16 @@
 
 namespace dawn::native {
 
+namespace {
+constexpr uint64_t kRingBufferSize = 4 * 1024 * 1024;
+}  // anonymous namespace
+
 DynamicUploader::DynamicUploader(DeviceBase* device) : mDevice(device) {}
 
-void DynamicUploader::ReleaseStagingBuffer(Ref<BufferBase> stagingBuffer) {
-    mReleasedStagingBuffers.Enqueue(std::move(stagingBuffer),
-                                    mDevice->GetQueue()->GetPendingCommandSerial());
-}
+ResultOrError<UploadReservation> DynamicUploader::Reserve(uint64_t allocationSize,
+                                                          uint64_t offsetAlignment) {
+    DAWN_ASSERT(mDevice->IsLockedByCurrentThreadIfNeeded());
 
-ResultOrError<UploadHandle> DynamicUploader::AllocateInternal(uint64_t allocationSize,
-                                                              ExecutionSerial serial,
-                                                              uint64_t offsetAlignment) {
     // Disable further sub-allocation should the request be too large.
     if (allocationSize > kRingBufferSize) {
         BufferDescriptor bufferDesc = {};
@@ -58,13 +59,16 @@ ResultOrError<UploadHandle> DynamicUploader::AllocateInternal(uint64_t allocatio
         Ref<BufferBase> stagingBuffer;
         DAWN_TRY_ASSIGN(stagingBuffer, mDevice->CreateBuffer(&bufferDesc));
 
-        UploadHandle uploadHandle;
-        uploadHandle.mappedBuffer = static_cast<uint8_t*>(stagingBuffer->GetMappedPointer());
-        uploadHandle.stagingBuffer = stagingBuffer.Get();
-
-        ReleaseStagingBuffer(std::move(stagingBuffer));
-        return uploadHandle;
+        UploadReservation reservation;
+        reservation.mappedPointer = static_cast<uint8_t*>(stagingBuffer->GetMappedPointer());
+        reservation.offsetInBuffer = 0;
+        reservation.buffer = std::move(stagingBuffer);
+        return reservation;
     }
+
+    // Request is small, we sub-allocate transiently in one of our ring buffers. The reservation
+    // will only be valid for the pending serial.
+    ExecutionSerial serial = mDevice->GetQueue()->GetPendingCommandSerial();
 
     if (mRingBuffers.empty()) {
         mRingBuffers.emplace_back(std::unique_ptr<RingBuffer>(
@@ -115,16 +119,47 @@ ResultOrError<UploadHandle> DynamicUploader::AllocateInternal(uint64_t allocatio
 
     DAWN_ASSERT(targetRingBuffer->mStagingBuffer != nullptr);
 
-    UploadHandle uploadHandle;
-    uploadHandle.stagingBuffer = targetRingBuffer->mStagingBuffer.Get();
-    uploadHandle.mappedBuffer =
-        static_cast<uint8_t*>(uploadHandle.stagingBuffer->GetMappedPointer()) + startOffset;
-    uploadHandle.startOffset = startOffset;
+    UploadReservation reservation;
+    reservation.buffer = targetRingBuffer->mStagingBuffer;
+    reservation.mappedPointer =
+        static_cast<uint8_t*>(reservation.buffer->GetMappedPointer()) + startOffset;
+    reservation.offsetInBuffer = startOffset;
 
-    return uploadHandle;
+    return reservation;
+}
+
+MaybeError DynamicUploader::OnStagingMemoryFreePendingOnSubmit(uint64_t size) {
+    UpdateMemoryPendingSubmit();
+    mMemoryPendingSubmit.fetch_add(size, std::memory_order_relaxed);
+    return {};
+}
+
+MaybeError DynamicUploader::MaybeSubmitPendingCommands() {
+    constexpr uint64_t kPendingMemorySubmitThreshold = 16 * 1024 * 1024;
+    if (mMemoryPendingSubmit.load(std::memory_order_relaxed) < kPendingMemorySubmitThreshold) {
+        return {};
+    }
+
+    // Only lock the device mutex if a submit is required.
+    auto deviceGuard = mDevice->GetGuard();
+
+    // Check memory pending submit again after acquiring the lock in case a submit happened and
+    // another submit is no longer required.
+    UpdateMemoryPendingSubmit();
+    if (mMemoryPendingSubmit.load(std::memory_order_relaxed) < kPendingMemorySubmitThreshold) {
+        return {};
+    }
+
+    // TODO(crbug.com/42240396): Consider blocking when there is too much memory in flight for
+    // freeing, which could cause OOM even if we eagerly flush when too much memory is pending.
+    QueueBase* queue = mDevice->GetQueue();
+    queue->ForceEventualFlushOfCommands();
+    return queue->SubmitPendingCommands();
 }
 
 void DynamicUploader::Deallocate(ExecutionSerial lastCompletedSerial, bool freeAll) {
+    DAWN_ASSERT(mDevice->IsLockedByCurrentThreadIfNeeded());
+
     // Reclaim memory within the ring buffers by ticking (or removing requests no longer
     // in-flight).
     size_t i = 0;
@@ -140,34 +175,18 @@ void DynamicUploader::Deallocate(ExecutionSerial lastCompletedSerial, bool freeA
             i++;
         }
     }
-    mReleasedStagingBuffers.ClearUpTo(lastCompletedSerial);
 }
 
-ResultOrError<UploadHandle> DynamicUploader::Allocate(uint64_t allocationSize,
-                                                      ExecutionSerial serial,
-                                                      uint64_t offsetAlignment) {
-    DAWN_ASSERT(offsetAlignment > 0);
-    return AllocateInternal(allocationSize, serial, offsetAlignment);
-}
+void DynamicUploader::UpdateMemoryPendingSubmit() {
+    DAWN_ASSERT(mDevice->IsLockedByCurrentThreadIfNeeded());
 
-bool DynamicUploader::ShouldFlush() {
-    uint64_t kTotalAllocatedSizeThreshold = 64 * 1024 * 1024;
-    // We use total allocated size instead of pending-upload size to prevent Dawn from allocating
-    // too much GPU memory so that the risk of OOM can be minimized.
-    return GetTotalAllocatedSize() > kTotalAllocatedSizeThreshold;
-}
-
-uint64_t DynamicUploader::GetTotalAllocatedSize() {
-    uint64_t size = 0;
-    for (const auto& buffer : mReleasedStagingBuffers.IterateAll()) {
-        size += buffer->GetSize();
+    // Take into account that submits make the pending memory freed in finite time so we no longer
+    // need to track that memory.
+    ExecutionSerial pendingSerial = mDevice->GetQueue()->GetPendingCommandSerial();
+    if (pendingSerial > mLastPendingSerialSeen) {
+        mMemoryPendingSubmit.store(0u, std::memory_order_relaxed);
+        mLastPendingSerialSeen = pendingSerial;
     }
-    for (const auto& buffer : mRingBuffers) {
-        if (buffer->mStagingBuffer != nullptr) {
-            size += buffer->mStagingBuffer->GetSize();
-        }
-    }
-    return size;
 }
 
 }  // namespace dawn::native

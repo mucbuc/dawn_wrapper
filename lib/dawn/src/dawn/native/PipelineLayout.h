@@ -93,9 +93,15 @@ class PipelineLayoutBase : public ApiObjectBase,
     const BindGroupLayoutInternalBase* GetBindGroupLayout(BindGroupIndex group) const;
     BindGroupLayoutInternalBase* GetBindGroupLayout(BindGroupIndex group);
     const BindGroupMask& GetBindGroupLayoutsMask() const;
+
     bool HasPixelLocalStorage() const;
     const std::vector<wgpu::TextureFormat>& GetStorageAttachmentSlots() const;
     bool HasAnyStorageAttachments() const;
+
+    bool UsesResourceTable() const;
+
+    bool HasExternalTextures() const;
+    bool HasAPIStaticSamplers() const;
 
     // Utility functions to compute inherited bind groups.
     // Returns the inherited bind groups as a mask.
@@ -116,13 +122,14 @@ class PipelineLayoutBase : public ApiObjectBase,
 
   protected:
     PipelineLayoutBase(DeviceBase* device, ObjectBase::ErrorTag tag, StringView label);
-    void DestroyImpl() override;
+    void DestroyImpl(DestroyReason reason) override;
 
     PerBindGroup<Ref<BindGroupLayoutBase>> mBindGroupLayouts;
     BindGroupMask mMask;
     bool mHasPLS = false;
     std::vector<wgpu::TextureFormat> mStorageAttachmentSlots;
     uint32_t mImmediateDataRangeByteSize = 0;
+    bool mUsesResourceTable = false;
 };
 
 }  // namespace dawn::native

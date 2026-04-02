@@ -28,31 +28,69 @@
 #include "dawn/native/Pipeline.h"
 
 #include <algorithm>
+#include <set>
 #include <utility>
 
 #include "absl/container/flat_hash_set.h"
 #include "absl/strings/string_view.h"
+#include "dawn/common/Constants.h"
 #include "dawn/common/Enumerator.h"
 #include "dawn/native/BindGroupLayout.h"
 #include "dawn/native/Device.h"
+#include "dawn/native/ImmediateConstantsLayout.h"
 #include "dawn/native/ObjectBase.h"
 #include "dawn/native/ObjectContentHasher.h"
 #include "dawn/native/PipelineLayout.h"
 #include "dawn/native/ShaderModule.h"
-
-namespace {
-bool IsDoubleValueRepresentableAsF16(double value) {
-    constexpr double kLowestF16 = -65504.0;
-    constexpr double kMaxF16 = 65504.0;
-    return kLowestF16 <= value && value <= kMaxF16;
-}
-}  // namespace
+#include "src/utils/numeric.h"
 
 namespace dawn::native {
+
+namespace {
+
+// Number of texture+sampler combinations, computed as 1 for every texture+sampler
+// combination + 1 for every texture used without a sampler that wasn't previously counted.
+// Note: this is only used in compatibility mode.
+uint32_t ComputeNumTextureSamplerCombinations(const dawn::native::EntryPointMetadata& metadata) {
+    // separate sampled from non-sampled and put sampled in set
+    std::set<WGSLBindPoint> sampledTextures;
+    std::set<WGSLBindPoint> sampledExternalTextures;
+    std::vector<WGSLBindPoint> nonSampled;
+    uint32_t numSamplerTexturePairs = 0;
+    uint32_t numSamplerExternalTexturePairs = 0;
+
+    for (const auto& pair : metadata.samplerAndNonSamplerTexturePairs) {
+        const auto& bindingGroupInfoMap = metadata.bindings[BindGroupIndex(pair.texture.group)];
+        const auto it = bindingGroupInfoMap.find(BindingNumber(pair.texture.binding));
+        auto isExternalTexture =
+            it != bindingGroupInfoMap.end() &&
+            std::holds_alternative<ExternalTextureBindingInfo>(it->second.bindingInfo);
+        if (isExternalTexture) {
+            ++numSamplerExternalTexturePairs;
+            sampledExternalTextures.insert(pair.texture);
+        } else if (pair.sampler == EntryPointMetadata::nonSamplerBindingPoint) {
+            nonSampled.push_back(pair.texture);
+        } else {
+            ++numSamplerTexturePairs;
+            sampledTextures.insert(pair.texture);
+        }
+    }
+
+    // count the number of non-sampled that are not referenced by sampled pairs.
+    auto numNonSampled = std::count_if(nonSampled.begin(), nonSampled.end(),
+                                       [&](const WGSLBindPoint& nonSampledBindingPoint) {
+                                           return !sampledTextures.contains(nonSampledBindingPoint);
+                                       });
+    return numSamplerTexturePairs + numNonSampled + numSamplerExternalTexturePairs * 3 +
+           uint32_t(sampledExternalTextures.size());
+}
+
+}  // namespace
+
 ResultOrError<ShaderModuleEntryPoint> ValidateProgrammableStage(DeviceBase* device,
                                                                 const ShaderModuleBase* module,
                                                                 StringView entryPointName,
-                                                                uint32_t constantCount,
+                                                                size_t constantCount,
                                                                 const ConstantEntry* constants,
                                                                 const PipelineLayoutBase* layout,
                                                                 SingleShaderStage stage) {
@@ -84,7 +122,7 @@ ResultOrError<ShaderModuleEntryPoint> ValidateProgrammableStage(DeviceBase* devi
         for (const std::string& limit : metadata.infringedLimitErrors) {
             limitList << " - " << limit << "\n";
         }
-        return DAWN_VALIDATION_ERROR("%s infringes limits:\n%s", &entryPoint, limitList.str());
+        return DAWN_VALIDATION_ERROR("%s infringes limits:\n%s", entryPoint, limitList.str());
     }
 
     DAWN_INVALID_IF(metadata.stage != stage,
@@ -100,6 +138,27 @@ ResultOrError<ShaderModuleEntryPoint> ValidateProgrammableStage(DeviceBase* devi
                     "stage (%s), entry point \"%s\"",
                     metadata.stage, entryPoint.name);
 
+    DAWN_INVALID_IF(
+        device->IsCompatibilityMode() && metadata.usesDepthTextureWithNonComparisonSampler,
+        "texture_depth_xx can not be used with non-comparison samplers in compatibility mode in "
+        "stage (%s), entry point \"%s\"",
+        metadata.stage, entryPoint.name);
+
+    DAWN_INVALID_IF(device->IsCompatibilityMode() && metadata.usesFineDerivativeBuiltin,
+                    "fine derivative builtins (dpdxFine, dpdyFine, fwidthFine) can not be used in "
+                    "compatibility mode in stage (%s), entry point \"%s\"",
+                    metadata.stage, entryPoint.name);
+
+    const CombinedLimits& limits = device->GetLimits();
+    uint32_t maxCombos =
+        std::min(limits.v1.maxSampledTexturesPerShaderStage, limits.v1.maxSamplersPerShaderStage);
+    uint32_t numTextureSamplerCombinations = ComputeNumTextureSamplerCombinations(metadata);
+    DAWN_INVALID_IF(
+        device->IsCompatibilityMode() && numTextureSamplerCombinations > maxCombos,
+        "Entry-point uses %u texture+sampler combinations which is more than the maximum of %u "
+        "combinations in compatibility mode",
+        numTextureSamplerCombinations, maxCombos);
+
     // Validate if overridable constants exist in shader module
     // pipelineBase is not yet constructed at this moment so iterate constants from descriptor
     size_t numUninitializedConstants = metadata.uninitializedOverrides.size();
@@ -109,7 +168,7 @@ ResultOrError<ShaderModuleEntryPoint> ValidateProgrammableStage(DeviceBase* devi
         absl::string_view key = {constants[i].key};
         double value = constants[i].value;
 
-        DAWN_INVALID_IF(metadata.overrides.count(key) == 0,
+        DAWN_INVALID_IF(!metadata.overrides.contains(key),
                         "Pipeline overridable constant \"%s\" not found in %s.", constants[i].key,
                         module);
         DAWN_INVALID_IF(!std::isfinite(value),
@@ -165,7 +224,7 @@ ResultOrError<ShaderModuleEntryPoint> ValidateProgrammableStage(DeviceBase* devi
     }
 
     // Validate if any overridable constant is left uninitialized
-    if (DAWN_UNLIKELY(numUninitializedConstants > 0)) {
+    if (numUninitializedConstants > 0) [[unlikely]] {
         std::string uninitializedConstantsArray;
         bool isFirst = true;
         for (std::string identifier : metadata.uninitializedOverrides) {
@@ -190,21 +249,8 @@ ResultOrError<ShaderModuleEntryPoint> ValidateProgrammableStage(DeviceBase* devi
     return entryPoint;
 }
 
-WGPUCreatePipelineAsyncStatus CreatePipelineAsyncStatusFromErrorType(InternalErrorType error) {
-    switch (error) {
-        case InternalErrorType::None:
-            return WGPUCreatePipelineAsyncStatus_Success;
-        case InternalErrorType::Validation:
-            return WGPUCreatePipelineAsyncStatus_ValidationError;
-        case InternalErrorType::DeviceLost:
-            return WGPUCreatePipelineAsyncStatus_DeviceLost;
-        case InternalErrorType::Internal:
-        case InternalErrorType::OutOfMemory:
-            return WGPUCreatePipelineAsyncStatus_InternalError;
-        default:
-            DAWN_UNREACHABLE();
-            return WGPUCreatePipelineAsyncStatus_Unknown;
-    }
+uint32_t GetRawBits(ImmediateConstantMask bits) {
+    return static_cast<uint32_t>(bits.to_ulong());
 }
 
 // PipelineBase
@@ -229,6 +275,7 @@ PipelineBase::PipelineBase(DeviceBase* device,
         bool isFirstStage = mStageMask == wgpu::ShaderStage::None;
         mStageMask |= StageBit(shaderStage);
         mStages[shaderStage] = {module, entryPointName, &metadata, {}};
+
         auto& constants = mStages[shaderStage].constants;
         for (uint32_t i = 0; i < stage.constantCount; i++) {
             constants.emplace(stage.constants[i].key, stage.constants[i].value);
@@ -249,6 +296,8 @@ PipelineBase::PipelineBase(DeviceBase* device,
                 }
             }
         }
+
+        mUserImmdiateSlots |= metadata.immediateDataUsedSlots;
     }
 }
 
@@ -289,17 +338,26 @@ wgpu::ShaderStage PipelineBase::GetStageMask() const {
     return mStageMask;
 }
 
+const ImmediateConstantMask& PipelineBase::GetImmediateMask() const {
+    return mImmediateMask;
+}
+
 MaybeError PipelineBase::ValidateGetBindGroupLayout(BindGroupIndex groupIndex) {
     DAWN_TRY(GetDevice()->ValidateIsAlive());
     DAWN_TRY(GetDevice()->ValidateObject(this));
     DAWN_TRY(GetDevice()->ValidateObject(mLayout.Get()));
-    DAWN_INVALID_IF(groupIndex >= kMaxBindGroupsTyped,
-                    "Bind group layout index (%u) exceeds the maximum number of bind groups (%u).",
-                    groupIndex, kMaxBindGroups);
-    DAWN_INVALID_IF(
-        !mLayout->GetBindGroupLayoutsMask()[groupIndex],
-        "Bind group layout index (%u) doesn't correspond to a bind group for this pipeline.",
-        groupIndex);
+
+    if (mLayout->UsesResourceTable()) {
+        DAWN_INVALID_IF(groupIndex >= kMaxBindGroupsTyped - BindGroupIndex(1),
+                        "Bind group layout index (%u) exceeds or equals the maximum number of bind "
+                        "groups (%u) - 1 (one slot reserved for the resource table).",
+                        groupIndex, kMaxBindGroups);
+    } else {
+        DAWN_INVALID_IF(groupIndex >= kMaxBindGroupsTyped,
+                        "Bind group layout index (%u) exceeds or equals the maximum number of bind "
+                        "groups (%u).",
+                        groupIndex, kMaxBindGroups);
+    }
     return {};
 }
 
@@ -377,8 +435,79 @@ MaybeError PipelineBase::Initialize(std::optional<ScopedUseShaderPrograms> scope
     if (!scopedUsePrograms) {
         scopedUsePrograms = UseShaderPrograms();
     }
-    DAWN_TRY_CONTEXT(InitializeImpl(), "initializing %s", this);
+
+    // Set immediate constant status. userConstants is the first element in both
+    // RenderImmediateConstants and ComputeImmediateConstants.
+    ImmediateConstantMask userConstantsBits =
+        GetImmediateConstantBlockBits(0, GetLayout()->GetImmediateDataRangeByteSize());
+    mImmediateMask |= userConstantsBits;
+
+    DAWN_TRY_CONTEXT(InitializeWithShaders(), "initializing %s", this);
     return {};
+}
+
+void PipelineBase::SetImmediateMaskForTesting(ImmediateConstantMask immediateConstantMask) {
+    mImmediateMask = immediateConstantMask;
+}
+
+uint32_t PipelineBase::GetImmediateConstantSize() const {
+    return static_cast<uint32_t>(mImmediateMask.count());
+}
+
+ImmediateConstantMask PipelineBase::GetUserImmediateSlots() const {
+    return mUserImmdiateSlots;
+}
+
+PipelineBase::SamplerForExternalTextureMap PipelineBase::ComputeSamplerForExternalTextureMap()
+    const {
+    SamplerForExternalTextureMap map;
+
+    // Insert all external textures bind point, so even those not used with a sampler are present.
+    for (BindGroupIndex group : GetLayout()->GetBindGroupLayoutsMask()) {
+        const auto* bgl = GetLayout()->GetBindGroupLayout(group);
+
+        for (APIBindingIndex etIndex : bgl->GetExternalTextureIndices()) {
+            map.insert({APIBindPoint{group, etIndex}, std::nullopt});
+        }
+    }
+
+    for (SingleShaderStage stage : IterateStages(GetStageMask())) {
+        for (const auto& pair : GetStage(stage).metadata->samplerAndNonSamplerTexturePairs) {
+            const auto* textureBGL = GetLayout()->GetBindGroupLayout(pair.texture.group);
+            APIBindingIndex textureBinding = textureBGL->GetAPIBindingIndex(pair.texture.binding);
+
+            // Find external texture used with samplers.
+            if (!textureBGL->IsExternalTextureBinding(textureBinding) ||
+                pair.sampler == EntryPointMetadata::nonSamplerBindingPoint) {
+                continue;
+            }
+
+            // This function must return the sampler that's used to sample the external texture (if
+            // there's one). While WebGPU allows multiple different samplers to be used with an
+            // external texture, the static YCbCr sampler mechanism in Vulkan needs to have a 1-1
+            // relationship between the YCbCr texture and its static sampler. In the unlikely case
+            // where the external texture is used by two different samplers, emit a warning (as
+            // that's just a minor correctness issue).
+            auto it = map.find({pair.texture.group, textureBinding});
+            DAWN_ASSERT(it != map.end());
+            auto& mapValue = it->second;
+
+            const auto* samplerBGL = GetLayout()->GetBindGroupLayout(pair.sampler.group);
+            BindPoint samplerBindPoint = {
+                pair.sampler.group,
+                samplerBGL->AsBindingIndex(samplerBGL->GetAPIBindingIndex(pair.sampler.binding))};
+
+            if (mapValue.has_value() && mapValue.value() != samplerBindPoint) {
+                GetDevice()->EmitWarningOnce(
+                    "ExternalTexture used by multiple samplers in the pipeline: only using the "
+                    "first one to sample.");
+                continue;
+            }
+            mapValue = {samplerBindPoint};
+        }
+    }
+
+    return map;
 }
 
 }  // namespace dawn::native

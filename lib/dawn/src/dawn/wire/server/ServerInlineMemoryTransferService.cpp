@@ -25,6 +25,11 @@
 // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/439062058): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include <cstring>
 #include <memory>
 
@@ -60,18 +65,30 @@ class InlineMemoryTransferService : public MemoryTransferService {
         WriteHandleImpl() {}
         ~WriteHandleImpl() override = default;
 
+        // TODO(492456046): Remove this overload once it has been removed in Chromium.
         bool DeserializeDataUpdate(const void* deserializePointer,
                                    size_t deserializeSize,
                                    size_t offset,
                                    size_t size) override {
-            if (deserializeSize != size || mTargetData == nullptr ||
+            auto target = GetTarget();
+            if (deserializeSize != size || target.data() == nullptr ||
                 deserializePointer == nullptr) {
                 return false;
             }
-            if (offset > mDataLength || size > mDataLength - offset) {
+            if (offset > target.size() || size > target.size() - offset) {
                 return false;
             }
-            memcpy(static_cast<uint8_t*>(mTargetData) + offset, deserializePointer, size);
+            memcpy(target.data() + offset, deserializePointer, size);
+            return true;
+        }
+
+        bool DeserializeDataUpdate(std::span<const uint8_t> deserializeData,
+                                   std::span<uint8_t> target,
+                                   size_t offset) override {
+            if (deserializeData.size() != target.size()) {
+                return false;
+            }
+            memcpy(target.data(), deserializeData.data(), deserializeData.size());
             return true;
         }
     };

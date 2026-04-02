@@ -52,22 +52,17 @@ ComputePipeline::ComputePipeline(DeviceBase* dev,
 
 ComputePipeline::~ComputePipeline() = default;
 
-MaybeError ComputePipeline::InitializeImpl() {
+ResultOrError<Extent3D> ComputePipeline::InitializeImpl() {
     auto mtlDevice = ToBackend(GetDevice())->GetMTLDevice();
 
     const ProgrammableStage& computeStage = GetStage(SingleShaderStage::Compute);
     ShaderModule::MetalFunctionData computeData;
 
     DAWN_TRY(ToBackend(computeStage.module.Get())
-                 ->CreateFunction(
-                     SingleShaderStage::Compute, computeStage, ToBackend(GetLayout()), &computeData,
-                     /* sampleMask */ 0xFFFFFFFF,
-                     /* renderPipeline */ nullptr,
-                     /* maxSubgroupSizeForFullSubgroups */
-                     IsFullSubgroupsRequired()
-                         ? std::make_optional(
-                               GetDevice()->GetLimits().experimentalSubgroupLimits.maxSubgroupSize)
-                         : std::nullopt));
+                 ->CreateFunction(SingleShaderStage::Compute, computeStage, ToBackend(GetLayout()),
+                                  GetImmediateMask(), &computeData,
+                                  /* sampleMask */ 0xFFFFFFFF,
+                                  /* renderPipeline */ nullptr));
 
     NSError* error = nullptr;
     NSRef<NSString> label = MakeDebugName(GetDevice(), "Dawn_ComputePipeline", GetLabel());
@@ -77,10 +72,6 @@ MaybeError ComputePipeline::InitializeImpl() {
     MTLComputePipelineDescriptor* descriptor = descriptorRef.Get();
     descriptor.computeFunction = computeData.function.Get();
     descriptor.label = label.Get();
-
-    if (IsFullSubgroupsRequired()) {
-        descriptor.threadGroupSizeIsMultipleOfThreadExecutionWidth = true;
-    }
 
     platform::metrics::DawnHistogramTimer timer(GetDevice()->GetPlatform());
     mMtlComputePipelineState.Acquire([mtlDevice
@@ -95,12 +86,12 @@ MaybeError ComputePipeline::InitializeImpl() {
     DAWN_ASSERT(mMtlComputePipelineState != nil);
     timer.RecordMicroseconds("Metal.newComputePipelineStateWithDescriptor.CacheMiss");
 
-    // Copy over the local workgroup size as it is passed to dispatch explicitly in Metal
-    mLocalWorkgroupSize = computeData.localWorkgroupSize;
-
     mRequiresStorageBufferLength = computeData.needsStorageBufferLength;
     mWorkgroupAllocations = std::move(computeData.workgroupAllocations);
-    return {};
+
+    return {{uint32_t(computeData.localWorkgroupSize.width),
+             uint32_t(computeData.localWorkgroupSize.height),
+             uint32_t(computeData.localWorkgroupSize.depth)}};
 }
 
 void ComputePipeline::Encode(id<MTLComputeCommandEncoder> encoder) {
@@ -116,7 +107,7 @@ void ComputePipeline::Encode(id<MTLComputeCommandEncoder> encoder) {
 }
 
 MTLSize ComputePipeline::GetLocalWorkGroupSize() const {
-    return mLocalWorkgroupSize;
+    return ToMTLSize(GetWorkgroupSize());
 }
 
 bool ComputePipeline::RequiresStorageBufferLength() const {

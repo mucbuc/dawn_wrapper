@@ -25,9 +25,8 @@
 // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#include "dawn/tests/unittests/validation/ValidationTest.h"
-
 #include "dawn/native/BindGroupLayout.h"
+#include "dawn/tests/unittests/validation/ValidationTest.h"
 #include "dawn/utils/ComboRenderPipelineDescriptor.h"
 #include "dawn/utils/WGPUHelpers.h"
 
@@ -485,7 +484,7 @@ TEST_F(GetBindGroupLayoutTests, BindingType) {
                     BindGroupLayoutCacheEq(pipeline.GetBindGroupLayout(0)));
     }
 
-    binding.buffer.type = wgpu::BufferBindingType::Undefined;
+    binding.buffer.type = wgpu::BufferBindingType::BindingNotUsed;
     binding.buffer.minBindingSize = 0;
     {
         binding.texture.sampleType = wgpu::TextureSampleType::UnfilterableFloat;
@@ -511,7 +510,7 @@ TEST_F(GetBindGroupLayoutTests, BindingType) {
                     BindGroupLayoutCacheEq(pipeline.GetBindGroupLayout(0)));
     }
 
-    binding.texture.sampleType = wgpu::TextureSampleType::Undefined;
+    binding.texture.sampleType = wgpu::TextureSampleType::BindingNotUsed;
     {
         binding.sampler.type = wgpu::SamplerBindingType::Filtering;
         wgpu::RenderPipeline pipeline = RenderPipelineFromFragmentShader(R"(
@@ -545,6 +544,35 @@ TEST_F(GetBindGroupLayoutTests, ExternalTextureBindingType) {
             @fragment fn main() {
                _ = myExternalTexture;
             })");
+    EXPECT_THAT(device.CreateBindGroupLayout(&desc),
+                BindGroupLayoutCacheEq(pipeline.GetBindGroupLayout(0)));
+}
+
+// Tests that the texel buffer binding type matches with a texel_buffer declared in the shader.
+TEST_F(GetBindGroupLayoutTests, TexelBufferBindingType) {
+    DAWN_SKIP_TEST_IF(UsesWire());
+
+    wgpu::TexelBufferBindingLayout layout = {};
+    layout.access = wgpu::TexelBufferAccess::ReadOnly;
+    layout.format = wgpu::TextureFormat::RGBA8Uint;
+
+    wgpu::BindGroupLayoutEntry entry = {};
+    entry.binding = 0;
+    entry.visibility = wgpu::ShaderStage::Fragment;
+    entry.nextInChain = &layout;
+
+    wgpu::BindGroupLayoutDescriptor desc = {};
+    desc.entryCount = 1;
+    desc.entries = &entry;
+
+    wgpu::RenderPipeline pipeline = RenderPipelineFromFragmentShader(R"(
+            requires texel_buffers;
+            @group(0) @binding(0) var myTexelBuffer: texel_buffer<rgba8uint, read>;
+
+            @fragment fn main() {
+                _ = textureDimensions(myTexelBuffer);
+            })");
+
     EXPECT_THAT(device.CreateBindGroupLayout(&desc),
                 BindGroupLayoutCacheEq(pipeline.GetBindGroupLayout(0)));
 }
@@ -1014,6 +1042,126 @@ TEST_F(GetBindGroupLayoutTests, StageAggregation) {
     }
 }
 
+// Test that a binding_array is reflected into a BGLEntry with an arraySize.
+TEST_F(GetBindGroupLayoutTests, ArraySizeReflected) {
+    DAWN_SKIP_TEST_IF(UsesWire());
+
+    wgpu::BindGroupLayoutEntry entry;
+    entry.binding = 0;
+    entry.visibility = wgpu::ShaderStage::Fragment;
+    entry.texture.sampleType = wgpu::TextureSampleType::UnfilterableFloat;
+
+    wgpu::BindGroupLayoutDescriptor bglDesc;
+    bglDesc.entryCount = 1;
+    bglDesc.entries = &entry;
+
+    // The pipeline using binding_array
+    wgpu::RenderPipeline pipeline = RenderPipelineFromFragmentShader(R"(
+        @group(0) @binding(0) var t: binding_array<texture_2d<f32>, 3>;
+        @fragment fn main() {
+            _ = t[0];
+        })");
+
+    entry.bindingArraySize = 3;
+    EXPECT_THAT(device.CreateBindGroupLayout(&bglDesc),
+                BindGroupLayoutCacheEq(pipeline.GetBindGroupLayout(0)));
+    entry.bindingArraySize = 2;
+    EXPECT_THAT(device.CreateBindGroupLayout(&bglDesc),
+                Not(BindGroupLayoutCacheEq(pipeline.GetBindGroupLayout(0))));
+    entry.bindingArraySize = 1;
+    EXPECT_THAT(device.CreateBindGroupLayout(&bglDesc),
+                Not(BindGroupLayoutCacheEq(pipeline.GetBindGroupLayout(0))));
+}
+
+// Test that a binding_array is reflected into an entry with the max of both sizes
+TEST_F(GetBindGroupLayoutTests, ArraySizeTwoStages) {
+    DAWN_SKIP_TEST_IF(UsesWire());
+
+    // A BGL with arraySize = 3
+    wgpu::BindGroupLayoutEntry entry;
+    entry.binding = 0;
+    entry.visibility = wgpu::ShaderStage::Vertex | wgpu::ShaderStage::Fragment;
+    entry.bindingArraySize = 3;
+    entry.texture.sampleType = wgpu::TextureSampleType::UnfilterableFloat;
+
+    wgpu::BindGroupLayoutDescriptor bglDesc;
+    bglDesc.entryCount = 1;
+    bglDesc.entries = &entry;
+
+    // The pipeline using binding_array, with differing binding_array sizes. VS = 3, FS = 2
+    {
+        wgpu::ShaderModule module = utils::CreateShaderModule(device, R"(
+            @group(0) @binding(0) var vs_t: binding_array<texture_2d<f32>, 3>;
+            @vertex fn vs() -> @builtin(position) vec4f {
+                _ = vs_t[0];
+                return vec4(0);
+            }
+
+            @group(0) @binding(0) var fs_t: binding_array<texture_2d<f32>, 2>;
+            @fragment fn fs() {
+                _ = fs_t[0];
+            })");
+
+        utils::ComboRenderPipelineDescriptor descriptor;
+        descriptor.layout = nullptr;
+        descriptor.vertex.module = module;
+        descriptor.cFragment.module = module;
+        descriptor.cTargets[0].writeMask = wgpu::ColorWriteMask::None;
+
+        wgpu::RenderPipeline pipeline = device.CreateRenderPipeline(&descriptor);
+        EXPECT_THAT(device.CreateBindGroupLayout(&bglDesc),
+                    BindGroupLayoutCacheEq(pipeline.GetBindGroupLayout(0)));
+    }
+    // The pipeline using binding_array, with differing binding_array sizes. VS = 2, FS = 3
+    {
+        wgpu::ShaderModule module = utils::CreateShaderModule(device, R"(
+            @group(0) @binding(0) var vs_t: binding_array<texture_2d<f32>, 2>;
+            @vertex fn vs() -> @builtin(position) vec4f {
+                _ = vs_t[0];
+                return vec4(0);
+            }
+
+            @group(0) @binding(0) var fs_t: binding_array<texture_2d<f32>, 3>;
+            @fragment fn fs() {
+                _ = fs_t[0];
+            })");
+
+        utils::ComboRenderPipelineDescriptor descriptor;
+        descriptor.layout = nullptr;
+        descriptor.vertex.module = module;
+        descriptor.cFragment.module = module;
+        descriptor.cTargets[0].writeMask = wgpu::ColorWriteMask::None;
+
+        wgpu::RenderPipeline pipeline = device.CreateRenderPipeline(&descriptor);
+        EXPECT_THAT(device.CreateBindGroupLayout(&bglDesc),
+                    BindGroupLayoutCacheEq(pipeline.GetBindGroupLayout(0)));
+    }
+    // The pipeline using binding_array, with differing binding_array sizes. VS = 3, FS = NotArrayed
+    {
+        wgpu::ShaderModule module = utils::CreateShaderModule(device, R"(
+            @group(0) @binding(0) var vs_t: binding_array<texture_2d<f32>, 3>;
+            @vertex fn vs() -> @builtin(position) vec4f {
+                _ = vs_t[0];
+                return vec4(0);
+            }
+
+            @group(0) @binding(0) var fs_t: texture_2d<f32>;
+            @fragment fn fs() {
+                _ = fs_t;
+            })");
+
+        utils::ComboRenderPipelineDescriptor descriptor;
+        descriptor.layout = nullptr;
+        descriptor.vertex.module = module;
+        descriptor.cFragment.module = module;
+        descriptor.cTargets[0].writeMask = wgpu::ColorWriteMask::None;
+
+        wgpu::RenderPipeline pipeline = device.CreateRenderPipeline(&descriptor);
+        EXPECT_THAT(device.CreateBindGroupLayout(&bglDesc),
+                    BindGroupLayoutCacheEq(pipeline.GetBindGroupLayout(0)));
+    }
+}
+
 // Test it is invalid to have conflicting binding types in the shaders.
 TEST_F(GetBindGroupLayoutTests, ConflictingBindingType) {
     wgpu::ShaderModule vsModule = utils::CreateShaderModule(device, R"(
@@ -1133,8 +1281,8 @@ TEST_F(GetBindGroupLayoutTests, OutOfRangeIndex) {
                             .GetBindGroupLayout(kMaxBindGroups + 1));
 }
 
-// Test that unused indices return the empty bind group layout if before the last used index, an
-// error otherwise.
+// Test that unused indices return the empty bind group layout if less than the maximum number of
+// bind groups, an error otherwise.
 TEST_F(GetBindGroupLayoutTests, UnusedIndex) {
     DAWN_SKIP_TEST_IF(UsesWire());
 
@@ -1162,7 +1310,11 @@ TEST_F(GetBindGroupLayoutTests, UnusedIndex) {
                 BindGroupLayoutCacheEq(emptyBindGroupLayout));  // Not used
     EXPECT_THAT(pipeline.GetBindGroupLayout(2),
                 Not(BindGroupLayoutCacheEq(emptyBindGroupLayout)));  // Used
-    ASSERT_DEVICE_ERROR(pipeline.GetBindGroupLayout(3));  // Past last defined BGL, error!
+    EXPECT_THAT(pipeline.GetBindGroupLayout(3),
+                BindGroupLayoutCacheEq(emptyBindGroupLayout));  // Past last defined BGL
+
+    // Equal to kMaxBindGroups, error!
+    ASSERT_DEVICE_ERROR(pipeline.GetBindGroupLayout(kMaxBindGroups));
 }
 
 // Test that after explicitly creating a pipeline with a pipeline layout, calling
@@ -1279,6 +1431,73 @@ TEST_F(GetBindGroupLayoutTests, FullOfEmptyBGLs) {
     EXPECT_THAT(pipeline.GetBindGroupLayout(2), BindGroupLayoutEq(emptyBGL));
     EXPECT_THAT(pipeline.GetBindGroupLayout(3), BindGroupLayoutEq(emptyBGL));
 }
+
+// Test that a pipeline full of explicitly null BGLs correctly reflects empty BGLs.
+TEST_F(GetBindGroupLayoutTests, NullBGLs) {
+    DAWN_SKIP_TEST_IF(UsesWire());
+
+    wgpu::PipelineLayout pl =
+        utils::MakePipelineLayout(device, {nullptr, nullptr, nullptr, nullptr});
+
+    wgpu::ComputePipelineDescriptor pipelineDesc;
+    pipelineDesc.layout = pl;
+    pipelineDesc.compute.module = utils::CreateShaderModule(device, R"(
+        @compute @workgroup_size(1) fn main() {
+        }
+    )");
+    wgpu::ComputePipeline pipeline = device.CreateComputePipeline(&pipelineDesc);
+
+    wgpu::BindGroupLayout emptyBGL = utils::MakeBindGroupLayout(device, {});
+    EXPECT_THAT(pipeline.GetBindGroupLayout(0), BindGroupLayoutEq(emptyBGL));
+    EXPECT_THAT(pipeline.GetBindGroupLayout(1), BindGroupLayoutEq(emptyBGL));
+    EXPECT_THAT(pipeline.GetBindGroupLayout(2), BindGroupLayoutEq(emptyBGL));
+    EXPECT_THAT(pipeline.GetBindGroupLayout(3), BindGroupLayoutEq(emptyBGL));
+}
+
+// Regression test for a revert where the default layout computation of a sampler used with an
+// external texture would mark it unfilterable (when it needs to be filterable).
+TEST_F(GetBindGroupLayoutTests, SamplerUsedWithExternalTexture) {
+    DAWN_SKIP_TEST_IF(UsesWire());
+
+    wgpu::ShaderModule module = utils::CreateShaderModule(device, R"(
+        @vertex fn vs() -> @builtin(position) vec4f {
+            return vec4f(0.0);
+        }
+
+        @group(0) @binding(0) var mySampler: sampler;
+        @group(0) @binding(1) var myTexture: texture_external;
+        @fragment fn main() -> @location(0) vec4f {
+          return textureSampleBaseClampToEdge(myTexture, mySampler, vec2f(0));
+        }
+    )");
+
+    utils::ComboRenderPipelineDescriptor pipelineDesc;
+    pipelineDesc.vertex.module = module;
+    pipelineDesc.cFragment.module = module;
+    wgpu::RenderPipeline pipeline = device.CreateRenderPipeline(&pipelineDesc);
+
+    wgpu::BindGroupLayout bgl = utils::MakeBindGroupLayout(
+        device, {
+                    {
+                        0,
+                        wgpu::ShaderStage::Fragment,
+                        wgpu::SamplerBindingType::Filtering,
+                    },
+                    {1, wgpu::ShaderStage::Fragment, &utils::kExternalTextureBindingLayout},
+                });
+    EXPECT_THAT(pipeline.GetBindGroupLayout(0), BindGroupLayoutCacheEq(bgl));
+}
+
+// TODO(https://issues.chromium.org/487593147): Add tests for GetBindGroupLayout with explicit
+// filterability and filteringness annotations. An incomplete test plan is:
+//
+//  - Check that explicit filteringness / filterability is correctly reflected.
+//  - Check that conflicting filteringness / filterability between stages produces an error.
+//  - Check that unknowns get defaulted to the other stage's explicit value (in both orders)
+//  - Check that unknown samplers used with non-filterable textures become unfilterable, and that
+//  the others become filtering.
+//  - Check that unknown textures used with a filtering / unknown sampler become filtering.
+//  - Check what happens on unknown texture/samplers only referenced and not used.
 
 }  // anonymous namespace
 }  // namespace dawn

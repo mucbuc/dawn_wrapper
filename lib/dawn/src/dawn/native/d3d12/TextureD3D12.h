@@ -31,12 +31,11 @@
 #include <optional>
 #include <vector>
 
-#include "dawn/native/Error.h"
-#include "dawn/native/d3d/TextureD3D.h"
-
 #include "dawn/native/DawnNative.h"
+#include "dawn/native/Error.h"
 #include "dawn/native/IntegerTypes.h"
 #include "dawn/native/PassResourceUsage.h"
+#include "dawn/native/Texture.h"
 #include "dawn/native/d3d12/IntegerTypes.h"
 #include "dawn/native/d3d12/ResourceHeapAllocationD3D12.h"
 #include "dawn/native/d3d12/d3d12_platform.h"
@@ -51,7 +50,7 @@ class SharedTextureMemory;
 class CommandRecordingContext;
 class Device;
 
-class Texture final : public d3d::Texture {
+class Texture final : public TextureBase {
   public:
     static ResultOrError<Ref<Texture>> Create(Device* device,
                                               const UnpackedPtr<TextureDescriptor>& descriptor);
@@ -63,10 +62,6 @@ class Texture final : public d3d::Texture {
     static ResultOrError<Ref<Texture>> CreateFromSharedTextureMemory(
         SharedTextureMemory* memory,
         const UnpackedPtr<TextureDescriptor>& descriptor);
-
-    // For external textures, returns the Device internal fence's value associated with the last
-    // ExecuteCommandLists that used this texture. If nullopt is returned, the texture wasn't used.
-    ResultOrError<ExecutionSerial> EndAccess() override;
 
     DXGI_FORMAT GetD3D12Format() const;
     ID3D12Resource* GetD3D12Resource() const;
@@ -90,9 +85,9 @@ class Texture final : public d3d::Texture {
 
     MaybeError SynchronizeTextureBeforeUse(CommandRecordingContext* commandContext);
 
-    void NotifySwapChainPresentToPIX();
+    void NotifySwapChainPresent();
 
-    void SetIsSwapchainTexture(bool isSwapChainTexture);
+    void SetIsExternalSwapchainTexture(bool isSwapChainTexture);
 
     void TrackUsageAndGetResourceBarrierForPass(CommandRecordingContext* commandContext,
                                                 std::vector<D3D12_RESOURCE_BARRIER>* barrier,
@@ -114,7 +109,7 @@ class Texture final : public d3d::Texture {
     D3D12_RESOURCE_STATES GetCurrentStateForSwapChain() const;
 
   private:
-    using Base = d3d::Texture;
+    using Base = TextureBase;
 
     Texture(Device* device, const UnpackedPtr<TextureDescriptor>& descriptor);
     ~Texture() override;
@@ -131,7 +126,9 @@ class Texture final : public d3d::Texture {
 
     // Dawn API
     void SetLabelImpl() override;
-    void DestroyImpl() override;
+    void DestroyImpl(DestroyReason reason) override;
+    MaybeError PinImpl(wgpu::TextureUsage usage) override;
+    void UnpinImpl() override;
 
     MaybeError ClearTexture(CommandRecordingContext* commandContext,
                             const SubresourceRange& range,
@@ -143,7 +140,7 @@ class Texture final : public d3d::Texture {
         ExecutionSerial lastDecaySerial;
         bool isValidToDecay;
 
-        bool operator==(const StateAndDecay& other) const;
+        bool operator==(const StateAndDecay& other) const = default;
     };
 
     SubresourceStorage<StateAndDecay> InitialSubresourceStateAndDecay() const;
@@ -168,7 +165,7 @@ class Texture final : public d3d::Texture {
     // SharedTextureMemory.
     std::vector<FenceAndSignalValue> mWaitFences;
 
-    bool mSwapChainTexture = false;
+    bool mIsExternalSwapChainTexture = false;
 
     SubresourceStorage<StateAndDecay> mSubresourceStateAndDecay;
 };

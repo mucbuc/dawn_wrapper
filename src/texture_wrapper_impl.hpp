@@ -75,13 +75,13 @@ private:
 
     static void write_texture(Device& device, Texture& texture, TextureDescriptor& desc, std::vector<uint8_t> colorTexture)
     {
-        ImageCopyTexture destination {};
+        TexelCopyTextureInfo destination {};
         destination.texture = texture;
         destination.mipLevel = 0;
         destination.origin = { 0, 0, 0 };
         destination.aspect = TextureAspect::All;
 
-        TextureDataLayout source {};
+        TexelCopyBufferLayout source {};
         source.offset = 0;
         source.bytesPerRow = 4 * desc.size.width;
         source.rowsPerImage = desc.size.height;

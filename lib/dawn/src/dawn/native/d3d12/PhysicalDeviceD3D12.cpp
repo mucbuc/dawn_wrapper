@@ -30,8 +30,10 @@
 #include <algorithm>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "dawn/common/Constants.h"
+#include "dawn/common/GPUInfo.h"
 #include "dawn/common/Platform.h"
 #include "dawn/common/WindowsUtils.h"
 #include "dawn/native/ChainUtils.h"
@@ -45,7 +47,18 @@
 
 namespace dawn::native::d3d12 {
 
-PhysicalDevice::PhysicalDevice(Backend* backend, ComPtr<IDXGIAdapter4> hardwareAdapter)
+// The D3D12_MESSAGE_ID_CREATERESOURCE_INVALIDALIGNMENT_SMALLRESOURCE(1380) was introduced
+// in SDK 10.0.26100.0. Redefine the message name to allows it to be compiled on both
+// SDK 10.0.22621.0 and SDK 10.0.26100.0.
+#if D3D12_SDK_VERSION >= 612
+const D3D12_MESSAGE_ID DAWN_MESSAGE_ID_CREATERESOURCE_INVALIDALIGNMENT_SMALLRESOURCE =
+    D3D12_MESSAGE_ID_CREATERESOURCE_INVALIDALIGNMENT_SMALLRESOURCE;
+#else
+const D3D12_MESSAGE_ID DAWN_MESSAGE_ID_CREATERESOURCE_INVALIDALIGNMENT_SMALLRESOURCE =
+    D3D12_MESSAGE_ID(1380);
+#endif
+
+PhysicalDevice::PhysicalDevice(Backend* backend, ComPtr<IDXGIAdapter3> hardwareAdapter)
     : Base(backend, std::move(hardwareAdapter), wgpu::BackendType::D3D12) {}
 
 PhysicalDevice::~PhysicalDevice() {
@@ -57,7 +70,7 @@ bool PhysicalDevice::SupportsExternalImages() const {
     return true;
 }
 
-bool PhysicalDevice::SupportsFeatureLevel(FeatureLevel) const {
+bool PhysicalDevice::SupportsFeatureLevel(wgpu::FeatureLevel, InstanceBase* instance) const {
     return true;
 }
 
@@ -93,6 +106,9 @@ MaybeError PhysicalDevice::InitializeImpl() {
         return DAWN_INTERNAL_ERROR("D3D12CreateDevice failed");
     }
 
+    // Check if we should block the use of D3D12 on the current device.
+    DAWN_TRY(ValidateUseOfD3D12());
+
     DAWN_TRY(InitializeDebugLayerFilters());
 
     DAWN_TRY_ASSIGN(mDeviceInfo, GatherDeviceInfo(*this));
@@ -102,6 +118,26 @@ MaybeError PhysicalDevice::InitializeImpl() {
     if (mAdapterType == wgpu::AdapterType::DiscreteGPU && mDeviceInfo.isUMA) {
         mAdapterType = wgpu::AdapterType::IntegratedGPU;
     }
+
+    mSubgroupMinSize = mDeviceInfo.waveLaneCountMin;
+    // Currently the WaveLaneCountMax queried from D3D12 API is not reliable and the meaning is
+    // unclear. Use 128 instead, which is the largest possible size. Reference:
+    // https://github.com/Microsoft/DirectXShaderCompiler/wiki/Wave-Intrinsics#:~:text=UINT%20WaveLaneCountMax
+    mSubgroupMaxSize = 128u;
+
+    mMinExplicitComputeSubgroupSize = mDeviceInfo.waveLaneCountMin;
+    mMaxExplicitComputeSubgroupSize = mDeviceInfo.waveLaneCountMax;
+    if (mDeviceInfo.waveLaneCountMin > 0) {
+        // D3D12 doesn't have limit on the maximum subgroups in one workgroup so we choose a value
+        // to
+        // ensure `computeInvocationsPerWorkgroup <= maxComputeWorkgroupSubgroups *
+        // computeSubgroupSize` is always satisfied.
+        mMaxComputeWorkgroupSubgroups =
+            D3D12_CS_THREAD_GROUP_MAX_THREADS_PER_GROUP / mDeviceInfo.waveLaneCountMin;
+    } else {
+        mMaxComputeWorkgroupSubgroups = D3D12_CS_THREAD_GROUP_MAX_THREADS_PER_GROUP;
+    }
+
     return {};
 }
 
@@ -126,8 +162,13 @@ bool PhysicalDevice::AreTimestampQueriesSupported() const {
     return true;
 }
 
+bool PhysicalDevice::SupportsBufferMapExtendedUsages() const {
+    return GetDeviceInfo().isUMA && GetDeviceInfo().isCacheCoherentUMA;
+}
+
 void PhysicalDevice::InitializeSupportedFeaturesImpl() {
     EnableFeature(Feature::TextureCompressionBC);
+    EnableFeature(Feature::TextureCompressionBCSliced3D);
     EnableFeature(Feature::DawnMultiPlanarFormats);
     EnableFeature(Feature::Depth32FloatStencil8);
     EnableFeature(Feature::IndirectFirstInstance);
@@ -137,42 +178,45 @@ void PhysicalDevice::InitializeSupportedFeaturesImpl() {
     EnableFeature(Feature::Float32Blendable);
     EnableFeature(Feature::DualSourceBlending);
     EnableFeature(Feature::Unorm16TextureFormats);
-    EnableFeature(Feature::Snorm16TextureFormats);
-    EnableFeature(Feature::Norm16TextureFormats);
+    EnableFeature(Feature::Unorm16Filterable);
+    EnableFeature(Feature::Unorm16FormatsForExternalTexture);
     EnableFeature(Feature::AdapterPropertiesMemoryHeaps);
     EnableFeature(Feature::AdapterPropertiesD3D);
     EnableFeature(Feature::MultiPlanarRenderTargets);
-    EnableFeature(Feature::R8UnormStorage);
     EnableFeature(Feature::SharedBufferMemoryD3D12Resource);
     EnableFeature(Feature::ShaderModuleCompilationOptions);
     EnableFeature(Feature::StaticSamplers);
     EnableFeature(Feature::MultiDrawIndirect);
     EnableFeature(Feature::ClipDistances);
+    EnableFeature(Feature::FlexibleTextureViews);
+    EnableFeature(Feature::TextureFormatsTier1);
+    EnableFeature(Feature::TextureComponentSwizzle);
+    EnableFeature(Feature::PrimitiveIndex);
+    EnableFeature(Feature::DawnLoadResolveTexture);
+    EnableFeature(Feature::DawnPartialLoadResolveTexture);
 
     if (AreTimestampQueriesSupported()) {
         EnableFeature(Feature::TimestampQuery);
         EnableFeature(Feature::ChromiumExperimentalTimestampQueryInsidePasses);
     }
 
+#if defined(DAWN_USE_BUILT_DXC)
     // ShaderF16 features require DXC version being 1.4 or higher, shader model supporting 6.2 or
     // higher, and native supporting F16 shader ops.
-    bool shaderF16Enabled = false;
-    if (GetBackend()->IsDXCAvailableAndVersionAtLeast(1, 4, 1, 4) &&
-        mDeviceInfo.highestSupportedShaderModel >= 62 && mDeviceInfo.supportsNative16BitShaderOps) {
+    if (mDeviceInfo.highestSupportedShaderModel >= 62 && mDeviceInfo.supportsNative16BitShaderOps) {
         EnableFeature(Feature::ShaderF16);
-        shaderF16Enabled = true;
     }
 
-    // ChromiumExperimentalSubgroups requires SM >= 6.0 and capabilities flags.
-    if (GetBackend()->IsDXCAvailable() && mDeviceInfo.supportsWaveOps) {
-        // TODO(349125474): Remove deprecated ChromiumExperimentalSubgroups.
-        EnableFeature(Feature::ChromiumExperimentalSubgroups);
+    // Subgroups feature requires SM >= 6.0 and capabilities flags.
+    if (mDeviceInfo.supportsWaveOps) {
         EnableFeature(Feature::Subgroups);
-        // D3D12 devices that support both native f16 and wave ops can support subgroups-f16.
-        if (shaderF16Enabled) {
-            EnableFeature(Feature::SubgroupsF16);
-        }
     }
+
+    // SubgroupSizeControl feature requires SM >= 6.6 for HLSL attribute `[WaveSize]`.
+    if (mDeviceInfo.highestSupportedShaderModel >= 66) {
+        EnableFeature(Feature::ChromiumExperimentalSubgroupSizeControl);
+    }
+#endif
 
     D3D12_FEATURE_DATA_FORMAT_SUPPORT bgra8unormFormatInfo = {};
     bgra8unormFormatInfo.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
@@ -183,15 +227,43 @@ void PhysicalDevice::InitializeSupportedFeaturesImpl() {
         EnableFeature(Feature::BGRA8UnormStorage);
     }
 
-    D3D12_FEATURE_DATA_EXISTING_HEAPS existingHeapInfo = {};
-    hr = mD3d12Device->CheckFeatureSupport(D3D12_FEATURE_EXISTING_HEAPS, &existingHeapInfo,
-                                           sizeof(existingHeapInfo));
-    if (SUCCEEDED(hr) && existingHeapInfo.Supported) {
+    if (GetDeviceInfo().supportsExistingHeap) {
         EnableFeature(Feature::HostMappedPointer);
     }
 
     EnableFeature(Feature::SharedTextureMemoryDXGISharedHandle);
+    EnableFeature(Feature::SharedTextureMemoryD3D12Resource);
     EnableFeature(Feature::SharedFenceDXGISharedHandle);
+
+    if (SupportsBufferMapExtendedUsages()) {
+        EnableFeature(Feature::BufferMapExtendedUsages);
+    }
+
+    // Temporarily only enable SharedBufferMemoryD3D12SharedMemoryFileMappingHandle on cache
+    // coherent UMA.
+    // TODO(386255678): enable SharedBufferMemoryD3D12SharedMemoryFileMappingHandle on other
+    // architectures.
+    if (GetDeviceInfo().supportsExistingHeap && SupportsBufferMapExtendedUsages()) {
+        EnableFeature(Feature::SharedBufferMemoryD3D12SharedMemoryFileMappingHandle);
+    }
+
+    // Only check one format here because of D3D12 "Supported as a Set" mechanism: if any format
+    // in the set is supported by the device, all formats in the set are supported.
+    D3D12_FEATURE_DATA_FORMAT_SUPPORT r8unormFormatSupport = {};
+    r8unormFormatSupport.Format = DXGI_FORMAT_R8_UNORM;
+    HRESULT hrCheck = mD3d12Device->CheckFeatureSupport(
+        D3D12_FEATURE_FORMAT_SUPPORT, &r8unormFormatSupport, sizeof(r8unormFormatSupport));
+    if (SUCCEEDED(hrCheck) &&
+        (r8unormFormatSupport.Support2 & D3D12_FORMAT_SUPPORT2_UAV_TYPED_LOAD) &&
+        (r8unormFormatSupport.Support2 & D3D12_FORMAT_SUPPORT2_UAV_TYPED_STORE)) {
+        EnableFeature(Feature::TextureFormatsTier2);
+    }
+
+    // Tier 2 hardware supports at least 1 million descriptors in a heap.
+    // Tier 3 hardware supports essentially the full 32-bit range.
+    if (GetDeviceInfo().resourceBindingTier >= D3D12_RESOURCE_BINDING_TIER_2) {
+        EnableFeature(Feature::ChromiumExperimentalSamplingResourceTable);
+    }
 }
 
 MaybeError PhysicalDevice::InitializeSupportedLimitsImpl(CombinedLimits* limits) {
@@ -218,7 +290,7 @@ MaybeError PhysicalDevice::InitializeSupportedLimitsImpl(CombinedLimits* limits)
             "devices.");
     }
 
-    GetDefaultLimitsForSupportedFeatureLevel(&limits->v1);
+    GetDefaultLimitsForSupportedFeatureLevel(limits);
 
     // https://docs.microsoft.com/en-us/windows/win32/direct3d12/hardware-feature-levels
 
@@ -280,6 +352,10 @@ MaybeError PhysicalDevice::InitializeSupportedLimitsImpl(CombinedLimits* limits)
     // Allocate half of the UAVs to storage buffers, and half to storage textures.
     limits->v1.maxStorageTexturesPerShaderStage = maxUAVsPerStage / 2;
     limits->v1.maxStorageBuffersPerShaderStage = maxUAVsPerStage - maxUAVsPerStage / 2;
+    limits->compat.maxStorageTexturesInFragmentStage = limits->v1.maxStorageTexturesPerShaderStage;
+    limits->compat.maxStorageBuffersInFragmentStage = limits->v1.maxStorageBuffersPerShaderStage;
+    limits->compat.maxStorageTexturesInVertexStage = limits->v1.maxStorageTexturesPerShaderStage;
+    limits->compat.maxStorageBuffersInVertexStage = limits->v1.maxStorageBuffersPerShaderStage;
     limits->v1.maxSampledTexturesPerShaderStage = maxSRVsPerStage;
     limits->v1.maxSamplersPerShaderStage = maxSamplersPerStage;
 
@@ -287,55 +363,11 @@ MaybeError PhysicalDevice::InitializeSupportedLimitsImpl(CombinedLimits* limits)
     // This is maxColorAttachments times 16, the color format with the largest cost.
     limits->v1.maxColorAttachmentBytesPerSample = D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT * 16;
 
-    // https://docs.microsoft.com/en-us/windows/win32/direct3d12/root-signature-limits
-    // In DWORDS. Descriptor tables cost 1, Root constants cost 1, Root descriptors cost 2.
-    static constexpr uint32_t kMaxRootSignatureSize = 64u;
-    // Dawn maps WebGPU's binding model by:
-    //  - (maxBindGroups)
-    //    CBVs/UAVs/SRVs for bind group are a root descriptor table
-    //  - (maxBindGroups)
-    //    Samplers for each bind group are a root descriptor table
-    //  - dynamic uniform buffers - root descriptor
-    //  - dynamic storage buffers - root descriptor plus a root constant for the size
-    //  RESERVED:
-    //  - 3 = max of:
-    //    - 2 root constants for the baseVertex/baseInstance constants.
-    //    - 3 root constants for num workgroups X, Y, Z
-    static constexpr uint32_t kReservedSlots = 3;
+    // We want to support a minimum of 10 and 8 for these limits (see https://crbug.com/440381283).
+    limits->v1.maxDynamicUniformBuffersPerPipelineLayout = 10;
+    limits->v1.maxDynamicStorageBuffersPerPipelineLayout = 8;
 
-    // Costs:
-    //  - bind group: 2 = 1 cbv/uav/srv table + 1 sampler table
-    //  - dynamic uniform buffer: 2 slots for a root descriptor
-    //  - dynamic storage buffer: 3 slots for a root descriptor + root constant
-
-    // Available slots after base limits considered.
-    uint32_t availableRootSignatureSlots =
-        kMaxRootSignatureSize - kReservedSlots - 2 * limits->v1.maxBindGroups -
-        2 * limits->v1.maxDynamicUniformBuffersPerPipelineLayout -
-        3 * limits->v1.maxDynamicStorageBuffersPerPipelineLayout;
-
-    while (availableRootSignatureSlots >= 2) {
-        // Start by incrementing maxDynamicStorageBuffersPerPipelineLayout since the
-        // default is just 4 and developers likely want more. This scheme currently
-        // gets us to 8.
-        if (availableRootSignatureSlots >= 3) {
-            limits->v1.maxDynamicStorageBuffersPerPipelineLayout += 1;
-            availableRootSignatureSlots -= 3;
-        }
-        if (availableRootSignatureSlots >= 2) {
-            limits->v1.maxBindGroups += 1;
-            availableRootSignatureSlots -= 2;
-        }
-        if (availableRootSignatureSlots >= 2) {
-            limits->v1.maxDynamicUniformBuffersPerPipelineLayout += 1;
-            availableRootSignatureSlots -= 2;
-        }
-    }
-
-    DAWN_ASSERT(2 * limits->v1.maxBindGroups +
-                    2 * limits->v1.maxDynamicUniformBuffersPerPipelineLayout +
-                    3 * limits->v1.maxDynamicStorageBuffersPerPipelineLayout <=
-                kMaxRootSignatureSize - kReservedSlots);
+    limits->v1.maxImmediateSize = kMaxImmediateDataBytes;
 
     // https://docs.microsoft.com/en-us/windows/win32/direct3dhlsl/sm5-attributes-numthreads
     limits->v1.maxComputeWorkgroupSizeX = D3D12_CS_THREAD_GROUP_MAX_X;
@@ -356,31 +388,58 @@ MaybeError PhysicalDevice::InitializeSupportedLimitsImpl(CombinedLimits* limits)
 
     // D3D12 has no documented limit on the buffer size.
     limits->v1.maxBufferSize = kAssumedMaxBufferSize;
-    limits->v1.maxStorageBufferBindingSize = kAssumedMaxBufferSize;
 
     // 1 for SV_Position and 1 for (SV_IsFrontFace OR SV_SampleIndex).
     // See the discussions in https://github.com/gpuweb/gpuweb/issues/1962 for more details.
     limits->v1.maxInterStageShaderVariables = D3D12_PS_INPUT_REGISTER_COUNT - 2;
-    limits->v1.maxInterStageShaderComponents =
-        limits->v1.maxInterStageShaderVariables * D3D12_PS_INPUT_REGISTER_COMPONENTS;
+
+    if (mDeviceInfo.supportsExistingHeap) {
+        // The alignment of host mapped pointer and host mapped buffer size is same as the one of
+        // D3D12_HEAP_DESC.alignment.
+        limits->hostMappedPointerLimits.hostMappedPointerAlignment =
+            D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+    }
 
     // Using base limits for:
     // TODO(crbug.com/dawn/685):
     // - maxVertexBufferArrayStride
+    if (gpu_info::IsQualcommACPI(GetVendorId()) &&
+        gpu_info::GetQualcommACPIGen(GetVendorId(), GetDeviceId()) <
+            gpu_info::QualcommACPIGen::Adreno8xx) {
+        // Due to hardware limitation, Raw Buffers can only address 2^28 bytes instead of the
+        // guaranteed 2^31 bytes.
+        limits->v1.maxStorageBufferBindingSize = 1 << 28;
+    } else {
+        limits->v1.maxStorageBufferBindingSize = kAssumedMaxBufferSize;
+    }
 
-    // Experimental limits for subgroups
-    limits->experimentalSubgroupLimits.minSubgroupSize = mDeviceInfo.waveLaneCountMin;
-    // Currently the WaveLaneCountMax queried from D3D12 API is not reliable and the meaning is
-    // unclear. Use 128 instead, which is the largest possible size. Reference:
-    // https://github.com/Microsoft/DirectXShaderCompiler/wiki/Wave-Intrinsics#:~:text=UINT%20WaveLaneCountMax
-    limits->experimentalSubgroupLimits.maxSubgroupSize = 128u;
+    // Final check that the limits we computed don't exceed the root signature size. The inputs
+    // to this check should be the same on all devices, so this is basically a static_assert.
+    {
+        // https://docs.microsoft.com/en-us/windows/win32/direct3d12/root-signature-limits
+        // In DWORDS. Descriptor tables cost 1, Root constants cost 1, Root descriptors cost 2.
+        static constexpr uint32_t kMaxRootSignatureSize = 64u;
 
-    if (gpu_info::IsQualcomm_ACPI(GetVendorId())) {
-        // Due to a driver and hardware limitation, Raw Buffers can only address 2^27 WORDS instead
-        // of the guaranteeed 2^31 bytes. Probably because it uses some form of texel buffer of
-        // 32bit values to implement [RW]ByteAddressBuffer.
-        limits->v1.maxStorageBufferBindingSize = sizeof(uint32_t)
-                                                 << D3D12_REQ_BUFFER_RESOURCE_TEXEL_COUNT_2_TO_EXP;
+        // Max of:
+        // - 2 root constants for the baseVertex/baseInstance constants.
+        // - 3 root constants for num workgroups X, Y, Z
+        static constexpr uint32_t kShaderBuiltinSlots = 3;
+
+        // Slots not used at all. (This is just for the assert. We could use these slots later.)
+        static constexpr uint32_t kUnusedSlots = 1;
+
+        DAWN_ASSERT(
+            // bind groups: 1 for CBV+UAV+SRV table + 1 for sampler table
+            2 * limits->v1.maxBindGroups +
+                // dynamic uniform buffers: 2 for root descriptor
+                2 * limits->v1.maxDynamicUniformBuffersPerPipelineLayout +
+                // dynamic storage buffers: 1 for the size constant, 1 for the offset constant
+                2 * limits->v1.maxDynamicStorageBuffersPerPipelineLayout +
+                // immediates: 1 slot per 4 bytes
+                limits->v1.maxImmediateSize / kImmediateConstantElementByteSize +
+                // builtins and unused slots
+                kShaderBuiltinSlots + kUnusedSlots ==
+            kMaxRootSignatureSize);
     }
 
     return {};
@@ -398,26 +457,38 @@ FeatureValidationResult PhysicalDevice::ValidateFeatureSupportedWithTogglesImpl(
         switch (feature) {
             case wgpu::FeatureName::ShaderF16:
             case wgpu::FeatureName::Subgroups:
-            case wgpu::FeatureName::SubgroupsF16:
-            // TODO(349125474): Remove deprecated ChromiumExperimentalSubgroups.
-            case wgpu::FeatureName::ChromiumExperimentalSubgroups:
+            case wgpu::FeatureName::ChromiumExperimentalSamplingResourceTable:
                 return FeatureValidationResult(
                     absl::StrFormat("Feature %s requires DXC for D3D12.", feature));
             default:
                 break;
         }
     }
+
     // Validate applied shader version.
     switch (feature) {
-        // The feature `shader-f16` and `subgroups-f16` requires using shader model 6.2 or higher.
-        case wgpu::FeatureName::ShaderF16:
-        case wgpu::FeatureName::SubgroupsF16: {
+        // The feature `shader-f16` requires using shader model 6.2 or higher.
+        // Note: DXC is enabled for this feature at this point in the code.
+        case wgpu::FeatureName::ShaderF16: {
             if (!(GetAppliedShaderModelUnderToggles(toggles) >= 62)) {
                 return FeatureValidationResult(absl::StrFormat(
                     "Feature %s requires shader model 6.2 or higher for D3D12.", feature));
             }
             break;
         }
+        // The function subgroupBroadcast(f16) fails for some edge cases on Intel Gen-9 devices.
+        // See crbug.com/391680973. We disable subgroups on this device unless the user has
+        // explicitly enabled the 'enable_subgroups_intel_gen9' toggle.
+        // Note: DXC is enabled for this feature at this point in the code.
+        case wgpu::FeatureName::Subgroups:
+            if (gpu_info::IsIntelGen9(GetVendorId(), GetDeviceId()) &&
+                !toggles.IsEnabled(Toggle::EnableSubgroupsIntelGen9)) {
+                return FeatureValidationResult(
+                    absl::StrFormat("Intel Gen-9 devices require "
+                                    "`enable_subgroups_intel_gen9` to enable %s.",
+                                    feature));
+            }
+            break;
         default:
             break;
     }
@@ -470,14 +541,12 @@ MaybeError PhysicalDevice::InitializeDebugLayerFilters() {
         // Temporary IDs: list of warnings that should be fixed or promoted
         //
 
-        // Remove after warning have been addressed
-        // https://crbug.com/dawn/421
-        D3D12_MESSAGE_ID_GPU_BASED_VALIDATION_INCOMPATIBLE_RESOURCE_STATE,
-
         // For small placed resource alignment, we first request the small alignment, which may
         // get rejected and generate a debug error. Then, we request 0 to get the allowed
         // allowed alignment.
         D3D12_MESSAGE_ID_CREATERESOURCE_INVALIDALIGNMENT,
+        // This message id is added for invalid small resource alignment.
+        DAWN_MESSAGE_ID_CREATERESOURCE_INVALIDALIGNMENT_SMALLRESOURCE,
 
         // WebGPU allows OOB vertex buffer access and relies on D3D12's robust buffer access
         // behavior.
@@ -537,25 +606,24 @@ void PhysicalDevice::CleanUpDebugLayerFilters() {
 
 void PhysicalDevice::SetupBackendAdapterToggles(dawn::platform::Platform* platform,
                                                 TogglesState* adapterToggles) const {
-    // Check for use_dxc toggle
+    // We don't check if the compiler libraries is available here. Compiler libraries are checked
+    // and loaded according to device's UseDXC toggle during device creation, and the creation would
+    // just fail if required compiler is not available. This is to avoid expensive loading of DLLs
+    // that we will not use immediately (or at all).
 #ifdef DAWN_USE_BUILT_DXC
-    // Default to using DXC. If shader model < 6.0, though, we must use FXC.
     if (GetDeviceInfo().highestSupportedShaderModel < 60) {
+        // If shader model < 6.0, though, we must use FXC.
         adapterToggles->ForceSet(Toggle::UseDXC, false);
     }
-
-    bool useDxc = platform->IsFeatureEnabled(dawn::platform::Features::kWebGPUUseDXC);
+    const bool useDxc = platform->IsFeatureEnabled(dawn::platform::Features::kWebGPUUseDXC);
     adapterToggles->Default(Toggle::UseDXC, useDxc);
 #else
-    // Default to using FXC
-    if (!GetBackend()->IsDXCAvailable()) {
-        adapterToggles->ForceSet(Toggle::UseDXC, false);
-    }
+    adapterToggles->ForceSet(Toggle::UseDXC, false);
     adapterToggles->Default(Toggle::UseDXC, false);
 #endif
 
-    uint32_t deviceId = GetDeviceId();
-    uint32_t vendorId = GetVendorId();
+    const uint32_t deviceId = GetDeviceId();
+    const uint32_t vendorId = GetVendorId();
 
     // On Intel Gen12 D3D driver < 32.0.101.5762, using shader model 6.6 will cause unexpected
     // result when adding/subtracting I32/U32 vector/scalar with vector/scalar in constant
@@ -563,8 +631,8 @@ void PhysicalDevice::SetupBackendAdapterToggles(dawn::platform::Platform* platfo
     // information.
     if (gpu_info::IsIntelGen12HP(vendorId, deviceId) ||
         gpu_info::IsIntelGen12LP(vendorId, deviceId)) {
-        if (gpu_info::CompareWindowsDriverVersion(vendorId, GetDriverVersion(),
-                                                  {32, 0, 101, 5762}) == -1) {
+        const gpu_info::IntelWindowsDriverVersion kFixedDriverVersion = {32, 0, 101, 5762};
+        if (gpu_info::IntelWindowsDriverVersion(GetDriverVersion()) < kFixedDriverVersion) {
             adapterToggles->Default(Toggle::D3D12DontUseShaderModel66OrHigher, true);
         }
     }
@@ -573,10 +641,9 @@ void PhysicalDevice::SetupBackendAdapterToggles(dawn::platform::Platform* platfo
     // D3D driver > 27.20.100.8935 and < 27.20.100.9684 on Intel Gen9 and Gen9.5 GPUs.
     // See https://crbug.com/dawn/2448 for more information.
     if (gpu_info::IsIntelGen9(vendorId, deviceId)) {
-        if (gpu_info::CompareWindowsDriverVersion(vendorId, GetDriverVersion(),
-                                                  {27, 20, 100, 8935}) == 1 &&
-            gpu_info::CompareWindowsDriverVersion(vendorId, GetDriverVersion(),
-                                                  {27, 20, 100, 9684}) == -1) {
+        gpu_info::IntelWindowsDriverVersion intelDriverVersion(GetDriverVersion());
+        if (intelDriverVersion > gpu_info::IntelWindowsDriverVersion({27, 20, 100, 8935}) &&
+            intelDriverVersion < gpu_info::IntelWindowsDriverVersion({27, 20, 100, 9684})) {
             adapterToggles->ForceSet(Toggle::D3D12DontUseShaderModel66OrHigher, true);
         }
     }
@@ -586,10 +653,21 @@ void PhysicalDevice::SetupBackendAdapterToggles(dawn::platform::Platform* platfo
     if (gpu_info::IsIntelGen11(vendorId, deviceId)) {
         adapterToggles->ForceSet(Toggle::D3D12DontUseShaderModel66OrHigher, true);
     }
+
+    // On Intel Gen12LP fragment shader is possible to run with wave lane count of 8
+    // while driver reporting WaveLaneCountMin being 16.
+    if (gpu_info::IsIntelGen12LP(vendorId, deviceId)) {
+        adapterToggles->Default(Toggle::D3D12RelaxMinSubgroupSizeTo8, true);
+    }
 }
 
 void PhysicalDevice::SetupBackendDeviceToggles(dawn::platform::Platform* platform,
                                                TogglesState* deviceToggles) const {
+#ifdef DAWN_USE_BUILT_DXC
+    const bool dxcAvailable = true;
+#else
+    const bool dxcAvailable = false;
+#endif
     const bool useResourceHeapTier2 = (GetDeviceInfo().resourceHeapTier >= 2);
     deviceToggles->Default(Toggle::UseD3D12ResourceHeapTier2, useResourceHeapTier2);
     deviceToggles->Default(Toggle::UseD3D12RenderPass, GetDeviceInfo().supportsRenderPass);
@@ -641,19 +719,25 @@ void PhysicalDevice::SetupBackendDeviceToggles(dawn::platform::Platform* platfor
     deviceToggles->Default(Toggle::D3D12CreateNotZeroedHeap,
                            GetDeviceInfo().supportsHeapFlagCreateNotZeroed);
 
+    // By default allow relaxed row pitch and offset in buffer-texture copies when possible,
+    // otherwise we should never enable this toggle.
+    if (!GetDeviceInfo().supportsUnrestrictedBufferTextureCopyPitch) {
+        deviceToggles->ForceSet(Toggle::D3D12RelaxBufferTextureCopyPitchAndOffsetAlignment, false);
+    }
+    deviceToggles->Default(Toggle::D3D12RelaxBufferTextureCopyPitchAndOffsetAlignment,
+                           GetDeviceInfo().supportsUnrestrictedBufferTextureCopyPitch);
+
     // Native support of packed 4x8 integer dot product required shader model 6.4 or higher, and
     // DXC 1.4 or higher.
     if (!(GetAppliedShaderModelUnderToggles(*deviceToggles) >= 64) ||
-        !deviceToggles->IsEnabled(Toggle::UseDXC) ||
-        !GetBackend()->IsDXCAvailableAndVersionAtLeast(1, 4, 1, 4)) {
+        !deviceToggles->IsEnabled(Toggle::UseDXC) || !dxcAvailable) {
         deviceToggles->ForceSet(Toggle::PolyFillPacked4x8DotProduct, true);
     }
 
     // Native support of pack/unpack 4x8 intrinsics required shader model 6.6 or higher, and
     // DXC 1.4 or higher.
     if (!(GetAppliedShaderModelUnderToggles(*deviceToggles) >= 66) ||
-        !deviceToggles->IsEnabled(Toggle::UseDXC) ||
-        !GetBackend()->IsDXCAvailableAndVersionAtLeast(1, 6, 1, 6)) {
+        !deviceToggles->IsEnabled(Toggle::UseDXC) || !dxcAvailable) {
         deviceToggles->ForceSet(Toggle::D3D12PolyFillPackUnpack4x8, true);
     }
 
@@ -663,42 +747,35 @@ void PhysicalDevice::SetupBackendDeviceToggles(dawn::platform::Platform* platfor
     // Currently this workaround is only needed on Intel Gen9, Gen9.5 and Gen11 GPUs.
     // See http://crbug.com/1161355 for more information.
     if (gpu_info::IsIntelGen9(vendorId, deviceId) || gpu_info::IsIntelGen11(vendorId, deviceId)) {
-        const gpu_info::DriverVersion kFixedDriverVersion = {31, 0, 101, 2114};
-        if (gpu_info::CompareWindowsDriverVersion(vendorId, GetDriverVersion(),
-                                                  kFixedDriverVersion) < 0) {
+        const gpu_info::IntelWindowsDriverVersion kFixedDriverVersion = {31, 0, 101, 2114};
+        if (gpu_info::IntelWindowsDriverVersion(GetDriverVersion()) < kFixedDriverVersion) {
             deviceToggles->Default(
                 Toggle::UseTempBufferInSmallFormatTextureToTextureCopyFromGreaterToLessMipLevel,
                 true);
         }
     }
 
-    // Currently this workaround is only needed on Intel Gen9, Gen9.5 and Gen12 GPUs.
+    // Currently this workaround is only needed on Intel Gen9, Gen9.5, Gen12 and Xe GPUs.
     // See http://crbug.com/dawn/1487 for more information.
     if (gpu_info::IsIntelGen9(vendorId, deviceId) || gpu_info::IsIntelGen12LP(vendorId, deviceId) ||
-        gpu_info::IsIntelGen12HP(vendorId, deviceId)) {
+        gpu_info::IsIntelGen12HP(vendorId, deviceId) ||
+        gpu_info::IsIntelXeLPG(vendorId, deviceId)) {
         deviceToggles->Default(Toggle::D3D12ForceClearCopyableDepthStencilTextureOnCreation, true);
     }
 
-    // Currently this workaround is only needed on Intel Gen12 GPUs.
+    // Currently this workaround is only needed on Intel Gen12 and Xe GPUs.
     // See http://crbug.com/dawn/1487 for more information.
     if (gpu_info::IsIntelGen12LP(vendorId, deviceId) ||
-        gpu_info::IsIntelGen12HP(vendorId, deviceId)) {
+        gpu_info::IsIntelGen12HP(vendorId, deviceId) ||
+        gpu_info::IsIntelXeLPG(vendorId, deviceId)) {
         deviceToggles->Default(Toggle::D3D12DontSetClearValueOnDepthTextureCreation, true);
     }
-
-    // Currently this workaround is needed on any D3D12 backend for some particular situations.
-    // But we may need to limit it if D3D12 runtime fixes the bug on its new release. See
-    // https://crbug.com/dawn/1289 for more information.
-    // TODO(dawn:1289): Unset this toggle when we skip the split on the buffer-texture copy
-    // on the platforms where UnrestrictedBufferTextureCopyPitchSupported is true.
-    deviceToggles->Default(Toggle::D3D12SplitBufferTextureCopyForRowsPerImagePaddings, true);
 
     // This workaround is only needed on Intel Gen12LP with driver prior to 30.0.101.1692.
     // See http://crbug.com/dawn/949 for more information.
     if (gpu_info::IsIntelGen12LP(vendorId, deviceId)) {
-        const gpu_info::DriverVersion kFixedDriverVersion = {30, 0, 101, 1692};
-        if (gpu_info::CompareWindowsDriverVersion(vendorId, GetDriverVersion(),
-                                                  kFixedDriverVersion) == -1) {
+        const gpu_info::IntelWindowsDriverVersion kFixedDriverVersion = {30, 0, 101, 1692};
+        if (gpu_info::IntelWindowsDriverVersion(GetDriverVersion()) < kFixedDriverVersion) {
             deviceToggles->Default(Toggle::D3D12AllocateExtraMemoryFor2DArrayColorTexture, true);
         }
     }
@@ -707,11 +784,13 @@ void PhysicalDevice::SetupBackendDeviceToggles(dawn::platform::Platform* platfor
     // with driver >= 31.0.101.4091. See http://crbug.com/dawn/1083 for more information.
     bool useBlitForT2T = false;
     if (gpu_info::IsIntelGen9(vendorId, deviceId)) {
-        useBlitForT2T = gpu_info::CompareWindowsDriverVersion(vendorId, GetDriverVersion(),
-                                                              {31, 0, 101, 2121}) != -1;
+        const gpu_info::IntelWindowsDriverVersion kFirstBuggyDriverVersion = {31, 0, 101, 2121};
+        useBlitForT2T =
+            gpu_info::IntelWindowsDriverVersion(GetDriverVersion()) >= kFirstBuggyDriverVersion;
     } else if (gpu_info::IsIntelGen12LP(vendorId, deviceId)) {
-        useBlitForT2T = gpu_info::CompareWindowsDriverVersion(vendorId, GetDriverVersion(),
-                                                              {31, 0, 101, 4091}) != -1;
+        const gpu_info::IntelWindowsDriverVersion kFirstBuggyDriverVersion = {31, 0, 101, 4091};
+        useBlitForT2T =
+            gpu_info::IntelWindowsDriverVersion(GetDriverVersion()) >= kFirstBuggyDriverVersion;
     }
     if (useBlitForT2T) {
         deviceToggles->Default(Toggle::UseBlitForDepthTextureToTextureCopyToNonzeroSubresource,
@@ -723,17 +802,25 @@ void PhysicalDevice::SetupBackendDeviceToggles(dawn::platform::Platform* platfor
     // TODO(crbug.com/dawn/1546): Remove the workaround when the bug is fixed in D3D driver.
     if (gpu_info::IsIntelGen12LP(vendorId, deviceId) ||
         gpu_info::IsIntelGen12HP(vendorId, deviceId)) {
-        const gpu_info::DriverVersion kDriverVersion = {30, 0, 101, 3413};
-        if (gpu_info::CompareWindowsDriverVersion(vendorId, GetDriverVersion(), kDriverVersion) !=
-            -1) {
+        const gpu_info::IntelWindowsDriverVersion kFirstBuggyDriverVersion = {30, 0, 101, 3413};
+        if (gpu_info::IntelWindowsDriverVersion(GetDriverVersion()) >= kFirstBuggyDriverVersion) {
             deviceToggles->Default(Toggle::ClearBufferBeforeResolveQueries, true);
         }
     }
 
     // B2T copy failed with stencil8 format on Intel ACM/MTL/ARL GPUs. See
     // https://issues.chromium.org/issues/368085621 for more information.
-    if (gpu_info::IsAlchemist(deviceId) || gpu_info::IsMeteorlakeOrArrowlake(deviceId)) {
+    if (gpu_info::IsIntelGen12HP(vendorId, deviceId) ||
+        gpu_info::IsIntelXeLPG(vendorId, deviceId)) {
         deviceToggles->Default(Toggle::UseBlitForBufferToStencilTextureCopy, true);
+    }
+
+    // Workaround for the depth-stencil texture fails to be cleared if the clear value is specified
+    // in the D3D12_RENDER_PASS_BEGINNING_ACCESS structure of BeginRenderPass on Intel ACM and ARL.
+    // See https://issues.chromium.org/issues/430338408.
+    if (gpu_info::IsIntelGen12HP(vendorId, deviceId) ||
+        gpu_info::IsIntelXeLPG(vendorId, deviceId)) {
+        deviceToggles->ForceSet(Toggle::UseD3D12RenderPass, false);
     }
 
     // Currently these workarounds are needed on Intel Gen9.5 and Gen11 GPUs, as well as
@@ -753,9 +840,8 @@ void PhysicalDevice::SetupBackendDeviceToggles(dawn::platform::Platform* platfor
     // Currently this toggle is only needed on Intel Gen9 and Gen9.5 GPUs.
     // See http://crbug.com/dawn/1579 for more information.
     if (gpu_info::IsIntelGen9(vendorId, deviceId)) {
-        const gpu_info::DriverVersion kFixedDriverVersion = {31, 0, 101, 2121};
-        if (gpu_info::CompareWindowsDriverVersion(vendorId, GetDriverVersion(),
-                                                  kFixedDriverVersion) < 0) {
+        const gpu_info::IntelWindowsDriverVersion kFixedDriverVersion = {31, 0, 101, 2121};
+        if (gpu_info::IntelWindowsDriverVersion(GetDriverVersion()) < kFixedDriverVersion) {
             // We can add workaround when the blending operation is "Add", DstFactor is "Zero" and
             // SrcFactor is "DstAlpha".
             deviceToggles->ForceSet(
@@ -789,11 +875,12 @@ void PhysicalDevice::SetupBackendDeviceToggles(dawn::platform::Platform* platfor
     // See http://crbug.com/dawn/2308 for more information.
     if (gpu_info::IsIntel(vendorId)) {
         constexpr uint64_t kAffectedMinimumWindowsBuildNumber = 25957u;
-        const gpu_info::DriverVersion kAffectedMaximumDriverVersion = {27, 20, 100, 9664};
+        const gpu_info::IntelWindowsDriverVersion kAffectedMaximumDriverVersion = {27, 20, 100,
+                                                                                   9664};
         if (GetBackend()->GetFunctions()->GetWindowsBuildNumber() >=
                 kAffectedMinimumWindowsBuildNumber &&
-            gpu_info::CompareWindowsDriverVersion(vendorId, GetDriverVersion(),
-                                                  kAffectedMaximumDriverVersion) <= 0) {
+            gpu_info::IntelWindowsDriverVersion(GetDriverVersion()) <=
+                kAffectedMaximumDriverVersion) {
             deviceToggles->Default(Toggle::DisableResourceSuballocation, true);
         }
     }
@@ -803,9 +890,32 @@ void PhysicalDevice::SetupBackendDeviceToggles(dawn::platform::Platform* platfor
         deviceToggles->Default(Toggle::D3D12ExpandShaderResourceStateTransitionsToCopySource, true);
     }
 
-    // Use the Tint IR backend by default if the corresponding platform feature is enabled.
-    deviceToggles->Default(Toggle::UseTintIR,
-                           platform->IsFeatureEnabled(platform::Features::kWebGPUUseTintIR));
+    // Use packed DXGI_FORMAT_D24_UNORM_S8_UINT format on Qualcomm devices to workaround texture
+    // loading/sampling issues for depth24plus-stencil8 texture. Note that Qualcomm D3D12 drivers
+    // only report ACPI ids.
+    // See https://crbug.com/411268750 for more information.
+    if (gpu_info::IsQualcommACPI(vendorId)) {
+        deviceToggles->Default(Toggle::UsePackedDepth24UnormStencil8Format, true);
+    }
+
+    // Enable the integer range analysis for shader robustness by default if the corresponding
+    // platform feature is enabled.
+    deviceToggles->Default(
+        Toggle::EnableIntegerRangeAnalysisInRobustness,
+        platform->IsFeatureEnabled(platform::Features::kWebGPUEnableRangeAnalysisForRobustness));
+}
+
+MaybeError PhysicalDevice::ValidateUseOfD3D12() const {
+    uint32_t deviceId = GetDeviceId();
+    uint32_t vendorId = GetVendorId();
+
+    // D3D12 is no longer allowed on 4th Generation Intel Processor Graphics.
+    // https://www.intel.com/content/www/us/en/support/articles/000057520/graphics.html
+    if (gpu_info::IsIntelGen7(vendorId, deviceId)) {
+        return DAWN_VALIDATION_ERROR("D3D12 backend is not allowed on Intel gen-7 GPUs.");
+    }
+
+    return {};
 }
 
 ResultOrError<Ref<DeviceBase>> PhysicalDevice::CreateDeviceImpl(
@@ -818,7 +928,7 @@ ResultOrError<Ref<DeviceBase>> PhysicalDevice::CreateDeviceImpl(
 
 // Resets the backend device and creates a new one. If any D3D12 objects belonging to the
 // current ID3D12Device have not been destroyed, a non-zero value will be returned upon Reset()
-// and the subequent call to CreateDevice will return a handle the existing device instead of
+// and the subsequent call to CreateDevice will return a handle the existing device instead of
 // creating a new one.
 MaybeError PhysicalDevice::ResetInternalDeviceForTestingImpl() {
     [[maybe_unused]] auto refCount = mD3d12Device.Reset();
@@ -828,7 +938,8 @@ MaybeError PhysicalDevice::ResetInternalDeviceForTestingImpl() {
     return {};
 }
 
-void PhysicalDevice::PopulateBackendProperties(UnpackedPtr<AdapterInfo>& info) const {
+void PhysicalDevice::PopulateBackendProperties(UnpackedPtr<AdapterInfo>& info,
+                                               const TogglesState&) const {
     if (auto* memoryHeapProperties = info.Get<AdapterPropertiesMemoryHeaps>()) {
         // https://microsoft.github.io/DirectX-Specs/d3d/D3D12GPUUploadHeaps.html describes
         // the properties of D3D12 Default/Upload/Readback heaps.
@@ -866,6 +977,15 @@ void PhysicalDevice::PopulateBackendProperties(UnpackedPtr<AdapterInfo>& info) c
     if (auto* d3dProperties = info.Get<AdapterPropertiesD3D>()) {
         // Report highest supported shader model version, instead of actual applied version.
         d3dProperties->shaderModel = GetDeviceInfo().highestSupportedShaderModel;
+    }
+    if (auto* explicitComputeSubgroupSizeConfigs =
+            info.Get<AdapterPropertiesExplicitComputeSubgroupSizeConfigs>()) {
+        explicitComputeSubgroupSizeConfigs->minExplicitComputeSubgroupSize =
+            GetMinExplicitComputeSubgroupSize();
+        explicitComputeSubgroupSizeConfigs->maxExplicitComputeSubgroupSize =
+            GetMaxExplicitComputeSubgroupSize();
+        explicitComputeSubgroupSizeConfigs->maxComputeWorkgroupSubgroups =
+            GetMaxComputeWorkgroupSubgroups();
     }
 }
 

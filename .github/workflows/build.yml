@@ -16,8 +16,14 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: fetch dependencies 
+        run: |
+          cd lib/dawn
+          python tools/fetch_dawn_dependencies.py
+
       - name: Build and run
         run: |
-          cd test 
+          cd test
+          rm -rf build
           ./build_and_run
 

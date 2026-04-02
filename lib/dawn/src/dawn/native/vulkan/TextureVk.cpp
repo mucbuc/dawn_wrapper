@@ -27,24 +27,29 @@
 
 #include "dawn/native/vulkan/TextureVk.h"
 
+#include <iostream>
 #include <utility>
 
 #include "dawn/common/Assert.h"
+#include "dawn/common/DynamicLib.h"
 #include "dawn/common/Math.h"
 #include "dawn/native/ChainUtils.h"
 #include "dawn/native/DynamicUploader.h"
 #include "dawn/native/EnumMaskIterator.h"
 #include "dawn/native/Error.h"
 #include "dawn/native/VulkanBackend.h"
+#include "dawn/native/utils/RenderDoc.h"
 #include "dawn/native/vulkan/BufferVk.h"
 #include "dawn/native/vulkan/CommandBufferVk.h"
-#include "dawn/native/vulkan/CommandRecordingContext.h"
+#include "dawn/native/vulkan/CommandRecordingContextVk.h"
 #include "dawn/native/vulkan/DeviceVk.h"
 #include "dawn/native/vulkan/FencedDeleter.h"
 #include "dawn/native/vulkan/PhysicalDeviceVk.h"
 #include "dawn/native/vulkan/QueueVk.h"
 #include "dawn/native/vulkan/ResourceHeapVk.h"
 #include "dawn/native/vulkan/ResourceMemoryAllocatorVk.h"
+#include "dawn/native/vulkan/SamplerVk.h"
+#include "dawn/native/vulkan/SharedFenceVk.h"
 #include "dawn/native/vulkan/UtilsVulkan.h"
 #include "dawn/native/vulkan/VulkanError.h"
 
@@ -365,7 +370,7 @@ void FillVulkanCreateInfoSizesAndType(const Texture& texture, VkImageCreateInfo*
 }
 
 Aspect ComputeCombinedAspect(Device* device, const Format& format) {
-    // In early Vulkan versions it is not possible to transition depth and stencil separetely so
+    // In early Vulkan versions it is not possible to transition depth and stencil separately so
     // textures with Depth|Stencil will be promoted to a single CombinedDepthStencil aspect
     // internally.
     if (format.aspects == (Aspect::Depth | Aspect::Stencil)) {
@@ -387,6 +392,52 @@ Aspect ComputeCombinedAspect(Device* device, const Format& format) {
 
     // No need to combine aspects.
     return Aspect::None;
+}
+
+VkComponentSwizzle VulkanComponentSwizzle(wgpu::ComponentSwizzle swizzle) {
+    switch (swizzle) {
+        case wgpu::ComponentSwizzle::Zero:
+            return VK_COMPONENT_SWIZZLE_ZERO;
+        case wgpu::ComponentSwizzle::One:
+            return VK_COMPONENT_SWIZZLE_ONE;
+        case wgpu::ComponentSwizzle::R:
+            return VK_COMPONENT_SWIZZLE_R;
+        case wgpu::ComponentSwizzle::G:
+            return VK_COMPONENT_SWIZZLE_G;
+        case wgpu::ComponentSwizzle::B:
+            return VK_COMPONENT_SWIZZLE_B;
+        case wgpu::ComponentSwizzle::A:
+            return VK_COMPONENT_SWIZZLE_A;
+
+        case wgpu::ComponentSwizzle::Undefined:
+            DAWN_UNREACHABLE();
+    }
+}
+
+void MaybeConvertDepthStencilSwizzleOneToAlpha(bool isDepthOrStencilFormat,
+                                               const VulkanDeviceInfo& deviceInfo,
+                                               wgpu::TextureComponentSwizzle* swizzle) {
+    // Exit early if the format isn't depth or stencil.
+    if (!isDepthOrStencilFormat) {
+        return;
+    }
+
+    // Exit early if the device supports VK_COMPONENT_SWIZZLE_ONE for depth/stencil formats.
+    // This is enabled by the VK_KHR_maintenance5 extension.
+    // https://registry.khronos.org/vulkan/specs/latest/html/vkspec.html#textures-component-swizzle
+    if (deviceInfo.HasExt(DeviceExt::Maintenance5) &&
+        deviceInfo.propertiesMaintenance5.depthStencilSwizzleOneSupport == VK_TRUE) {
+        return;
+    }
+
+    for (auto* componentPtr : {&swizzle->r, &swizzle->g, &swizzle->b, &swizzle->a}) {
+        if (*componentPtr == wgpu::ComponentSwizzle::One) {
+            // Convert 'One' to 'Alpha' (which typically samples as 1.0)
+            // if the underlying Vulkan implementation doesn't support 'One' directly
+            // for depth/stencil formats.
+            *componentPtr = wgpu::ComponentSwizzle::A;
+        }
+    }
 }
 
 }  // namespace
@@ -540,8 +591,9 @@ VkFormat VulkanImageFormat(const Device* device, wgpu::TextureFormat format) {
                 return VulkanImageFormat(device, wgpu::TextureFormat::Depth24PlusStencil8);
             }
 
-        case wgpu::TextureFormat::External:
-            // The VkFormat is Undefined when TextureFormat::External is passed for YCbCr samplers.
+        case wgpu::TextureFormat::OpaqueYCbCrAndroid:
+            // The VkFormat is Undefined when TextureFormat::OpaqueYCbCrAndroid is passed for YCbCr
+            // samplers.
             return VK_FORMAT_UNDEFINED;
 
         // R8BG8A8Triplanar420Unorm format is only supported on macOS.
@@ -611,7 +663,7 @@ VkImageUsageFlags VulkanImageUsage(const DeviceBase* device,
         // If the sampled texture is a depth/stencil texture, its image layout will be set
         // to DEPTH_STENCIL_READ_ONLY_OPTIMAL in order to support readonly depth/stencil
         // attachment. That layout requires DEPTH_STENCIL_ATTACHMENT_BIT image usage.
-        if (format.HasDepthOrStencil() && format.isRenderable) {
+        if (format.HasDepthOrStencil() && format.IsRenderable()) {
             flags |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
         }
     }
@@ -630,6 +682,9 @@ VkImageUsageFlags VulkanImageUsage(const DeviceBase* device,
                 flags |= VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT;
             }
         }
+    }
+    if (usage & wgpu::TextureUsage::TransientAttachment) {
+        flags |= VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT;
     }
 
     // Choosing Vulkan image usages should not know about kReadOnlyRenderAttachment because that's
@@ -676,7 +731,7 @@ VkImageLayout VulkanImageLayout(const Format& format, wgpu::TextureUsage usage) 
             // The sampled image can be used as a readonly depth/stencil attachment at the same
             // time if it is a depth/stencil renderable format, so the image layout need to be
             // VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL.
-            if (format.HasDepthOrStencil() && format.isRenderable) {
+            if (format.HasDepthOrStencil() && format.IsRenderable()) {
                 return VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
             }
             return VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
@@ -790,7 +845,7 @@ bool IsSampleCountSupported(const dawn::native::vulkan::Device* device,
         DAWN_UNREACHABLE();
     }
 
-    return properties.sampleCounts & imageCreateInfo.samples;
+    return (properties.sampleCounts & imageCreateInfo.samples) != 0u;
 }
 
 Texture::Texture(Device* device, const UnpackedPtr<TextureDescriptor>& descriptor)
@@ -808,11 +863,42 @@ void Texture::SetLabelHelper(const char* prefix) {
     SetDebugName(ToBackend(GetDevice()), mHandle, prefix, GetLabel());
 }
 
+void Texture::NotifySwapChainPresent() {
+    // When using an external swap chain texture, there's no way to determine frame boundaries since
+    // Dawn isn't managing the Vulkan swap chains. In this mode, external tools like RenderDoc
+    // will wait forever for a present that never happens. We handle this by using tool-specific
+    // hooks to inform them of the "presented" texture so it can determine frame
+    // boundaries and use its contents for the UI.
+    if (!mIsExternalSwapChainTexture) {
+        return;
+    }
+
+#if defined(DAWN_ENABLE_RENDERDOC)
+    Device* device = ToBackend(GetDevice());
+
+    // For RenderDoc, we expect the user to enable and use process injection to inject RenderDoc
+    // into the GPU process at startup. We start capturing all frames right away. The user has
+    // to kill the process or stop it from rendering (e.g. close or change tabs in Chrome).
+    if (auto renderDocApi = dawn::native::utils::GetRenderDocApi(device)) {
+        void* renderDocDevicePtr = RENDERDOC_DEVICEPOINTER_FROM_VKINSTANCE(device->GetVkInstance());
+
+        // We signal the end of the current frame and the start of the next.
+        // This means we miss capturing the very first frame.
+        renderDocApi->EndFrameCapture(renderDocDevicePtr, NULL);
+        renderDocApi->StartFrameCapture(renderDocDevicePtr, NULL);
+    }
+#endif
+}
+
+void Texture::SetIsExternalSwapchainTexture(bool isSwapChainTexture) {
+    mIsExternalSwapChainTexture = isSwapChainTexture;
+}
+
 void Texture::SetLabelImpl() {
     SetLabelHelper("Dawn_InternalTexture");
 }
 
-void Texture::DestroyImpl() {
+void Texture::DestroyImpl(DestroyReason reason) {
     // TODO(crbug.com/dawn/831): DestroyImpl is called from two places.
     // - It may be called if the texture is explicitly destroyed with APIDestroy.
     //   This case is NOT thread-safe and needs proper synchronization with other
@@ -821,8 +907,9 @@ void Texture::DestroyImpl() {
     //   is implicitly destroyed. This case is thread-safe because there are no
     //   other threads using the texture since there are no other live refs.
     mHandle = VK_NULL_HANDLE;
+    mIsExternalSwapChainTexture = false;
 
-    TextureBase::DestroyImpl();
+    TextureBase::DestroyImpl(reason);
 }
 
 VkImage Texture::GetHandle() const {
@@ -1094,22 +1181,42 @@ MaybeError Texture::ClearTexture(CommandRecordingContext* recordingContext,
                 BeginRenderPassCmd beginCmd{};
                 beginCmd.width = mipSize.width;
                 beginCmd.height = mipSize.height;
+                beginCmd.renderArea = {0, 0, mipSize.width, mipSize.height};
 
                 TextureViewDescriptor viewDesc = {};
+                viewDesc.label = "Dawn_ClearTexture_View";
                 viewDesc.format = GetFormat().format;
-                viewDesc.dimension = wgpu::TextureViewDimension::e2D;
+
+                uint32_t depthSliceCount = 1;
+                switch (GetDimension()) {
+                    case wgpu::TextureDimension::e2D:
+                        viewDesc.dimension = wgpu::TextureViewDimension::e2D;
+                        break;
+                    case wgpu::TextureDimension::e3D:
+                        viewDesc.dimension = wgpu::TextureViewDimension::e3D;
+                        depthSliceCount = mipSize.depthOrArrayLayers;
+                        DAWN_ASSERT(layer == 0);
+                        break;
+                    case wgpu::TextureDimension::e1D:
+                    case wgpu::TextureDimension::Undefined:
+                        DAWN_UNREACHABLE();
+                        break;
+                }
+
                 viewDesc.baseMipLevel = level;
                 viewDesc.mipLevelCount = 1u;
                 viewDesc.baseArrayLayer = layer;
                 viewDesc.arrayLayerCount = 1u;
-                viewDesc.usage = wgpu::TextureUsage::RenderAttachment;
+                // Inherit wgpu::TextureUsage::RenderAttachment, which may be an internal usage.
+                viewDesc.usage = wgpu::TextureUsage::None;
 
                 ColorAttachmentIndex ca0(uint8_t(0));
                 DAWN_TRY_ASSIGN(beginCmd.colorAttachments[ca0].view,
-                                TextureView::Create(this, Unpack(&viewDesc)));
+                                device->CreateTextureView(this, &viewDesc));
 
                 RenderPassColorAttachment colorAttachment{};
                 colorAttachment.view = beginCmd.colorAttachments[ca0].view.Get();
+
                 beginCmd.colorAttachments[ca0].clearColor = colorAttachment.clearValue = {
                     fClearColor, fClearColor, fClearColor, fClearColor};
                 beginCmd.colorAttachments[ca0].loadOp = colorAttachment.loadOp =
@@ -1120,11 +1227,18 @@ MaybeError Texture::ClearTexture(CommandRecordingContext* recordingContext,
                 RenderPassDescriptor passDesc{};
                 passDesc.colorAttachmentCount = 1u;
                 passDesc.colorAttachments = &colorAttachment;
-                beginCmd.attachmentState = device->GetOrCreateAttachmentState(Unpack(&passDesc));
 
-                DAWN_TRY(
-                    RecordBeginRenderPass(recordingContext, ToBackend(GetDevice()), &beginCmd));
-                ToBackend(GetDevice())->fn.CmdEndRenderPass(recordingContext->commandBuffer);
+                for (uint32_t depthSlice = 0; depthSlice < depthSliceCount; ++depthSlice) {
+                    beginCmd.colorAttachments[ca0].depthSlice = colorAttachment.depthSlice =
+                        depthSlice;
+
+                    beginCmd.attachmentState =
+                        device->GetOrCreateAttachmentState(Unpack(&passDesc));
+
+                    DAWN_TRY(
+                        RecordBeginRenderPass(recordingContext, ToBackend(GetDevice()), &beginCmd));
+                    RecordEndRenderPass(recordingContext, ToBackend(GetDevice()));
+                }
             }
         }
     } else if (GetFormat().HasDepthOrStencil()) {
@@ -1174,52 +1288,59 @@ MaybeError Texture::ClearTexture(CommandRecordingContext* recordingContext,
         // need to clear the texture with a copy from buffer
         DAWN_ASSERT(range.aspects == Aspect::Color || range.aspects == Aspect::Plane0 ||
                     range.aspects == Aspect::Plane1 || range.aspects == Aspect::Plane2);
-        const TexelBlockInfo& blockInfo = GetFormat().GetAspectInfo(range.aspects).block;
+        const TypedTexelBlockInfo& blockInfo = GetFormat().GetAspectInfo(range.aspects).block;
 
-        Extent3D largestMipSize =
-            GetMipLevelSingleSubresourcePhysicalSize(range.baseMipLevel, range.aspects);
+        BlockExtent3D largestMipSize = blockInfo.ToBlock(
+            GetMipLevelSingleSubresourcePhysicalSize(range.baseMipLevel, range.aspects));
 
-        uint32_t bytesPerRow = Align((largestMipSize.width / blockInfo.width) * blockInfo.byteSize,
+        uint64_t bytesPerRow = Align(blockInfo.ToBytes(largestMipSize.width),
                                      device->GetOptimalBytesPerRowAlignment());
-        uint64_t bufferSize = bytesPerRow * (largestMipSize.height / blockInfo.height) *
-                              largestMipSize.depthOrArrayLayers;
-        DynamicUploader* uploader = device->GetDynamicUploader();
-        UploadHandle uploadHandle;
-        DAWN_TRY_ASSIGN(uploadHandle, uploader->Allocate(
-                                          bufferSize, device->GetQueue()->GetPendingCommandSerial(),
-                                          blockInfo.byteSize));
-        memset(uploadHandle.mappedBuffer, uClearColor, bufferSize);
+        BlockCount blocksPerRow = blockInfo.BytesToBlocks(bytesPerRow);
+        BlockCount uploadBlocks =
+            blocksPerRow * largestMipSize.height * largestMipSize.depthOrArrayLayers;
+        uint64_t uploadSize = blockInfo.ToBytes(uploadBlocks);
 
-        std::vector<VkBufferImageCopy> regions;
-        for (uint32_t level = range.baseMipLevel; level < range.baseMipLevel + range.levelCount;
-             ++level) {
-            Extent3D copySize = GetMipLevelSingleSubresourcePhysicalSize(level, range.aspects);
-            imageRange.baseMipLevel = level;
-            for (uint32_t layer = range.baseArrayLayer;
-                 layer < range.baseArrayLayer + range.layerCount; ++layer) {
-                if (clearValue == TextureBase::ClearValue::Zero &&
-                    IsSubresourceContentInitialized(
-                        SubresourceRange::SingleMipAndLayer(level, layer, range.aspects))) {
-                    // Skip lazy clears if already initialized.
-                    continue;
+        DAWN_TRY(device->GetDynamicUploader()->WithUploadReservation(
+            uploadSize, blockInfo.byteSize, [&](UploadReservation reservation) -> MaybeError {
+                memset(reservation.mappedPointer, uClearColor, uploadSize);
+
+                std::vector<VkBufferImageCopy> regions;
+                for (uint32_t level = range.baseMipLevel;
+                     level < range.baseMipLevel + range.levelCount; ++level) {
+                    BlockExtent3D copySize = blockInfo.ToBlock(
+                        GetMipLevelSingleSubresourcePhysicalSize(level, range.aspects));
+                    imageRange.baseMipLevel = level;
+                    for (uint32_t layer = range.baseArrayLayer;
+                         layer < range.baseArrayLayer + range.layerCount; ++layer) {
+                        if (clearValue == TextureBase::ClearValue::Zero &&
+                            IsSubresourceContentInitialized(
+                                SubresourceRange::SingleMipAndLayer(level, layer, range.aspects))) {
+                            // Skip lazy clears if already initialized.
+                            continue;
+                        }
+
+                        BufferCopy bufferCopy;
+                        bufferCopy.offset = reservation.offsetInBuffer;
+                        bufferCopy.blocksPerRow = blocksPerRow;
+                        bufferCopy.rowsPerImage = copySize.height;
+
+                        TextureCopy textureCopy;
+                        textureCopy.aspect = range.aspects;
+                        textureCopy.mipLevel = level;
+                        textureCopy.origin = {TexelCount{0}, TexelCount{0}, TexelCount{layer}};
+                        textureCopy.texture = this;
+
+                        regions.push_back(
+                            ComputeBufferImageCopyRegion(bufferCopy, textureCopy, copySize));
+                    }
                 }
 
-                TextureDataLayout dataLayout;
-                dataLayout.offset = uploadHandle.startOffset;
-                dataLayout.rowsPerImage = copySize.height / blockInfo.height;
-                dataLayout.bytesPerRow = bytesPerRow;
-                TextureCopy textureCopy;
-                textureCopy.aspect = range.aspects;
-                textureCopy.mipLevel = level;
-                textureCopy.origin = {0, 0, layer};
-                textureCopy.texture = this;
-
-                regions.push_back(ComputeBufferImageCopyRegion(dataLayout, textureCopy, copySize));
-            }
-        }
-        device->fn.CmdCopyBufferToImage(
-            recordingContext->commandBuffer, ToBackend(uploadHandle.stagingBuffer)->GetHandle(),
-            GetHandle(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, regions.size(), regions.data());
+                device->fn.CmdCopyBufferToImage(recordingContext->commandBuffer,
+                                                ToBackend(reservation.buffer)->GetHandle(),
+                                                GetHandle(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                                regions.size(), regions.data());
+                return {};
+            }));
     }
 
     if (clearValue == TextureBase::ClearValue::Zero) {
@@ -1227,6 +1348,33 @@ MaybeError Texture::ClearTexture(CommandRecordingContext* recordingContext,
         device->IncrementLazyClearCountForTesting();
     }
     return {};
+}
+
+MaybeError Texture::PinImpl(wgpu::TextureUsage usage) {
+    // Pinning means that until unpinned, the texture will have specific usage and can be used
+    // freely in shaders without any further check or memory barrier tracking. Ensure all
+    // subresources are cleared and transitioned to the usage.
+    DAWN_ASSERT(!HasPinnedUsage());
+    SubresourceRange pinnedSubresources = GetAllSubresources();
+
+    CommandRecordingContext* recordingContext =
+        ToBackend(GetDevice()->GetQueue())->GetPendingRecordingContext(Queue::SubmitMode::Passive);
+    DAWN_TRY(EnsureSubresourceContentInitialized(recordingContext, pinnedSubresources));
+
+    TransitionUsageNow(recordingContext, usage, kAllStages, pinnedSubresources);
+
+    // TODO(https://issues.chromium.org/473444516): Investigate what to do for imported textures.
+    // Should we consider a pin/unpin pair similar to an access on a queue such that we need to
+    // wait on fences or export them?
+    return {};
+}
+
+void Texture::UnpinImpl() {
+    DAWN_ASSERT(HasPinnedUsage());
+
+    // TODO(https://issues.chromium.org/473444516): Investigate what to do for imported textures.
+    // Should we consider a pin/unpin pair similar to an access on a queue such that we need to
+    // wait on fences or export them?
 }
 
 MaybeError Texture::EnsureSubresourceContentInitialized(CommandRecordingContext* recordingContext,
@@ -1264,6 +1412,13 @@ Aspect Texture::GetDisjointVulkanAspects() const {
 void Texture::TweakTransition(CommandRecordingContext* recordingContext,
                               std::vector<VkImageMemoryBarrier>* barriers,
                               size_t transitionBarrierStart) {}
+
+MaybeError Texture::OnBeforeSubmit(CommandRecordingContext*) {
+    DAWN_UNREACHABLE();
+}
+MaybeError Texture::OnAfterSubmit() {
+    DAWN_UNREACHABLE();
+}
 
 //
 // InternalTexture
@@ -1321,6 +1476,17 @@ MaybeError InternalTexture::Initialize(VkImageUsageFlags extraUsages) {
         createInfo.flags |= VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT;
     }
 
+    // If the MSAARenderToSingleSampled feature is enabled, textures with RenderAttachment
+    // usage need to have VK_IMAGE_CREATE_MULTISAMPLED_RENDER_TO_SINGLE_SAMPLED_BIT_EXT set
+    // so that they can be used as a render target with an implicit sample count. syoussefi@
+    // has confirmed that this is expected to be very cheap or no cost on hardware that
+    // supports the extension.
+    if (device->HasFeature(Feature::MSAARenderToSingleSampled) &&
+        (GetInternalUsage() & wgpu::TextureUsage::RenderAttachment) && GetSampleCount() == 1 &&
+        !GetFormat().HasDepthOrStencil()) {
+        createInfo.flags |= VK_IMAGE_CREATE_MULTISAMPLED_RENDER_TO_SINGLE_SAMPLED_BIT_EXT;
+    }
+
     // Add the view format list only when the usage does not have storage. Otherwise, the VVL will
     // say creation of the texture is invalid.
     // See https://github.com/gpuweb/gpuweb/issues/4426.
@@ -1330,7 +1496,7 @@ MaybeError InternalTexture::Initialize(VkImageUsageFlags extraUsages) {
         !(createInfo.usage & VK_IMAGE_USAGE_STORAGE_BIT)) {
         createInfoChain.Add(&imageFormatListInfo, VK_STRUCTURE_TYPE_IMAGE_FORMAT_LIST_CREATE_INFO);
         viewFormats.push_back(VulkanImageFormat(device, GetFormat().format));
-        for (FormatIndex i : IterateBitSet(GetViewFormats())) {
+        for (FormatIndex i : GetViewFormats()) {
             const Format& viewFormat = device->GetValidInternalFormat(i);
             viewFormats.push_back(VulkanImageFormat(device, viewFormat.format));
         }
@@ -1350,10 +1516,12 @@ MaybeError InternalTexture::Initialize(VkImageUsageFlags extraUsages) {
         createInfo.flags |= VK_IMAGE_CREATE_2D_ARRAY_COMPATIBLE_BIT;
     }
 
-    // We always set VK_IMAGE_USAGE_TRANSFER_DST_BIT unconditionally because the Vulkan images
-    // that are used in vkCmdClearColorImage() must have been created with this flag, which is
-    // also required for the implementation of robust resource initialization.
-    createInfo.usage |= VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    // Zero initialization and various workarounds need to copy to the images. Always add
+    // VK_IMAGE_USAGE_TRANSFER_DST_BIT to allow for these use cases, unless the image is a transient
+    // attachment and incompatible with transfers.
+    if (!(GetInternalUsage() & wgpu::TextureUsage::TransientAttachment)) {
+        createInfo.usage |= VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    }
 
     DAWN_TRY(CheckVkOOMThenSuccess(
         device->fn.CreateImage(device->GetVkDevice(), &createInfo, nullptr, &*mHandle),
@@ -1370,7 +1538,7 @@ MaybeError InternalTexture::Initialize(VkImageUsageFlags extraUsages) {
         (GetInternalUsage() & (wgpu::TextureUsage::CopyDst | wgpu::TextureUsage::RenderAttachment));
     auto memoryKind = (GetInternalUsage() & wgpu::TextureUsage::TransientAttachment)
                           ? MemoryKind::LazilyAllocated
-                          : MemoryKind::Opaque;
+                          : MemoryKind::DeviceLocal;
     DAWN_TRY_ASSIGN(mMemoryAllocation, device->GetResourceMemoryAllocator()->Allocate(
                                            requirements, memoryKind, forceDisableSubAllocation));
 
@@ -1410,7 +1578,7 @@ MaybeError InternalTexture::Initialize(VkImageUsageFlags extraUsages) {
     return {};
 }
 
-void InternalTexture::DestroyImpl() {
+void InternalTexture::DestroyImpl(DestroyReason reason) {
     // TODO(crbug.com/dawn/831): DestroyImpl is called from two places.
     // - It may be called if the texture is explicitly destroyed with APIDestroy.
     //   This case is NOT thread-safe and needs proper synchronization with other
@@ -1426,7 +1594,7 @@ void InternalTexture::DestroyImpl() {
     device->GetResourceMemoryAllocator()->Deallocate(&mMemoryAllocation);
     mMemoryAllocation = ResourceMemoryAllocation();
 
-    Texture::DestroyImpl();
+    Texture::DestroyImpl(reason);
 }
 
 //
@@ -1460,8 +1628,23 @@ ImportedTextureBase::~ImportedTextureBase() {
         ToBackend(GetDevice())
             ->GetExternalSemaphoreService()
             ->CloseHandle(mExternalSemaphoreHandle);
+        mExternalSemaphoreHandle = kNullExternalSemaphoreHandle;
     }
-    mExternalSemaphoreHandle = kNullExternalSemaphoreHandle;
+}
+
+void ImportedTextureBase::DestroyImpl(DestroyReason reason) {
+    // TODO(crbug.com/dawn/831): DestroyImpl is called from two places.
+    // - It may be called if the texture is explicitly destroyed with APIDestroy.
+    //   This case is NOT thread-safe and needs proper synchronization with other
+    //   simultaneous uses of the texture.
+    // - It may be called when the last ref to the texture is dropped and the texture
+    //   is implicitly destroyed. This case is thread-safe because there are no
+    //   other threads using the texture since there are no other live refs.
+    if (mPendingSemaphore != VK_NULL_HANDLE) {
+        ToBackend(GetDevice())->GetFencedDeleter()->DeleteWhenUnused(mPendingSemaphore);
+        mPendingSemaphore = VK_NULL_HANDLE;
+    }
+    Texture::DestroyImpl(reason);
 }
 
 void ImportedTextureBase::TransitionEagerlyForExport(CommandRecordingContext* recordingContext) {
@@ -1501,15 +1684,6 @@ void ImportedTextureBase::TransitionEagerlyForExport(CommandRecordingContext* re
 
     device->fn.CmdPipelineBarrier(recordingContext->commandBuffer, srcStages, dstStages, 0, 0,
                                   nullptr, 0, nullptr, 1, &barrier);
-}
-
-void ImportedTextureBase::UpdateExternalSemaphoreHandle(ExternalSemaphoreHandle handle) {
-    if (mExternalSemaphoreHandle != kNullExternalSemaphoreHandle) {
-        ToBackend(GetDevice())
-            ->GetExternalSemaphoreService()
-            ->CloseHandle(mExternalSemaphoreHandle);
-    }
-    mExternalSemaphoreHandle = handle;
 }
 
 bool ImportedTextureBase::CanReuseWithoutBarrier(wgpu::TextureUsage lastUsage,
@@ -1651,6 +1825,40 @@ MaybeError ImportedTextureBase::EndAccess(ExternalSemaphoreHandle* handle,
     return {};
 }
 
+MaybeError ImportedTextureBase::OnBeforeSubmit(CommandRecordingContext* context) {
+    // On every submit using an exportable texture, we eagerly prepare for an export. This avoids
+    // the need to schedule an almost empty submit just for exporting later. To export we both need
+    // to transition the resource to export it, and need an exportable semaphore for future
+    // synchronization.
+    TransitionEagerlyForExport(context);
+
+    // Create the external semaphore and add it to be signaled, but only mark it pending: if
+    // anything fails during the submit we still keep the previously signaled exportable semaphore.
+    // Note that VUID-VkSemaphoreGetFdInfoKHR-handleType-01135 requires that only signaled
+    // semaphores be exported, so the export must be done in OnAfterSubmit.
+    auto semaphoreService = ToBackend(GetDevice())->GetExternalSemaphoreService();
+    DAWN_TRY_ASSIGN(mPendingSemaphore, semaphoreService->CreateExportableSemaphore());
+    context->signalSemaphores.push_back(mPendingSemaphore);
+
+    return {};
+}
+
+MaybeError ImportedTextureBase::OnAfterSubmit() {
+    Device* device = ToBackend(GetDevice());
+
+    // The submit succeeded, we can replace the previous external semaphore with the pending one.
+    if (mExternalSemaphoreHandle != kNullExternalSemaphoreHandle) {
+        device->GetExternalSemaphoreService()->CloseHandle(mExternalSemaphoreHandle);
+    }
+
+    DAWN_TRY_ASSIGN(mExternalSemaphoreHandle,
+                    device->GetExternalSemaphoreService()->ExportSemaphore(mPendingSemaphore));
+    ToBackend(GetDevice())->GetFencedDeleter()->DeleteWhenUnused(mPendingSemaphore);
+    mPendingSemaphore = VK_NULL_HANDLE;
+
+    return {};
+}
+
 //
 // ExternalVkImageTexture
 //
@@ -1667,7 +1875,7 @@ ResultOrError<Ref<ExternalVkImageTexture>> ExternalVkImageTexture::Create(
     return texture;
 }
 
-void ExternalVkImageTexture::DestroyImpl() {
+void ExternalVkImageTexture::DestroyImpl(DestroyReason reason) {
     // TODO(crbug.com/dawn/831): DestroyImpl is called from two places.
     // - It may be called if the texture is explicitly destroyed with APIDestroy.
     //   This case is NOT thread-safe and needs proper synchronization with other
@@ -1685,7 +1893,7 @@ void ExternalVkImageTexture::DestroyImpl() {
         mExternalAllocation = VK_NULL_HANDLE;
     }
 
-    Texture::DestroyImpl();
+    ImportedTextureBase::DestroyImpl(reason);
 }
 
 MaybeError ExternalVkImageTexture::Initialize(const ExternalImageDescriptorVk* descriptor,
@@ -1720,10 +1928,12 @@ MaybeError ExternalVkImageTexture::Initialize(const ExternalImageDescriptorVk* d
     baseCreateInfo.queueFamilyIndexCount = 0;
     baseCreateInfo.pQueueFamilyIndices = nullptr;
 
-    // We always set VK_IMAGE_USAGE_TRANSFER_DST_BIT unconditionally because the Vulkan images
-    // that are used in vkCmdClearColorImage() must have been created with this flag, which is
-    // also required for the implementation of robust resource initialization.
-    baseCreateInfo.usage |= VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    // Zero initialization and various workarounds need to copy to the images. Always add
+    // VK_IMAGE_USAGE_TRANSFER_DST_BIT to allow for these use cases, unless the image is a transient
+    // attachment and incompatible with transfers.
+    if (!(GetInternalUsage() & wgpu::TextureUsage::TransientAttachment)) {
+        baseCreateInfo.usage |= VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    }
 
     VkImageFormatListCreateInfo imageFormatListInfo = {};
     PNextChainBuilder createInfoChain(&baseCreateInfo);
@@ -1733,7 +1943,7 @@ MaybeError ExternalVkImageTexture::Initialize(const ExternalImageDescriptorVk* d
         if (device->GetDeviceInfo().HasExt(DeviceExt::ImageFormatList)) {
             createInfoChain.Add(&imageFormatListInfo,
                                 VK_STRUCTURE_TYPE_IMAGE_FORMAT_LIST_CREATE_INFO);
-            for (FormatIndex i : IterateBitSet(GetViewFormats())) {
+            for (FormatIndex i : GetViewFormats()) {
                 const Format& viewFormat = device->GetValidInternalFormat(i);
                 viewFormats.push_back(VulkanImageFormat(device, viewFormat.format));
             }
@@ -1789,8 +1999,11 @@ MaybeError ExternalVkImageTexture::ExportExternalTexture(VkImageLayout desiredLa
     return {};
 }
 
-std::vector<VkSemaphore> ExternalVkImageTexture::AcquireWaitRequirements() {
-    return std::move(mWaitRequirements);
+MaybeError ExternalVkImageTexture::OnBeforeSubmit(CommandRecordingContext* context) {
+    context->waitSemaphores.insert(context->waitSemaphores.end(), mWaitRequirements.begin(),
+                                   mWaitRequirements.end());
+    mWaitRequirements.clear();
+    return ImportedTextureBase::OnBeforeSubmit(context);
 }
 
 //
@@ -1807,7 +2020,7 @@ ResultOrError<Ref<SharedTexture>> SharedTexture::Create(
     return texture;
 }
 
-void SharedTexture::DestroyImpl() {
+void SharedTexture::DestroyImpl(DestroyReason reason) {
     // TODO(crbug.com/dawn/831): DestroyImpl is called from two places.
     // - It may be called if the texture is explicitly destroyed with APIDestroy.
     //   This case is NOT thread-safe and needs proper synchronization with other
@@ -1817,7 +2030,7 @@ void SharedTexture::DestroyImpl() {
     //   other threads using the texture since there are no other live refs.
     mSharedTextureMemoryObjects = {};
 
-    Texture::DestroyImpl();
+    ImportedTextureBase::DestroyImpl(reason);
 }
 
 void SharedTexture::Initialize(SharedTextureMemory* memory) {
@@ -1837,6 +2050,27 @@ void SharedTexture::SetPendingAcquire(VkImageLayout pendingAcquireOldLayout,
     mPendingAcquireNewLayout = pendingAcquireNewLayout;
 }
 
+MaybeError SharedTexture::OnBeforeSubmit(CommandRecordingContext* context) {
+    Device* device = ToBackend(GetDevice());
+    SharedResourceMemoryContents* contents = GetSharedResourceMemoryContents();
+
+    SharedTextureMemoryBase::PendingFenceList fences;
+    contents->AcquirePendingFences(&fences);
+
+    for (const auto& fence : fences) {
+        // All semaphores are binary semaphores.
+        DAWN_ASSERT(fence.signaledValue == 1u);
+        ExternalSemaphoreHandle semaphoreHandle = ToBackend(fence.object)->GetHandle().Get();
+
+        VkSemaphore semaphore;
+        DAWN_TRY_ASSIGN(semaphore,
+                        device->GetExternalSemaphoreService()->ImportSemaphore(semaphoreHandle));
+        context->waitSemaphores.push_back(semaphore);
+    }
+
+    return ImportedTextureBase::OnBeforeSubmit(context);
+}
+
 //
 // TextureView
 //
@@ -1844,8 +2078,9 @@ void SharedTexture::SetPendingAcquire(VkImageLayout pendingAcquireOldLayout,
 // static
 ResultOrError<Ref<TextureView>> TextureView::Create(
     TextureBase* texture,
+    uint64_t textureViewId,
     const UnpackedPtr<TextureViewDescriptor>& descriptor) {
-    Ref<TextureView> view = AcquireRef(new TextureView(texture, descriptor));
+    Ref<TextureView> view = AcquireRef(new TextureView(texture, textureViewId, descriptor));
     DAWN_TRY(view->Initialize(descriptor));
     return view;
 }
@@ -1871,19 +2106,43 @@ MaybeError TextureView::Initialize(const UnpackedPtr<TextureViewDescriptor>& des
     usageInfo.usage = VulkanImageUsage(device, GetInternalUsage(), GetFormat());
     createInfo.pNext = &usageInfo;
 
+    // Compute and link the VkSamplerYCbCrConversion, if any is needed.
     VkSamplerYcbcrConversionInfo samplerYCbCrInfo = {};
-    if (auto* yCbCrVkDescriptor = descriptor.Get<YCbCrVkDescriptor>()) {
-        mYCbCrVkDescriptor = *yCbCrVkDescriptor;
-        mYCbCrVkDescriptor.nextInChain = nullptr;
+    if (GetTexture()->GetFormat().format == wgpu::TextureFormat::OpaqueYCbCrAndroid) {
+        auto stmContents = static_cast<SharedTextureMemoryContentsVk*>(
+            GetTexture()->GetSharedResourceMemoryContents());
+        mIsYCbCrFilterable = stmContents->IsYCbCrFilterable();
 
-        DAWN_TRY_ASSIGN(mSamplerYCbCrConversion,
-                        CreateSamplerYCbCrConversionCreateInfo(mYCbCrVkDescriptor, device));
+        YCbCrVkDescriptor yCbCr;
+        if (auto* yCbCrVkDescriptor = descriptor.Get<YCbCrVkDescriptor>()) {
+            // The YCbCr conversion can be specified by the user with the YCbCrVulkanSamplers
+            // feature.
+            DAWN_ASSERT(device->HasFeature(Feature::YCbCrVulkanSamplers));
+
+            yCbCr = yCbCrVkDescriptor->WithTrivialFrontendDefaults();
+            yCbCr.nextInChain = nullptr;
+        } else {
+            // When using OpaqueYCbCrAndroidForExternalTexture, the YCbCr conversion is the same one
+            // that's going to be used for the ExternalTexture static samplers.
+            // TODO(https://crbug.com/497675620): Specialize the conversion at the same time as all
+            // the other state, in order to take advantage of hardware YCbCr to RGB conversion when
+            // present.
+            DAWN_ASSERT(device->HasFeature(Feature::OpaqueYCbCrAndroidForExternalTexture));
+
+            yCbCr = StaticSamplerSpecialization::GetYCbCrForTextureView(
+                static_cast<VkFormat>(stmContents->GetYCbCrVkDesc().vkFormat),
+                stmContents->GetYCbCrVkDesc().externalFormat);
+        }
+
+        // Create the VkSamplerYCbCrConversion and link it in the createInfo.
+        DAWN_TRY_ASSIGN(mSamplerYCbCrConversion, CreateSamplerYCbCrConversion(device, yCbCr));
 
         samplerYCbCrInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_YCBCR_CONVERSION_INFO;
         samplerYCbCrInfo.pNext = nullptr;
         samplerYCbCrInfo.conversion = mSamplerYCbCrConversion;
-
         createInfo.pNext = &samplerYCbCrInfo;
+    } else {
+        DAWN_ASSERT(!descriptor.Has<YCbCrVkDescriptor>());
     }
 
     DAWN_TRY(CheckVkSuccess(
@@ -1905,9 +2164,13 @@ MaybeError TextureView::Initialize(const UnpackedPtr<TextureViewDescriptor>& des
     return {};
 }
 
+TextureView::TextureView(TextureBase* texture,
+                         uint64_t textureViewId,
+                         const UnpackedPtr<TextureViewDescriptor>& descriptor)
+    : TextureViewBase(texture, descriptor), mTextureViewId(textureViewId) {}
 TextureView::~TextureView() {}
 
-void TextureView::DestroyImpl() {
+void TextureView::DestroyImpl(DestroyReason reason) {
     Device* device = ToBackend(GetTexture()->GetDevice());
 
     if (mSamplerYCbCrConversion != VK_NULL_HANDLE) {
@@ -1966,8 +2229,23 @@ VkImageViewCreateInfo TextureView::GetCreateInfo(wgpu::TextureFormat format,
         createInfo.format = VulkanImageFormat(device, format);
     }
 
-    createInfo.components = VkComponentMapping{VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_G,
-                                               VK_COMPONENT_SWIZZLE_B, VK_COMPONENT_SWIZZLE_A};
+    bool isDepthOrStencilFormat = GetTexture()->GetFormat().HasDepthOrStencil();
+    const wgpu::TextureComponentSwizzle kDefaultSwizzle =
+        isDepthOrStencilFormat ? kR001Swizzle : kRGBASwizzle;
+
+    auto swizzle = ComposeSwizzle(kDefaultSwizzle, GetSwizzle());
+    if (swizzle == kDefaultSwizzle) {
+        // We must use identity swizzle for render views.
+        // https://docs.vulkan.org/spec/latest/chapters/renderpass.html#VUID-VkFramebufferCreateInfo-pAttachments-00884
+        createInfo.components = VkComponentMapping{VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_G,
+                                                   VK_COMPONENT_SWIZZLE_B, VK_COMPONENT_SWIZZLE_A};
+    } else {
+        MaybeConvertDepthStencilSwizzleOneToAlpha(isDepthOrStencilFormat, device->GetDeviceInfo(),
+                                                  &swizzle);
+        createInfo.components = VkComponentMapping{
+            VulkanComponentSwizzle(swizzle.r), VulkanComponentSwizzle(swizzle.g),
+            VulkanComponentSwizzle(swizzle.b), VulkanComponentSwizzle(swizzle.a)};
+    }
 
     const SubresourceRange& subresources = GetSubresourceRange();
     createInfo.subresourceRange.baseMipLevel = subresources.baseMipLevel;
@@ -2003,6 +2281,11 @@ ResultOrError<VkImageView> TextureView::GetOrCreate2DViewOn3D(uint32_t depthSlic
     mHandlesFor2DViewOn3D[depthSlice] = view;
 
     return view;
+}
+
+bool TextureView::IsYCbCrFilterable() const {
+    DAWN_ASSERT(IsYCbCr());
+    return mIsYCbCrFilterable;
 }
 
 void TextureView::SetLabelImpl() {

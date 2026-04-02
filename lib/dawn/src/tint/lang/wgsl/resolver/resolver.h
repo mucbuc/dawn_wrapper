@@ -39,9 +39,10 @@
 #include "src/tint/api/common/binding_point.h"
 #include "src/tint/lang/core/constant/eval.h"
 #include "src/tint/lang/core/constant/value.h"
+#include "src/tint/lang/core/enums.h"
 #include "src/tint/lang/core/intrinsic/table.h"
 #include "src/tint/lang/core/type/input_attachment.h"
-#include "src/tint/lang/wgsl/common/allowed_features.h"
+#include "src/tint/lang/wgsl/allowed_features.h"
 #include "src/tint/lang/wgsl/intrinsic/dialect.h"
 #include "src/tint/lang/wgsl/program/program_builder.h"
 #include "src/tint/lang/wgsl/resolver/dependency_graph.h"
@@ -58,7 +59,6 @@
 namespace tint::ast {
 class IndexAccessorExpression;
 class BinaryExpression;
-class BitcastExpression;
 class CallExpression;
 class CallStatement;
 class CaseStatement;
@@ -82,7 +82,6 @@ class ForLoopStatement;
 class IfStatement;
 class LoopStatement;
 class Statement;
-class StructMember;
 class SwitchStatement;
 class ValueConstructor;
 class ValueConversion;
@@ -119,20 +118,8 @@ class Resolver {
     bool IsPlain(const core::type::Type* type) const { return validator_.IsPlain(type); }
 
     /// @param type the given type
-    /// @returns true if the given type is a fixed-footprint type
-    bool IsFixedFootprint(const core::type::Type* type) const {
-        return validator_.IsFixedFootprint(type);
-    }
-
-    /// @param type the given type
     /// @returns true if the given type is storable
     bool IsStorable(const core::type::Type* type) const { return validator_.IsStorable(type); }
-
-    /// @param type the given type
-    /// @returns true if the given type is host-shareable
-    bool IsHostShareable(const core::type::Type* type) const {
-        return validator_.IsHostShareable(type);
-    }
 
     /// @returns the validator for testing
     const Validator* GetValidatorForTesting() const { return &validator_; }
@@ -160,75 +147,102 @@ class Resolver {
     sem::FunctionExpression* FunctionExpression(const ast::Expression* expr);
 
     /// @returns the resolved type from an expression, or nullptr on error
-    core::type::Type* Type(const ast::Expression* ast);
+    const core::type::Type* Type(const ast::Expression* ast);
 
     /// @returns a new abstract-float
-    core::type::AbstractFloat* AF();
+    const core::type::AbstractFloat* AF();
 
     /// @returns a new f32
-    core::type::F32* F32();
+    const core::type::F32* F32();
 
     /// @returns a new i32
-    core::type::I32* I32();
+    const core::type::I32* I32();
 
     /// @returns a new u32
-    core::type::U32* U32();
+    const core::type::U32* U32();
 
     /// @returns a new f16, if the f16 extension is enabled, otherwise nullptr
-    core::type::F16* F16(const ast::Identifier* ident);
+    const core::type::F16* F16(const ast::Identifier* ident);
+
+    /// @returns a new i8, if the subgroup matrix extension is enabled, otherwise nullptr
+    const core::type::I8* I8(const ast::Identifier* ident);
+
+    /// @returns a new u8, if the subgroup matrix extension is enabled, otherwise nullptr
+    const core::type::U8* U8(const ast::Identifier* ident);
+
+    /// @returns nullptr since u16 is not enabled in WGSL.
+    const core::type::U16* U16(const ast::Identifier* ident);
 
     /// @returns a vector with the element type @p el of width @p n resolved from the identifier @p
     /// ident.
-    core::type::Vector* Vec(const ast::Identifier* ident, core::type::Type* el, uint32_t n);
+    const core::type::Vector* Vec(const ast::Identifier* ident,
+                                  const core::type::Type* el,
+                                  uint32_t n);
 
     /// @returns a vector of width @p n resolved from the templated identifier @p ident, or an
     /// IncompleteType if the identifier is not templated.
-    core::type::Type* VecT(const ast::Identifier* ident, core::BuiltinType builtin, uint32_t n);
+    const core::type::Type* VecT(const ast::Identifier* ident,
+                                 core::BuiltinType builtin,
+                                 uint32_t n);
 
     /// @returns a matrix with the element type @p el of dimensions @p num_columns x @p num_rows
     /// resolved from the identifier @p ident.
-    core::type::Matrix* Mat(const ast::Identifier* ident,
-                            core::type::Type* el,
-                            uint32_t num_columns,
-                            uint32_t num_rows);
+    const core::type::Matrix* Mat(const ast::Identifier* ident,
+                                  const core::type::Type* el,
+                                  uint32_t num_columns,
+                                  uint32_t num_rows);
 
     /// @returns a matrix of dimensions @p num_columns x @p num_rows resolved from the templated
     /// identifier @p ident, or an IncompleteType if the identifier is not templated.
-    core::type::Type* MatT(const ast::Identifier* ident,
-                           core::BuiltinType builtin,
-                           uint32_t num_columns,
-                           uint32_t num_rows);
+    const core::type::Type* MatT(const ast::Identifier* ident,
+                                 core::BuiltinType builtin,
+                                 uint32_t num_columns,
+                                 uint32_t num_rows);
 
     /// @returns an array resolved from the templated identifier @p ident, or an IncompleteType if
     /// the identifier is not templated.
-    core::type::Type* Array(const ast::Identifier* ident);
+    const core::type::Type* Array(const ast::Identifier* ident);
+
+    /// @returns a binding_array resolved from the templated identifier @p ident.
+    const core::type::BindingArray* BindingArray(const ast::Identifier* ident);
 
     /// @returns an atomic resolved from the templated identifier @p ident.
-    core::type::Atomic* Atomic(const ast::Identifier* ident);
+    const core::type::Atomic* Atomic(const ast::Identifier* ident);
 
     /// @returns a pointer resolved from the templated identifier @p ident.
-    core::type::Pointer* Ptr(const ast::Identifier* ident);
+    const core::type::Pointer* Ptr(const ast::Identifier* ident);
+
+    /// @returns a sampler resolved from the templated identifier @p ident
+    const core::type::Sampler* Sampler(const ast::Identifier* ident);
 
     /// @returns a sampled texture resolved from the templated identifier @p ident with the
     /// dimensions @p dim.
-    core::type::SampledTexture* SampledTexture(const ast::Identifier* ident,
-                                               core::type::TextureDimension dim);
+    const core::type::SampledTexture* SampledTexture(const ast::Identifier* ident,
+                                                     core::type::TextureDimension dim);
 
     /// @returns a multisampled texture resolved from the templated identifier @p ident with the
     /// dimensions @p dim.
-    core::type::MultisampledTexture* MultisampledTexture(const ast::Identifier* ident,
-                                                         core::type::TextureDimension dim);
+    const core::type::MultisampledTexture* MultisampledTexture(const ast::Identifier* ident,
+                                                               core::type::TextureDimension dim);
 
     /// @returns a storage texture resolved from the templated identifier @p ident with the
     /// dimensions @p dim.
-    core::type::StorageTexture* StorageTexture(const ast::Identifier* ident,
-                                               core::type::TextureDimension dim);
+    const core::type::StorageTexture* StorageTexture(const ast::Identifier* ident,
+                                                     core::type::TextureDimension dim);
+
+    /// @returns a texel buffer resolved from the templated identifier @p ident.
+    /// @param ident the identifier to resolve
+    const core::type::TexelBuffer* TexelBuffer(const ast::Identifier* ident);
 
     /// @returns an input attachment resolved from the templated identifier @p ident
-    core::type::InputAttachment* InputAttachment(const ast::Identifier* ident);
+    const core::type::InputAttachment* InputAttachment(const ast::Identifier* ident);
 
-    /// @returns a packed vec3 resolved from the templated identifier @p ident.
-    core::type::Vector* PackedVec3T(const ast::Identifier* ident);
+    /// @returns a subgroup matrix resolved from the templated identifier @p ident
+    const core::type::SubgroupMatrix* SubgroupMatrix(const ast::Identifier* ident,
+                                                     core::SubgroupMatrixKind kind);
+
+    /// @returns a buffer resolved from the templated identifier @p ident
+    const core::type::Buffer* Buffer(const ast::Identifier* ident);
 
     /// @returns @p ident cast to an ast::TemplatedIdentifier, if the identifier is templated and
     /// the number of templated arguments are between @p min_args and @p max_args.
@@ -247,13 +261,6 @@ class Resolver {
     /// sem::BuiltinEnumExpression<core::AddressSpace>, then an error diagnostic is raised and
     /// nullptr is returned.
     sem::BuiltinEnumExpression<core::AddressSpace>* AddressSpaceExpression(
-        const ast::Expression* expr);
-
-    /// @returns the call of Expression() cast to a
-    /// sem::BuiltinEnumExpression<core::type::TexelFormat>. If the sem::Expression is not a
-    /// sem::BuiltinEnumExpression<core::type::TexelFormat>, then an error diagnostic is raised and
-    /// nullptr is returned.
-    sem::BuiltinEnumExpression<core::TexelFormat>* TexelFormatExpression(
         const ast::Expression* expr);
 
     /// @returns the call of Expression() cast to a sem::BuiltinEnumExpression<core::Access>*.
@@ -282,8 +289,7 @@ class Resolver {
     sem::Function* Function(const ast::Function*);
     sem::Call* FunctionCall(const ast::CallExpression*,
                             sem::Function* target,
-                            VectorRef<const sem::ValueExpression*> args,
-                            sem::Behaviors arg_behaviors);
+                            VectorRef<const sem::ValueExpression*> args);
     sem::Expression* Identifier(const ast::IdentifierExpression*);
     template <size_t N>
     sem::Call* BuiltinCall(const ast::CallExpression*,
@@ -301,9 +307,16 @@ class Resolver {
     /// perform alias analysis.
     void RegisterLoad(const sem::ValueExpression* expr);
 
+    /// Register a bufferView or bufferArrayView call to track size compatibility.
+    void RegisterBufferView(const sem::Call* call, wgsl::BuiltinFn fn);
+
     /// Perform pointer alias analysis for `call`.
     /// @returns true is the call arguments are free from aliasing issues, false otherwise.
     bool AliasAnalysis(const sem::Call* call);
+
+    /// Perform an analysis of buffer sizes for `call`.
+    /// @returns true if the call arguments are all appropriately sized.
+    bool CheckBufferViews(const sem::Call* call);
 
     /// If `expr` is of a reference type, then Load will create and return a sem::Load node wrapping
     /// `expr`. If `expr` is not of a reference type, then Load will just return `expr`.
@@ -325,18 +338,11 @@ class Resolver {
     const sem::ValueExpression* Materialize(const sem::ValueExpression* expr,
                                             const core::type::Type* target_type = nullptr);
 
-    /// For each argument in `args`:
-    /// * Calls Materialize() passing the argument and the corresponding parameter type.
-    /// * Calls Load() passing the argument, iff the corresponding parameter type is not a
-    ///   reference type.
+    /// Call Materialize on each argument for the corresponding parameter type.
     /// @returns true on success, false on failure.
     template <size_t N>
-    bool MaybeMaterializeAndLoadArguments(Vector<const sem::ValueExpression*, N>& args,
-                                          const sem::CallTarget* target);
-
-    /// @returns true if an argument of an abstract numeric type, passed to a parameter of type
-    /// `parameter_ty` should be materialized.
-    bool ShouldMaterializeArgument(const core::type::Type* parameter_ty) const;
+    bool MaybeMaterializeArguments(Vector<const sem::ValueExpression*, N>& args,
+                                   const sem::CallTarget* target);
 
     /// Converts `c` to `target_ty`
     /// @returns true on success, false on failure.
@@ -397,13 +403,6 @@ class Resolver {
     sem::Statement* VariableDeclStatement(const ast::VariableDeclStatement*);
     bool Statements(VectorRef<const ast::Statement*>);
 
-    // CollectTextureSamplerPairs() collects all the texture/sampler pairs from the target function
-    // / builtin, and records these on the current function by calling AddTextureSamplerPair().
-    void CollectTextureSamplerPairs(sem::Function* func,
-                                    VectorRef<const sem::ValueExpression*> args) const;
-    void CollectTextureSamplerPairs(const sem::BuiltinFn* builtin,
-                                    VectorRef<const sem::ValueExpression*> args) const;
-
     /// Resolves the WorkgroupSize for the given function, assigning it to
     /// current_function_
     bool WorkgroupSize(const ast::Function*);
@@ -437,6 +436,10 @@ class Resolver {
     /// @returns the workgroup size on success.
     tint::Result<sem::WorkgroupSize> WorkgroupAttribute(const ast::WorkgroupAttribute* attr);
 
+    /// Resolves the `@sugbroup_size` attribute @p attr
+    /// @returns the subgroup size on success.
+    tint::Result<uint32_t> SubgroupSizeAttribute(const ast::SubgroupSizeAttribute* attr);
+
     /// Resolves the `@diagnostic` attribute @p attr
     /// @returns true on success, false on failure
     bool DiagnosticAttribute(const ast::DiagnosticAttribute* attr);
@@ -453,14 +456,6 @@ class Resolver {
     /// @returns true on success, false on failure
     bool InvariantAttribute(const ast::InvariantAttribute*);
 
-    /// Resolves the `@stride` attribute @p attr
-    /// @returns true on success, false on failure
-    bool StrideAttribute(const ast::StrideAttribute*);
-
-    /// Resolves the internal attribute @p attr
-    /// @returns true on success, false on failure
-    bool InternalAttribute(const ast::InternalAttribute* attr);
-
     /// @param control the diagnostic control
     /// @returns true on success, false on failure
     bool DiagnosticControl(const ast::DiagnosticControl& control);
@@ -475,21 +470,13 @@ class Resolver {
 
     /// @param named_type the named type to resolve
     /// @returns the resolved semantic type
-    core::type::Type* TypeDecl(const ast::TypeDecl* named_type);
+    const core::type::Type* TypeDecl(const ast::TypeDecl* named_type);
 
     /// Resolves and validates the expression used as the count parameter of an array.
     /// @param count_expr the expression used as the second template parameter to an array<>.
+    /// @param array indicates whether the count is for an array or buffer
     /// @returns the number of elements in the array.
-    const core::type::ArrayCount* ArrayCount(const ast::Expression* count_expr);
-
-    /// Resolves and validates the attributes on an array.
-    /// @param attributes the attributes on the array type.
-    /// @param el_ty the element type of the array.
-    /// @param explicit_stride assigned the specified stride of the array in bytes.
-    /// @returns true on success, false on failure
-    bool ArrayAttributes(VectorRef<const ast::Attribute*> attributes,
-                         const core::type::Type* el_ty,
-                         uint32_t& explicit_stride);
+    const core::type::ArrayCount* ArrayCount(const ast::Expression* count_expr, bool array = true);
 
     /// Builds and returns the semantic information for an array.
     /// @returns the semantic Array information, or nullptr if an error is raised.
@@ -500,19 +487,17 @@ class Resolver {
     ///        locally-declared element AST node.
     /// @param el_ty the Array element type
     /// @param el_count the number of elements in the array.
-    /// @param explicit_stride the explicit byte stride of the array. Zero means implicit stride.
     sem::Array* Array(const Source& array_source,
                       const Source& el_source,
                       const Source& count_source,
                       const core::type::Type* el_ty,
-                      const core::type::ArrayCount* el_count,
-                      uint32_t explicit_stride);
+                      const core::type::ArrayCount* el_count);
 
     /// Builds and returns the semantic information for the alias `alias`.
     /// This method does not mark the ast::Alias node, nor attach the generated
     /// semantic information to the AST node.
     /// @returns the aliased type, or nullptr if an error is raised.
-    core::type::Type* Alias(const ast::Alias* alias);
+    const core::type::Type* Alias(const ast::Alias* alias);
 
     /// Builds and returns the semantic information for the structure `str`.
     /// This method does not mark the ast::Struct node, nor attach the generated
@@ -579,7 +564,7 @@ class Resolver {
     /// messages.
     /// @returns true on success, false on error
     bool ApplyAddressSpaceUsageToType(core::AddressSpace sc,
-                                      core::type::Type* ty,
+                                      const core::type::Type* ty,
                                       const Source& usage);
 
     /// @param address_space the address space
@@ -640,7 +625,7 @@ class Resolver {
     /// @returns the core::type::Type for the builtin type @p builtin_ty with the identifier @p
     /// ident
     /// @note: Will raise an ICE if @p symbol is not a builtin type.
-    core::type::Type* BuiltinType(core::BuiltinType builtin_ty, const ast::Identifier* ident);
+    const core::type::Type* BuiltinType(core::BuiltinType builtin_ty, const ast::Identifier* ident);
 
     /// @returns the nesting depth of @ty as defined in
     /// https://gpuweb.github.io/gpuweb/wgsl/#composite-types
@@ -656,6 +641,11 @@ class Resolver {
     // stage.
     using StructConstructorSig = tint::UnorderedKeyWrapper<
         std::tuple<const core::type::Struct*, size_t, core::EvaluationStage>>;
+
+    // SubgroupMatrixConstructorSig represents a unique subgroup matrix constructor signature.
+    // It is a tuple of the subgroup matrix type and the number of arguments provided.
+    using SubgroupMatrixConstructorSig =
+        tint::UnorderedKeyWrapper<std::tuple<const core::type::SubgroupMatrix*, size_t>>;
 
     /// ExprEvalStageConstraint describes a constraint on when expressions can be evaluated.
     struct ExprEvalStageConstraint {
@@ -679,6 +669,12 @@ class Resolver {
         Hashset<const sem::Variable*, 4> parameter_reads;
     };
 
+    // BufferViewInfo tracks info for invalid buffer sizes.
+    struct BufferViewInfo {
+        uint64_t size = 0;
+        const Source* source = nullptr;
+    };
+
     ProgramBuilder& b;
     diag::List& diagnostics_;
     core::constant::Eval const_eval_;
@@ -690,12 +686,15 @@ class Resolver {
     wgsl::Extensions enabled_extensions_;
     Vector<sem::Function*, 8> entry_points_;
     Hashmap<const core::type::Type*, const Source*, 8> atomic_composite_info_;
+    Hashset<const core::type::Type*, 8> subgroup_matrix_uses_;
     tint::Bitset<0> marked_;
     ExprEvalStageConstraint expr_eval_stage_constraint_;
     std::unordered_map<const sem::Function*, AliasAnalysisInfo> alias_analysis_infos_;
     Hashmap<OverrideId, const sem::Variable*, 8> override_ids_;
     Hashmap<ArrayConstructorSig, sem::CallTarget*, 8> array_ctors_;
     Hashmap<StructConstructorSig, sem::CallTarget*, 8> struct_ctors_;
+    Hashmap<SubgroupMatrixConstructorSig, sem::CallTarget*, 8> subgroup_matrix_ctors_;
+    Hashmap<const sem::Variable*, BufferViewInfo, 8> buffer_view_sizes_;
     sem::Function* current_function_ = nullptr;
     sem::Statement* current_statement_ = nullptr;
     sem::CompoundStatement* current_compound_statement_ = nullptr;

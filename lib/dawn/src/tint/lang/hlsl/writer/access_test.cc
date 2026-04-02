@@ -34,7 +34,7 @@ namespace tint::hlsl::writer {
 namespace {
 
 TEST_F(HlslWriterTest, AccessArray) {
-    auto* func = b.ComputeFunction("a");
+    auto* func = b.ComputeFunction("main");
 
     b.Append(func->Block(), [&] {
         auto* v = b.Var("v", b.Zero<array<f32, 3>>());
@@ -42,10 +42,11 @@ TEST_F(HlslWriterTest, AccessArray) {
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.hlsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.hlsl;
     EXPECT_EQ(output_.hlsl, R"(
 [numthreads(1, 1, 1)]
-void a() {
+void main() {
   float v[3] = (float[3])0;
   float x = v[1u];
 }
@@ -62,7 +63,7 @@ TEST_F(HlslWriterTest, AccessStruct) {
     };
     auto* strct = ty.Struct(b.ir.symbols.New("S"), std::move(members));
 
-    auto* f = b.ComputeFunction("a");
+    auto* f = b.ComputeFunction("main");
 
     b.Append(f->Block(), [&] {
         auto* v = b.Var("v", b.Zero(strct));
@@ -70,7 +71,8 @@ TEST_F(HlslWriterTest, AccessStruct) {
         b.Return(f);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.hlsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.hlsl;
     EXPECT_EQ(output_.hlsl, R"(struct S {
   int a;
   float b;
@@ -78,7 +80,7 @@ TEST_F(HlslWriterTest, AccessStruct) {
 
 
 [numthreads(1, 1, 1)]
-void a() {
+void main() {
   S v = (S)0;
   float x = v.b;
 }
@@ -87,7 +89,7 @@ void a() {
 }
 
 TEST_F(HlslWriterTest, AccessVector) {
-    auto* func = b.ComputeFunction("a");
+    auto* func = b.ComputeFunction("main");
 
     b.Append(func->Block(), [&] {
         auto* v = b.Var("v", b.Zero<vec3<f32>>());
@@ -95,10 +97,11 @@ TEST_F(HlslWriterTest, AccessVector) {
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.hlsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.hlsl;
     EXPECT_EQ(output_.hlsl, R"(
 [numthreads(1, 1, 1)]
-void a() {
+void main() {
   float3 v = (0.0f).xxx;
   float x = v.y;
 }
@@ -107,7 +110,7 @@ void a() {
 }
 
 TEST_F(HlslWriterTest, AccessMatrix) {
-    auto* func = b.ComputeFunction("a");
+    auto* func = b.ComputeFunction("main");
 
     b.Append(func->Block(), [&] {
         auto* v = b.Var("v", b.Zero<mat4x4<f32>>());
@@ -116,10 +119,11 @@ TEST_F(HlslWriterTest, AccessMatrix) {
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.hlsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.hlsl;
     EXPECT_EQ(output_.hlsl, R"(
 [numthreads(1, 1, 1)]
-void a() {
+void main() {
   float4x4 v = float4x4((0.0f).xxxx, (0.0f).xxxx, (0.0f).xxxx, (0.0f).xxxx);
   float x = v[1u].z;
 }
@@ -128,22 +132,20 @@ void a() {
 }
 
 TEST_F(HlslWriterTest, AccessStoreVectorElementConstantIndex) {
-    auto* func = b.Function("foo", ty.void_());
+    auto* func = b.ComputeFunction("main");
     b.Append(func->Block(), [&] {
         auto* vec_var = b.Var("vec", ty.ptr<function, vec4<i32>>());
         b.StoreVectorElement(vec_var, 1_u, b.Constant(42_i));
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.hlsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.hlsl;
     EXPECT_EQ(output_.hlsl, R"(
-void foo() {
+[numthreads(1, 1, 1)]
+void main() {
   int4 vec = (int(0)).xxxx;
   vec.y = int(42);
-}
-
-[numthreads(1, 1, 1)]
-void unused_entry_point() {
 }
 
 )");
@@ -159,7 +161,14 @@ TEST_F(HlslWriterTest, AccessStoreVectorElementDynamicIndex) {
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.hlsl;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Call(func, b.Zero(ty.i32()));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.hlsl;
     EXPECT_EQ(output_.hlsl, R"(
 void foo(int idx) {
   int4 vec = (int(0)).xxxx;
@@ -167,7 +176,8 @@ void foo(int idx) {
 }
 
 [numthreads(1, 1, 1)]
-void unused_entry_point() {
+void main() {
+  foo(int(0));
 }
 
 )");
@@ -177,7 +187,7 @@ TEST_F(HlslWriterTest, AccessNested) {
     Vector members_a{
         ty.Get<core::type::StructMember>(b.ir.symbols.New("d"), ty.i32(), 0u, 0u, 4u, 4u,
                                          core::IOAttributes{}),
-        ty.Get<core::type::StructMember>(b.ir.symbols.New("e"), ty.array<f32, 3>(), 1u, 4u, 4u, 4u,
+        ty.Get<core::type::StructMember>(b.ir.symbols.New("e"), ty.array<f32, 3>(), 1u, 4u, 4u, 12u,
                                          core::IOAttributes{}),
     };
     auto* a_strct = ty.Struct(b.ir.symbols.New("A"), std::move(members_a));
@@ -187,12 +197,12 @@ TEST_F(HlslWriterTest, AccessNested) {
                                          core::IOAttributes{}),
         ty.Get<core::type::StructMember>(b.ir.symbols.New("b"), ty.f32(), 1u, 4u, 4u, 4u,
                                          core::IOAttributes{}),
-        ty.Get<core::type::StructMember>(b.ir.symbols.New("c"), a_strct, 2u, 8u, 8u, 8u,
+        ty.Get<core::type::StructMember>(b.ir.symbols.New("c"), a_strct, 2u, 8u, 8u, 16u,
                                          core::IOAttributes{}),
     };
     auto* s_strct = ty.Struct(b.ir.symbols.New("S"), std::move(members_s));
 
-    auto* f = b.ComputeFunction("a");
+    auto* f = b.ComputeFunction("main");
 
     b.Append(f->Block(), [&] {
         auto* v = b.Var("v", b.Zero(s_strct));
@@ -200,7 +210,8 @@ TEST_F(HlslWriterTest, AccessNested) {
         b.Return(f);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.hlsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.hlsl;
     EXPECT_EQ(output_.hlsl, R"(struct A {
   int d;
   float e[3];
@@ -214,7 +225,7 @@ struct S {
 
 
 [numthreads(1, 1, 1)]
-void a() {
+void main() {
   S v = (S)0;
   float x = v.c.e[1u];
 }
@@ -223,18 +234,19 @@ void a() {
 }
 
 TEST_F(HlslWriterTest, AccessSwizzle) {
-    auto* f = b.ComputeFunction("a");
+    auto* f = b.ComputeFunction("main");
 
     b.Append(f->Block(), [&] {
         auto* v = b.Var("v", b.Zero<vec3<f32>>());
-        b.Let("b", b.Swizzle(ty.f32(), v, {1u}));
+        b.Let("b", b.Swizzle(ty.f32(), b.Load(v), {1u}));
         b.Return(f);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.hlsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.hlsl;
     EXPECT_EQ(output_.hlsl, R"(
 [numthreads(1, 1, 1)]
-void a() {
+void main() {
   float3 v = (0.0f).xxx;
   float b = v.y;
 }
@@ -243,18 +255,19 @@ void a() {
 }
 
 TEST_F(HlslWriterTest, AccessSwizzleMulti) {
-    auto* f = b.ComputeFunction("a");
+    auto* f = b.ComputeFunction("main");
 
     b.Append(f->Block(), [&] {
         auto* v = b.Var("v", b.Zero<vec4<f32>>());
-        b.Let("b", b.Swizzle(ty.vec4<f32>(), v, {3u, 2u, 1u, 0u}));
+        b.Let("b", b.Swizzle(ty.vec4f(), b.Load(v), {3u, 2u, 1u, 0u}));
         b.Return(f);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.hlsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.hlsl;
     EXPECT_EQ(output_.hlsl, R"(
 [numthreads(1, 1, 1)]
-void a() {
+void main() {
   float4 v = (0.0f).xxxx;
   float4 b = v.wzyx;
 }
@@ -267,7 +280,7 @@ TEST_F(HlslWriterTest, AccessStorageVector) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         b.Let("a", b.Load(var));
         b.Let("b", b.LoadVectorElement(var, 0_u));
@@ -277,10 +290,11 @@ TEST_F(HlslWriterTest, AccessStorageVector) {
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.hlsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.hlsl;
     EXPECT_EQ(output_.hlsl, R"(
 ByteAddressBuffer v : register(t0);
-void foo() {
+void main() {
   float4 a = asfloat(v.Load4(0u));
   float b = asfloat(v.Load(0u));
   float c = asfloat(v.Load(4u));
@@ -296,7 +310,7 @@ TEST_F(HlslWriterTest, AccessStorageVectorF16) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         b.Let("a", b.Load(var));
         b.Let("b", b.LoadVectorElement(var, 0_u));
@@ -306,10 +320,11 @@ TEST_F(HlslWriterTest, AccessStorageVectorF16) {
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.hlsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.hlsl;
     EXPECT_EQ(output_.hlsl, R"(
 ByteAddressBuffer v : register(t0);
-void foo() {
+void main() {
   vector<float16_t, 4> a = v.Load<vector<float16_t, 4> >(0u);
   float16_t b = v.Load<float16_t>(0u);
   float16_t c = v.Load<float16_t>(2u);
@@ -325,7 +340,7 @@ TEST_F(HlslWriterTest, AccessStorageMatrix) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         b.Let("a", b.Load(var));
         b.Let("b", b.Load(b.Access(ty.ptr<storage, vec4<f32>, core::Access::kRead>(), var, 3_u)));
@@ -334,17 +349,15 @@ TEST_F(HlslWriterTest, AccessStorageMatrix) {
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.hlsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.hlsl;
     EXPECT_EQ(output_.hlsl, R"(
 ByteAddressBuffer v : register(t0);
 float4x4 v_1(uint offset) {
-  float4 v_2 = asfloat(v.Load4((offset + 0u)));
-  float4 v_3 = asfloat(v.Load4((offset + 16u)));
-  float4 v_4 = asfloat(v.Load4((offset + 32u)));
-  return float4x4(v_2, v_3, v_4, asfloat(v.Load4((offset + 48u))));
+  return float4x4(asfloat(v.Load4((offset + 0u))), asfloat(v.Load4((offset + 16u))), asfloat(v.Load4((offset + 32u))), asfloat(v.Load4((offset + 48u))));
 }
 
-void foo() {
+void main() {
   float4x4 a = v_1(0u);
   float4 b = asfloat(v.Load4(48u));
   float c = asfloat(v.Load(24u));
@@ -358,14 +371,15 @@ TEST_F(HlslWriterTest, AccessStorageArray) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         b.Let("a", b.Load(var));
         b.Let("b", b.Load(b.Access(ty.ptr<storage, vec3<f32>, core::Access::kRead>(), var, 3_u)));
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.hlsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.hlsl;
     EXPECT_EQ(output_.hlsl, R"(
 ByteAddressBuffer v : register(t0);
 typedef float3 ary_ret[5];
@@ -383,14 +397,13 @@ ary_ret v_1(uint offset) {
       {
         v_2 = (v_3 + 1u);
       }
-      continue;
     }
   }
   float3 v_4[5] = a;
   return v_4;
 }
 
-void foo() {
+void main() {
   float3 a[5] = v_1(0u);
   float3 b = asfloat(v.Load3(48u));
 }
@@ -408,14 +421,15 @@ TEST_F(HlslWriterTest, AccessStorageStruct) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         b.Let("a", b.Load(var));
         b.Let("b", b.Load(b.Access(ty.ptr<storage, f32, core::Access::kRead>(), var, 1_u)));
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.hlsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.hlsl;
     EXPECT_EQ(output_.hlsl, R"(struct SB {
   int a;
   float b;
@@ -424,12 +438,11 @@ TEST_F(HlslWriterTest, AccessStorageStruct) {
 
 ByteAddressBuffer v : register(t0);
 SB v_1(uint offset) {
-  int v_2 = asint(v.Load((offset + 0u)));
-  SB v_3 = {v_2, asfloat(v.Load((offset + 4u)))};
-  return v_3;
+  SB v_2 = {asint(v.Load((offset + 0u))), asfloat(v.Load((offset + 4u)))};
+  return v_2;
 }
 
-void foo() {
+void main() {
   SB a = v_1(0u);
   float b = asfloat(v.Load(4u));
 }
@@ -457,7 +470,7 @@ TEST_F(HlslWriterTest, AccessStorageNested) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         b.Let("a", b.Load(var));
         b.Let("b", b.LoadVectorElement(b.Access(ty.ptr<storage, vec3<f32>, core::Access::kRead>(),
@@ -466,7 +479,8 @@ TEST_F(HlslWriterTest, AccessStorageNested) {
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.hlsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.hlsl;
     EXPECT_EQ(output_.hlsl, R"(struct Inner {
   float3x3 s;
   float3 t[5];
@@ -499,7 +513,6 @@ ary_ret v_1(uint offset) {
       {
         v_2 = (v_3 + 1u);
       }
-      continue;
     }
   }
   float3 v_4[5] = a;
@@ -507,34 +520,32 @@ ary_ret v_1(uint offset) {
 }
 
 float3x3 v_5(uint offset) {
-  float3 v_6 = asfloat(v.Load3((offset + 0u)));
-  float3 v_7 = asfloat(v.Load3((offset + 16u)));
-  return float3x3(v_6, v_7, asfloat(v.Load3((offset + 32u))));
+  return float3x3(asfloat(v.Load3((offset + 0u))), asfloat(v.Load3((offset + 16u))), asfloat(v.Load3((offset + 32u))));
 }
 
-Inner v_8(uint offset) {
-  float3x3 v_9 = v_5((offset + 0u));
-  float3 v_10[5] = v_1((offset + 48u));
-  Inner v_11 = {v_9, v_10};
-  return v_11;
+Inner v_6(uint offset) {
+  float3x3 v_7 = v_5((offset + 0u));
+  float3 v_8[5] = v_1((offset + 48u));
+  Inner v_9 = {v_7, v_8};
+  return v_9;
 }
 
-Outer v_12(uint offset) {
-  float v_13 = asfloat(v.Load((offset + 0u)));
-  Inner v_14 = v_8((offset + 16u));
-  Outer v_15 = {v_13, v_14};
-  return v_15;
+Outer v_10(uint offset) {
+  float v_11 = asfloat(v.Load((offset + 0u)));
+  Inner v_12 = v_6((offset + 16u));
+  Outer v_13 = {v_11, v_12};
+  return v_13;
 }
 
-SB v_16(uint offset) {
-  int v_17 = asint(v.Load((offset + 0u)));
-  Outer v_18 = v_12((offset + 16u));
-  SB v_19 = {v_17, v_18};
-  return v_19;
+SB v_14(uint offset) {
+  int v_15 = asint(v.Load((offset + 0u)));
+  Outer v_16 = v_10((offset + 16u));
+  SB v_17 = {v_15, v_16};
+  return v_17;
 }
 
-void foo() {
-  SB a = v_16(0u);
+void main() {
+  SB a = v_14(0u);
   float b = asfloat(v.Load(136u));
 }
 
@@ -546,7 +557,7 @@ TEST_F(HlslWriterTest, AccessStorageStoreVector) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         b.StoreVectorElement(var, 0_u, 2_f);
         b.StoreVectorElement(var, 1_u, 4_f);
@@ -555,10 +566,11 @@ TEST_F(HlslWriterTest, AccessStorageStoreVector) {
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.hlsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.hlsl;
     EXPECT_EQ(output_.hlsl, R"(
 RWByteAddressBuffer v : register(u0);
-void foo() {
+void main() {
   v.Store(0u, asuint(2.0f));
   v.Store(4u, asuint(4.0f));
   v.Store(8u, asuint(8.0f));
@@ -585,14 +597,15 @@ TEST_F(HlslWriterTest, AccessDirectVariable) {
         b.Return(bar);
     });
 
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         b.Call(bar, var1);
         b.Call(bar, var2);
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.hlsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.hlsl;
     EXPECT_EQ(output_.hlsl, R"(
 ByteAddressBuffer v1 : register(t0);
 ByteAddressBuffer v2 : register(t1);
@@ -604,7 +617,7 @@ void bar_1() {
   float a = asfloat(v2.Load(4u));
 }
 
-void foo() {
+void main() {
   bar();
   bar_1();
 }
@@ -626,19 +639,20 @@ TEST_F(HlslWriterTest, AccessChainFromUnnamedAccessChain) {
     var->SetBindingPoint(0, 0);
     b.ir.root_block->Append(var);
 
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         auto* x = b.Access(ty.ptr(storage, sb, core::Access::kReadWrite), var, 2_u);
-        auto* y = b.Access(ty.ptr(storage, Inner, core::Access::kReadWrite), x->Result(0), 1_u);
-        b.Let("b", b.Load(b.Access(ty.ptr(storage, ty.u32(), core::Access::kReadWrite),
-                                   y->Result(0), 1_u)));
+        auto* y = b.Access(ty.ptr(storage, Inner, core::Access::kReadWrite), x->Result(), 1_u);
+        b.Let("b", b.Load(b.Access(ty.ptr(storage, ty.u32(), core::Access::kReadWrite), y->Result(),
+                                   1_u)));
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.hlsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.hlsl;
     EXPECT_EQ(output_.hlsl, R"(
 RWByteAddressBuffer v : register(u0);
-void foo() {
+void main() {
   uint b = v.Load(32u);
 }
 
@@ -658,21 +672,22 @@ TEST_F(HlslWriterTest, AccessChainFromLetAccessChain) {
     var->SetBindingPoint(0, 0);
     b.ir.root_block->Append(var);
 
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         auto* x = b.Let("x", var);
         auto* y = b.Let(
-            "y", b.Access(ty.ptr(storage, Inner, core::Access::kReadWrite), x->Result(0), 1_u));
+            "y", b.Access(ty.ptr(storage, Inner, core::Access::kReadWrite), x->Result(), 1_u));
         auto* z = b.Let(
-            "z", b.Access(ty.ptr(storage, ty.f32(), core::Access::kReadWrite), y->Result(0), 0_u));
+            "z", b.Access(ty.ptr(storage, ty.f32(), core::Access::kReadWrite), y->Result(), 0_u));
         b.Let("a", b.Load(z));
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.hlsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.hlsl;
     EXPECT_EQ(output_.hlsl, R"(
 RWByteAddressBuffer v : register(u0);
-void foo() {
+void main() {
   float a = asfloat(v.Load(4u));
 }
 
@@ -682,7 +697,7 @@ void foo() {
 TEST_F(HlslWriterTest, AccessComplexDynamicAccessChain) {
     auto* S1 = ty.Struct(mod.symbols.New("S1"), {
                                                     {mod.symbols.New("a"), ty.i32()},
-                                                    {mod.symbols.New("b"), ty.vec3<f32>()},
+                                                    {mod.symbols.New("b"), ty.vec3f()},
                                                     {mod.symbols.New("c"), ty.i32()},
                                                 });
     auto* S2 = ty.Struct(mod.symbols.New("S2"), {
@@ -700,7 +715,7 @@ TEST_F(HlslWriterTest, AccessComplexDynamicAccessChain) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         auto* i = b.Load(b.Var("i", 4_i));
         auto* j = b.Load(b.Var("j", 1_u));
@@ -712,24 +727,21 @@ TEST_F(HlslWriterTest, AccessComplexDynamicAccessChain) {
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.hlsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.hlsl;
     EXPECT_EQ(output_.hlsl, R"(
 RWByteAddressBuffer sb : register(u0);
-void foo() {
+void main() {
   int i = int(4);
-  int v = i;
   uint j = 1u;
-  uint v_1 = j;
+  uint v = j;
   int k = int(2);
-  int v_2 = k;
-  uint v_3 = 0u;
-  sb.GetDimensions(v_3);
-  uint v_4 = (((v_3 - 16u) / 128u) - 1u);
-  uint v_5 = min(uint(v), v_4);
-  uint v_6 = min(v_1, 2u);
-  uint v_7 = (uint(v_5) * 128u);
-  uint v_8 = (uint(v_6) * 32u);
-  float x = asfloat(sb.Load((((48u + v_7) + v_8) + (uint(min(uint(v_2), 2u)) * 4u))));
+  int v_1 = k;
+  uint v_2 = 0u;
+  sb.GetDimensions(v_2);
+  uint v_3 = (((v_2 - 16u) / 128u) - 1u);
+  uint v_4 = (min(uint(i), v_3) * 128u);
+  float x = asfloat(sb.Load((((48u + v_4) + (min(v, 2u) * 32u)) + (min(uint(v_1), 2u) * 4u))));
 }
 
 )");
@@ -738,7 +750,7 @@ void foo() {
 TEST_F(HlslWriterTest, AccessComplexDynamicAccessChainSplit) {
     auto* S1 = ty.Struct(mod.symbols.New("S1"), {
                                                     {mod.symbols.New("a"), ty.i32()},
-                                                    {mod.symbols.New("b"), ty.vec3<f32>()},
+                                                    {mod.symbols.New("b"), ty.vec3f()},
                                                     {mod.symbols.New("c"), ty.i32()},
                                                 });
     auto* S2 = ty.Struct(mod.symbols.New("S2"), {
@@ -756,7 +768,7 @@ TEST_F(HlslWriterTest, AccessComplexDynamicAccessChainSplit) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         auto* j = b.Load(b.Var("j", 1_u));
         b.Let("x", b.LoadVectorElement(b.Access(ty.ptr<storage, vec3<f32>, read_write>(), var, 1_u,
@@ -765,18 +777,15 @@ TEST_F(HlslWriterTest, AccessComplexDynamicAccessChainSplit) {
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.hlsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.hlsl;
     EXPECT_EQ(output_.hlsl, R"(
 RWByteAddressBuffer sb : register(u0);
-void foo() {
+void main() {
   uint j = 1u;
-  uint v = j;
-  uint v_1 = 0u;
-  sb.GetDimensions(v_1);
-  uint v_2 = min(4u, (((v_1 - 16u) / 128u) - 1u));
-  uint v_3 = min(v, 2u);
-  uint v_4 = (uint(v_2) * 128u);
-  float x = asfloat(sb.Load(((56u + v_4) + (uint(v_3) * 32u))));
+  uint v = 0u;
+  sb.GetDimensions(v);
+  float x = asfloat(sb.Load(((56u + (min(4u, (((v - 16u) / 128u) - 1u)) * 128u)) + (min(j, 2u) * 32u))));
 }
 
 )");
@@ -799,21 +808,22 @@ TEST_F(HlslWriterTest, AccessUniformChainFromUnnamedAccessChain) {
     var->SetBindingPoint(0, 0);
     b.ir.root_block->Append(var);
 
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         auto* x = b.Access(ty.ptr(uniform, sb, core::Access::kRead), var, 2_u);
-        auto* y = b.Access(ty.ptr(uniform, Inner, core::Access::kRead), x->Result(0), 1_u);
+        auto* y = b.Access(ty.ptr(uniform, Inner, core::Access::kRead), x->Result(), 1_u);
         b.Let("b",
-              b.Load(b.Access(ty.ptr(uniform, ty.u32(), core::Access::kRead), y->Result(0), 1_u)));
+              b.Load(b.Access(ty.ptr(uniform, ty.u32(), core::Access::kRead), y->Result(), 1_u)));
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.hlsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.hlsl;
     EXPECT_EQ(output_.hlsl, R"(
 cbuffer cbuffer_v : register(b0) {
   uint4 v[8];
 };
-void foo() {
+void main() {
   uint b = v[5u].y;
 }
 
@@ -835,23 +845,24 @@ TEST_F(HlslWriterTest, AccessUniformChainFromLetAccessChain) {
     var->SetBindingPoint(0, 0);
     b.ir.root_block->Append(var);
 
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         auto* x = b.Let("x", var);
         auto* y =
-            b.Let("y", b.Access(ty.ptr(uniform, Inner, core::Access::kRead), x->Result(0), 1_u));
+            b.Let("y", b.Access(ty.ptr(uniform, Inner, core::Access::kRead), x->Result(), 1_u));
         auto* z =
-            b.Let("z", b.Access(ty.ptr(uniform, ty.f32(), core::Access::kRead), y->Result(0), 0_u));
+            b.Let("z", b.Access(ty.ptr(uniform, ty.f32(), core::Access::kRead), y->Result(), 0_u));
         b.Let("a", b.Load(z));
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.hlsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.hlsl;
     EXPECT_EQ(output_.hlsl, R"(
 cbuffer cbuffer_v : register(b0) {
   uint4 v[2];
 };
-void foo() {
+void main() {
   float a = asfloat(v[1u].x);
 }
 
@@ -863,18 +874,19 @@ TEST_F(HlslWriterTest, AccessUniformScalar) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         b.Let("a", b.Load(var));
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.hlsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.hlsl;
     EXPECT_EQ(output_.hlsl, R"(
 cbuffer cbuffer_v : register(b0) {
   uint4 v[1];
 };
-void foo() {
+void main() {
   float a = asfloat(v[0u].x);
 }
 
@@ -886,19 +898,28 @@ TEST_F(HlslWriterTest, AccessUniformScalarF16) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         b.Let("a", b.Load(var));
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.hlsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.hlsl;
     EXPECT_EQ(output_.hlsl, R"(
 cbuffer cbuffer_v : register(b0) {
   uint4 v[1];
 };
-void foo() {
-  float16_t a = float16_t(f16tof32(v[0u].x));
+vector<float16_t, 2> tint_bitcast_to_f16(uint src) {
+  uint v_1 = src;
+  float t_low = f16tof32((v_1 & 65535u));
+  float t_high = f16tof32(((v_1 >> 16u) & 65535u));
+  float16_t v_2 = float16_t(t_low);
+  return vector<float16_t, 2>(v_2, float16_t(t_high));
+}
+
+void main() {
+  float16_t a = tint_bitcast_to_f16(v[0u].x).x;
 }
 
 )");
@@ -909,7 +930,7 @@ TEST_F(HlslWriterTest, AccessUniformVector) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         b.Let("a", b.Load(var));
         b.Let("b", b.LoadVectorElement(var, 0_u));
@@ -919,12 +940,13 @@ TEST_F(HlslWriterTest, AccessUniformVector) {
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.hlsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.hlsl;
     EXPECT_EQ(output_.hlsl, R"(
 cbuffer cbuffer_v : register(b0) {
   uint4 v[1];
 };
-void foo() {
+void main() {
   float4 a = asfloat(v[0u]);
   float b = asfloat(v[0u].x);
   float c = asfloat(v[0u].y);
@@ -940,7 +962,7 @@ TEST_F(HlslWriterTest, AccessUniformVectorF16) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         auto* x = b.Var("x", 1_u);
         b.Let("a", b.Load(var));
@@ -951,32 +973,42 @@ TEST_F(HlslWriterTest, AccessUniformVectorF16) {
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.hlsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.hlsl;
     EXPECT_EQ(output_.hlsl, R"(
 cbuffer cbuffer_v : register(b0) {
   uint4 v[1];
 };
-vector<float16_t, 4> tint_bitcast_to_f16(uint2 src) {
-  uint2 v_1 = src;
-  uint2 mask = (65535u).xx;
-  uint2 shift = (16u).xx;
-  float2 t_low = f16tof32((v_1 & mask));
-  float2 t_high = f16tof32(((v_1 >> shift) & mask));
-  float16_t v_2 = float16_t(t_low.x);
-  float16_t v_3 = float16_t(t_high.x);
-  float16_t v_4 = float16_t(t_low.y);
-  return vector<float16_t, 4>(v_2, v_3, v_4, float16_t(t_high.y));
+vector<float16_t, 2> tint_bitcast_to_f16(uint src) {
+  uint v_1 = src;
+  float t_low = f16tof32((v_1 & 65535u));
+  float t_high = f16tof32(((v_1 >> 16u) & 65535u));
+  float16_t v_3 = float16_t(t_low);
+  return vector<float16_t, 2>(v_3, float16_t(t_high));
 }
 
-void foo() {
+vector<float16_t, 4> tint_bitcast_to_f16_1(uint2 src) {
+  uint2 v_2 = src;
+  uint2 mask = (65535u).xx;
+  uint2 shift = (16u).xx;
+  float2 t_low = f16tof32((v_2 & mask));
+  float2 t_high = f16tof32(((v_2 >> shift) & mask));
+  float16_t v_4 = float16_t(t_low.x);
+  float16_t v_5 = float16_t(t_high.x);
+  float16_t v_6 = float16_t(t_low.y);
+  return vector<float16_t, 4>(v_4, v_5, v_6, float16_t(t_high.y));
+}
+
+void main() {
   uint x = 1u;
-  vector<float16_t, 4> a = tint_bitcast_to_f16(v[0u].xy);
-  float16_t b = float16_t(f16tof32(v[0u].x));
-  uint v_5 = (uint(min(x, 3u)) * 2u);
-  uint v_6 = v[(v_5 / 16u)][((v_5 % 16u) / 4u)];
-  float16_t c = float16_t(f16tof32((v_6 >> ((((v_5 % 4u) == 0u)) ? (0u) : (16u)))));
-  float16_t d = float16_t(f16tof32(v[0u].y));
-  float16_t e = float16_t(f16tof32((v[0u].y >> 16u)));
+  vector<float16_t, 4> a = tint_bitcast_to_f16_1(v[0u].xy);
+  float16_t b = tint_bitcast_to_f16(v[0u].x).x;
+  uint v_7 = (min(x, 3u) * 2u);
+  uint v_8 = v[(v_7 / 16u)][((v_7 & 15u) >> 2u)];
+  uint v_9 = ((((v_7 % 4u) == 0u)) ? (0u) : (1u));
+  float16_t c = tint_bitcast_to_f16(v_8)[v_9];
+  float16_t d = tint_bitcast_to_f16(v[0u].y).x;
+  float16_t e = tint_bitcast_to_f16(v[0u].y).y;
 }
 
 )");
@@ -987,7 +1019,7 @@ TEST_F(HlslWriterTest, AccessUniformMatrix) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         b.Let("a", b.Load(var));
         b.Let("b", b.Load(b.Access(ty.ptr<uniform, vec4<f32>, core::Access::kRead>(), var, 3_u)));
@@ -996,19 +1028,17 @@ TEST_F(HlslWriterTest, AccessUniformMatrix) {
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.hlsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.hlsl;
     EXPECT_EQ(output_.hlsl, R"(
 cbuffer cbuffer_v : register(b0) {
   uint4 v[4];
 };
 float4x4 v_1(uint start_byte_offset) {
-  float4 v_2 = asfloat(v[(start_byte_offset / 16u)]);
-  float4 v_3 = asfloat(v[((16u + start_byte_offset) / 16u)]);
-  float4 v_4 = asfloat(v[((32u + start_byte_offset) / 16u)]);
-  return float4x4(v_2, v_3, v_4, asfloat(v[((48u + start_byte_offset) / 16u)]));
+  return float4x4(asfloat(v[(start_byte_offset / 16u)]), asfloat(v[((16u + start_byte_offset) / 16u)]), asfloat(v[((32u + start_byte_offset) / 16u)]), asfloat(v[((48u + start_byte_offset) / 16u)]));
 }
 
-void foo() {
+void main() {
   float4x4 a = v_1(0u);
   float4 b = asfloat(v[3u]);
   float c = asfloat(v[1u].z);
@@ -1022,7 +1052,7 @@ TEST_F(HlslWriterTest, AccessUniformMatrix2x3) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         b.Let("a", b.Load(var));
         b.Let("b", b.Load(b.Access(ty.ptr<uniform, vec3<f32>, core::Access::kRead>(), var, 1_u)));
@@ -1031,17 +1061,17 @@ TEST_F(HlslWriterTest, AccessUniformMatrix2x3) {
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.hlsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.hlsl;
     EXPECT_EQ(output_.hlsl, R"(
 cbuffer cbuffer_v : register(b0) {
   uint4 v[2];
 };
 float2x3 v_1(uint start_byte_offset) {
-  float3 v_2 = asfloat(v[(start_byte_offset / 16u)].xyz);
-  return float2x3(v_2, asfloat(v[((16u + start_byte_offset) / 16u)].xyz));
+  return float2x3(asfloat(v[(start_byte_offset / 16u)].xyz), asfloat(v[((16u + start_byte_offset) / 16u)].xyz));
 }
 
-void foo() {
+void main() {
   float2x3 a = v_1(0u);
   float3 b = asfloat(v[1u].xyz);
   float c = asfloat(v[1u].z);
@@ -1055,42 +1085,51 @@ TEST_F(HlslWriterTest, AccessUniformMat2x3F16) {
     var->SetBindingPoint(0, 0);
     b.ir.root_block->Append(var);
 
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         b.Let("a", b.Load(var));
-        b.Let("b", b.Load(b.Access(ty.ptr(uniform, ty.vec3<f16>()), var, 1_u)));
-        b.Let("c", b.LoadVectorElement(b.Access(ty.ptr(uniform, ty.vec3<f16>()), var, 1_u), 2_u));
+        b.Let("b", b.Load(b.Access(ty.ptr(uniform, ty.vec3h()), var, 1_u)));
+        b.Let("c", b.LoadVectorElement(b.Access(ty.ptr(uniform, ty.vec3h()), var, 1_u), 2_u));
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.hlsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.hlsl;
     EXPECT_EQ(output_.hlsl, R"(
 cbuffer cbuffer_v : register(b0) {
   uint4 v[1];
 };
-vector<float16_t, 4> tint_bitcast_to_f16(uint2 src) {
-  uint2 v_1 = src;
+vector<float16_t, 2> tint_bitcast_to_f16(uint src) {
+  uint v_1 = src;
+  float t_low = f16tof32((v_1 & 65535u));
+  float t_high = f16tof32(((v_1 >> 16u) & 65535u));
+  float16_t v_3 = float16_t(t_low);
+  return vector<float16_t, 2>(v_3, float16_t(t_high));
+}
+
+vector<float16_t, 4> tint_bitcast_to_f16_1(uint2 src) {
+  uint2 v_2 = src;
   uint2 mask = (65535u).xx;
   uint2 shift = (16u).xx;
-  float2 t_low = f16tof32((v_1 & mask));
-  float2 t_high = f16tof32(((v_1 >> shift) & mask));
-  float16_t v_2 = float16_t(t_low.x);
-  float16_t v_3 = float16_t(t_high.x);
-  float16_t v_4 = float16_t(t_low.y);
-  return vector<float16_t, 4>(v_2, v_3, v_4, float16_t(t_high.y));
+  float2 t_low = f16tof32((v_2 & mask));
+  float2 t_high = f16tof32(((v_2 >> shift) & mask));
+  float16_t v_4 = float16_t(t_low.x);
+  float16_t v_5 = float16_t(t_high.x);
+  float16_t v_6 = float16_t(t_low.y);
+  return vector<float16_t, 4>(v_4, v_5, v_6, float16_t(t_high.y));
 }
 
-matrix<float16_t, 2, 3> v_5(uint start_byte_offset) {
-  uint4 v_6 = v[(start_byte_offset / 16u)];
-  vector<float16_t, 3> v_7 = tint_bitcast_to_f16((((((start_byte_offset % 16u) / 4u) == 2u)) ? (v_6.zw) : (v_6.xy))).xyz;
-  uint4 v_8 = v[((8u + start_byte_offset) / 16u)];
-  return matrix<float16_t, 2, 3>(v_7, tint_bitcast_to_f16(((((((8u + start_byte_offset) % 16u) / 4u) == 2u)) ? (v_8.zw) : (v_8.xy))).xyz);
+matrix<float16_t, 2, 3> v_7(uint start_byte_offset) {
+  uint4 v_8 = v[(start_byte_offset / 16u)];
+  vector<float16_t, 3> v_9 = tint_bitcast_to_f16_1((((((start_byte_offset & 15u) >> 2u) == 2u)) ? (v_8.zw) : (v_8.xy))).xyz;
+  uint4 v_10 = v[((8u + start_byte_offset) / 16u)];
+  return matrix<float16_t, 2, 3>(v_9, tint_bitcast_to_f16_1(((((((8u + start_byte_offset) & 15u) >> 2u) == 2u)) ? (v_10.zw) : (v_10.xy))).xyz);
 }
 
-void foo() {
-  matrix<float16_t, 2, 3> a = v_5(0u);
-  vector<float16_t, 3> b = tint_bitcast_to_f16(v[0u].zw).xyz;
-  float16_t c = float16_t(f16tof32(v[0u].w));
+void main() {
+  matrix<float16_t, 2, 3> a = v_7(0u);
+  vector<float16_t, 3> b = tint_bitcast_to_f16_1(v[0u].zw).xyz;
+  float16_t c = tint_bitcast_to_f16(v[0u].w).x;
 }
 
 )");
@@ -1100,7 +1139,7 @@ TEST_F(HlslWriterTest, AccessUniformMatrix3x2) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         b.Let("a", b.Load(var));
         b.Let("b", b.Load(b.Access(ty.ptr<uniform, vec2<f32>, core::Access::kRead>(), var, 1_u)));
@@ -1109,21 +1148,22 @@ TEST_F(HlslWriterTest, AccessUniformMatrix3x2) {
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.hlsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.hlsl;
     EXPECT_EQ(output_.hlsl, R"(
 cbuffer cbuffer_v : register(b0) {
   uint4 v[2];
 };
 float3x2 v_1(uint start_byte_offset) {
   uint4 v_2 = v[(start_byte_offset / 16u)];
-  float2 v_3 = asfloat((((((start_byte_offset % 16u) / 4u) == 2u)) ? (v_2.zw) : (v_2.xy)));
+  float2 v_3 = asfloat((((((start_byte_offset & 15u) >> 2u) == 2u)) ? (v_2.zw) : (v_2.xy)));
   uint4 v_4 = v[((8u + start_byte_offset) / 16u)];
-  float2 v_5 = asfloat(((((((8u + start_byte_offset) % 16u) / 4u) == 2u)) ? (v_4.zw) : (v_4.xy)));
+  float2 v_5 = asfloat(((((((8u + start_byte_offset) & 15u) >> 2u) == 2u)) ? (v_4.zw) : (v_4.xy)));
   uint4 v_6 = v[((16u + start_byte_offset) / 16u)];
-  return float3x2(v_3, v_5, asfloat(((((((16u + start_byte_offset) % 16u) / 4u) == 2u)) ? (v_6.zw) : (v_6.xy))));
+  return float3x2(v_3, v_5, asfloat(((((((16u + start_byte_offset) & 15u) >> 2u) == 2u)) ? (v_6.zw) : (v_6.xy))));
 }
 
-void foo() {
+void main() {
   float3x2 a = v_1(0u);
   float2 b = asfloat(v[0u].zw);
   float c = asfloat(v[0u].w);
@@ -1137,7 +1177,7 @@ TEST_F(HlslWriterTest, AccessUniformMatrix2x2) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         b.Let("a", b.Load(var));
         b.Let("b", b.Load(b.Access(ty.ptr<uniform, vec2<f32>, core::Access::kRead>(), var, 1_u)));
@@ -1146,19 +1186,20 @@ TEST_F(HlslWriterTest, AccessUniformMatrix2x2) {
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.hlsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.hlsl;
     EXPECT_EQ(output_.hlsl, R"(
 cbuffer cbuffer_v : register(b0) {
   uint4 v[1];
 };
 float2x2 v_1(uint start_byte_offset) {
   uint4 v_2 = v[(start_byte_offset / 16u)];
-  float2 v_3 = asfloat((((((start_byte_offset % 16u) / 4u) == 2u)) ? (v_2.zw) : (v_2.xy)));
+  float2 v_3 = asfloat((((((start_byte_offset & 15u) >> 2u) == 2u)) ? (v_2.zw) : (v_2.xy)));
   uint4 v_4 = v[((8u + start_byte_offset) / 16u)];
-  return float2x2(v_3, asfloat(((((((8u + start_byte_offset) % 16u) / 4u) == 2u)) ? (v_4.zw) : (v_4.xy))));
+  return float2x2(v_3, asfloat(((((((8u + start_byte_offset) & 15u) >> 2u) == 2u)) ? (v_4.zw) : (v_4.xy))));
 }
 
-void foo() {
+void main() {
   float2x2 a = v_1(0u);
   float2 b = asfloat(v[0u].zw);
   float c = asfloat(v[0u].w);
@@ -1172,7 +1213,7 @@ TEST_F(HlslWriterTest, AccessUniformMatrix2x2F16) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         b.Let("a", b.Load(var));
         b.Let("b", b.Load(b.Access(ty.ptr<uniform, vec2<f16>, core::Access::kRead>(), var, 1_u)));
@@ -1181,7 +1222,8 @@ TEST_F(HlslWriterTest, AccessUniformMatrix2x2F16) {
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.hlsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.hlsl;
     EXPECT_EQ(output_.hlsl, R"(
 cbuffer cbuffer_v : register(b0) {
   uint4 v[1];
@@ -1195,14 +1237,14 @@ vector<float16_t, 2> tint_bitcast_to_f16(uint src) {
 }
 
 matrix<float16_t, 2, 2> v_3(uint start_byte_offset) {
-  vector<float16_t, 2> v_4 = tint_bitcast_to_f16(v[(start_byte_offset / 16u)][((start_byte_offset % 16u) / 4u)]);
-  return matrix<float16_t, 2, 2>(v_4, tint_bitcast_to_f16(v[((4u + start_byte_offset) / 16u)][(((4u + start_byte_offset) % 16u) / 4u)]));
+  vector<float16_t, 2> v_4 = tint_bitcast_to_f16(v[(start_byte_offset / 16u)][((start_byte_offset & 15u) >> 2u)]);
+  return matrix<float16_t, 2, 2>(v_4, tint_bitcast_to_f16(v[((4u + start_byte_offset) / 16u)][(((4u + start_byte_offset) & 15u) >> 2u)]));
 }
 
-void foo() {
+void main() {
   matrix<float16_t, 2, 2> a = v_3(0u);
   vector<float16_t, 2> b = tint_bitcast_to_f16(v[0u].y);
-  float16_t c = float16_t(f16tof32((v[0u].y >> 16u)));
+  float16_t c = tint_bitcast_to_f16(v[0u].y).y;
 }
 
 )");
@@ -1213,14 +1255,15 @@ TEST_F(HlslWriterTest, AccessUniformArray) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         b.Let("a", b.Load(var));
         b.Let("b", b.Load(b.Access(ty.ptr<uniform, vec3<f32>, core::Access::kRead>(), var, 3_u)));
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.hlsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.hlsl;
     EXPECT_EQ(output_.hlsl, R"(
 cbuffer cbuffer_v : register(b0) {
   uint4 v[5];
@@ -1240,14 +1283,13 @@ ary_ret v_1(uint start_byte_offset) {
       {
         v_2 = (v_3 + 1u);
       }
-      continue;
     }
   }
   float3 v_4[5] = a;
   return v_4;
 }
 
-void foo() {
+void main() {
   float3 a[5] = v_1(0u);
   float3 b = asfloat(v[3u].xyz);
 }
@@ -1260,14 +1302,15 @@ TEST_F(HlslWriterTest, AccessUniformArrayF16) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         b.Let("a", b.Load(var));
         b.Let("b", b.Load(b.Access(ty.ptr<uniform, vec3<f16>, core::Access::kRead>(), var, 3_u)));
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.hlsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.hlsl;
     EXPECT_EQ(output_.hlsl, R"(
 cbuffer cbuffer_v : register(b0) {
   uint4 v[3];
@@ -1296,18 +1339,17 @@ ary_ret v_5(uint start_byte_offset) {
         break;
       }
       uint4 v_8 = v[((start_byte_offset + (v_7 * 8u)) / 16u)];
-      a[v_7] = tint_bitcast_to_f16(((((((start_byte_offset + (v_7 * 8u)) % 16u) / 4u) == 2u)) ? (v_8.zw) : (v_8.xy))).xyz;
+      a[v_7] = tint_bitcast_to_f16(((((((start_byte_offset + (v_7 * 8u)) & 15u) >> 2u) == 2u)) ? (v_8.zw) : (v_8.xy))).xyz;
       {
         v_6 = (v_7 + 1u);
       }
-      continue;
     }
   }
   vector<float16_t, 3> v_9[5] = a;
   return v_9;
 }
 
-void foo() {
+void main() {
   vector<float16_t, 3> a[5] = v_5(0u);
   vector<float16_t, 3> b = tint_bitcast_to_f16(v[1u].zw).xyz;
 }
@@ -1320,14 +1362,15 @@ TEST_F(HlslWriterTest, AccessUniformArrayWhichCanHaveSizesOtherThenFive) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         b.Let("a", b.Load(var));
         b.Let("b", b.Load(b.Access(ty.ptr<uniform, vec3<f32>, core::Access::kRead>(), var, 3_u)));
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.hlsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.hlsl;
     EXPECT_EQ(output_.hlsl, R"(
 cbuffer cbuffer_v : register(b0) {
   uint4 v[42];
@@ -1347,14 +1390,13 @@ ary_ret v_1(uint start_byte_offset) {
       {
         v_2 = (v_3 + 1u);
       }
-      continue;
     }
   }
   float3 v_4[42] = a;
   return v_4;
 }
 
-void foo() {
+void main() {
   float3 a[42] = v_1(0u);
   float3 b = asfloat(v[3u].xyz);
 }
@@ -1372,14 +1414,15 @@ TEST_F(HlslWriterTest, AccessUniformStruct) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         b.Let("a", b.Load(var));
         b.Let("b", b.Load(b.Access(ty.ptr<uniform, f32, core::Access::kRead>(), var, 1_u)));
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.hlsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.hlsl;
     EXPECT_EQ(output_.hlsl, R"(struct SB {
   int a;
   float b;
@@ -1390,12 +1433,11 @@ cbuffer cbuffer_v : register(b0) {
   uint4 v[1];
 };
 SB v_1(uint start_byte_offset) {
-  int v_2 = asint(v[(start_byte_offset / 16u)][((start_byte_offset % 16u) / 4u)]);
-  SB v_3 = {v_2, asfloat(v[((4u + start_byte_offset) / 16u)][(((4u + start_byte_offset) % 16u) / 4u)])};
-  return v_3;
+  SB v_2 = {asint(v[(start_byte_offset / 16u)][((start_byte_offset & 15u) >> 2u)]), asfloat(v[((4u + start_byte_offset) / 16u)][(((4u + start_byte_offset) & 15u) >> 2u)])};
+  return v_2;
 }
 
-void foo() {
+void main() {
   SB a = v_1(0u);
   float b = asfloat(v[0u].y);
 }
@@ -1413,14 +1455,15 @@ TEST_F(HlslWriterTest, AccessUniformStructF16) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         b.Let("a", b.Load(var));
         b.Let("b", b.Load(b.Access(ty.ptr<uniform, f16, core::Access::kRead>(), var, 1_u)));
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.hlsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.hlsl;
     EXPECT_EQ(output_.hlsl, R"(struct SB {
   int a;
   float16_t b;
@@ -1430,16 +1473,25 @@ TEST_F(HlslWriterTest, AccessUniformStructF16) {
 cbuffer cbuffer_v : register(b0) {
   uint4 v[1];
 };
-SB v_1(uint start_byte_offset) {
-  int v_2 = asint(v[(start_byte_offset / 16u)][((start_byte_offset % 16u) / 4u)]);
-  uint v_3 = v[((4u + start_byte_offset) / 16u)][(((4u + start_byte_offset) % 16u) / 4u)];
-  SB v_4 = {v_2, float16_t(f16tof32((v_3 >> (((((4u + start_byte_offset) % 4u) == 0u)) ? (0u) : (16u)))))};
-  return v_4;
+vector<float16_t, 2> tint_bitcast_to_f16(uint src) {
+  uint v_1 = src;
+  float t_low = f16tof32((v_1 & 65535u));
+  float t_high = f16tof32(((v_1 >> 16u) & 65535u));
+  float16_t v_2 = float16_t(t_low);
+  return vector<float16_t, 2>(v_2, float16_t(t_high));
 }
 
-void foo() {
-  SB a = v_1(0u);
-  float16_t b = float16_t(f16tof32(v[0u].y));
+SB v_3(uint start_byte_offset) {
+  int v_4 = asint(v[(start_byte_offset / 16u)][((start_byte_offset & 15u) >> 2u)]);
+  uint v_5 = v[((4u + start_byte_offset) / 16u)][(((4u + start_byte_offset) & 15u) >> 2u)];
+  uint v_6 = (((((4u + start_byte_offset) % 4u) == 0u)) ? (0u) : (1u));
+  SB v_7 = {v_4, tint_bitcast_to_f16(v_5)[v_6]};
+  return v_7;
+}
+
+void main() {
+  SB a = v_3(0u);
+  float16_t b = tint_bitcast_to_f16(v[0u].y).x;
 }
 
 )");
@@ -1465,7 +1517,7 @@ TEST_F(HlslWriterTest, AccessUniformStructNested) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         b.Let("a", b.Load(var));
         b.Let("b", b.LoadVectorElement(b.Access(ty.ptr<uniform, vec3<f32>, core::Access::kRead>(),
@@ -1474,7 +1526,8 @@ TEST_F(HlslWriterTest, AccessUniformStructNested) {
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.hlsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.hlsl;
     EXPECT_EQ(output_.hlsl, R"(struct Inner {
   float3x3 s;
   float3 t[5];
@@ -1509,7 +1562,6 @@ ary_ret v_1(uint start_byte_offset) {
       {
         v_2 = (v_3 + 1u);
       }
-      continue;
     }
   }
   float3 v_4[5] = a;
@@ -1517,34 +1569,32 @@ ary_ret v_1(uint start_byte_offset) {
 }
 
 float3x3 v_5(uint start_byte_offset) {
-  float3 v_6 = asfloat(v[(start_byte_offset / 16u)].xyz);
-  float3 v_7 = asfloat(v[((16u + start_byte_offset) / 16u)].xyz);
-  return float3x3(v_6, v_7, asfloat(v[((32u + start_byte_offset) / 16u)].xyz));
+  return float3x3(asfloat(v[(start_byte_offset / 16u)].xyz), asfloat(v[((16u + start_byte_offset) / 16u)].xyz), asfloat(v[((32u + start_byte_offset) / 16u)].xyz));
 }
 
-Inner v_8(uint start_byte_offset) {
-  float3x3 v_9 = v_5(start_byte_offset);
-  float3 v_10[5] = v_1((48u + start_byte_offset));
-  Inner v_11 = {v_9, v_10};
-  return v_11;
+Inner v_6(uint start_byte_offset) {
+  float3x3 v_7 = v_5(start_byte_offset);
+  float3 v_8[5] = v_1((48u + start_byte_offset));
+  Inner v_9 = {v_7, v_8};
+  return v_9;
 }
 
-Outer v_12(uint start_byte_offset) {
-  float v_13 = asfloat(v[(start_byte_offset / 16u)][((start_byte_offset % 16u) / 4u)]);
-  Inner v_14 = v_8((16u + start_byte_offset));
-  Outer v_15 = {v_13, v_14};
-  return v_15;
+Outer v_10(uint start_byte_offset) {
+  float v_11 = asfloat(v[(start_byte_offset / 16u)][((start_byte_offset & 15u) >> 2u)]);
+  Inner v_12 = v_6((16u + start_byte_offset));
+  Outer v_13 = {v_11, v_12};
+  return v_13;
 }
 
-SB v_16(uint start_byte_offset) {
-  int v_17 = asint(v[(start_byte_offset / 16u)][((start_byte_offset % 16u) / 4u)]);
-  Outer v_18 = v_12((16u + start_byte_offset));
-  SB v_19 = {v_17, v_18};
-  return v_19;
+SB v_14(uint start_byte_offset) {
+  int v_15 = asint(v[(start_byte_offset / 16u)][((start_byte_offset & 15u) >> 2u)]);
+  Outer v_16 = v_10((16u + start_byte_offset));
+  SB v_17 = {v_15, v_16};
+  return v_17;
 }
 
-void foo() {
-  SB a = v_16(0u);
+void main() {
+  SB a = v_14(0u);
   float b = asfloat(v[8u].z);
 }
 
@@ -1556,16 +1606,17 @@ TEST_F(HlslWriterTest, AccessStoreScalar) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         b.Store(var, 2_f);
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.hlsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.hlsl;
     EXPECT_EQ(output_.hlsl, R"(
 RWByteAddressBuffer v : register(u0);
-void foo() {
+void main() {
   v.Store(0u, asuint(2.0f));
 }
 
@@ -1577,16 +1628,17 @@ TEST_F(HlslWriterTest, AccessStoreScalarF16) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         b.Store(var, 2_h);
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.hlsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.hlsl;
     EXPECT_EQ(output_.hlsl, R"(
 RWByteAddressBuffer v : register(u0);
-void foo() {
+void main() {
   v.Store<float16_t>(0u, float16_t(2.0h));
 }
 
@@ -1598,16 +1650,17 @@ TEST_F(HlslWriterTest, AccessStoreVectorElement) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         b.StoreVectorElement(var, 1_u, 2_f);
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.hlsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.hlsl;
     EXPECT_EQ(output_.hlsl, R"(
 RWByteAddressBuffer v : register(u0);
-void foo() {
+void main() {
   v.Store(4u, asuint(2.0f));
 }
 
@@ -1619,16 +1672,17 @@ TEST_F(HlslWriterTest, AccessStoreVectorElementF16) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         b.StoreVectorElement(var, 1_u, 2_h);
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.hlsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.hlsl;
     EXPECT_EQ(output_.hlsl, R"(
 RWByteAddressBuffer v : register(u0);
-void foo() {
+void main() {
   v.Store<float16_t>(2u, float16_t(2.0h));
 }
 
@@ -1640,16 +1694,17 @@ TEST_F(HlslWriterTest, AccessStoreVector) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
-        b.Store(var, b.Composite(ty.vec3<f32>(), 2_f, 3_f, 4_f));
+        b.Store(var, b.Composite(ty.vec3f(), 2_f, 3_f, 4_f));
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.hlsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.hlsl;
     EXPECT_EQ(output_.hlsl, R"(
 RWByteAddressBuffer v : register(u0);
-void foo() {
+void main() {
   v.Store3(0u, asuint(float3(2.0f, 3.0f, 4.0f)));
 }
 
@@ -1661,16 +1716,17 @@ TEST_F(HlslWriterTest, AccessStoreVectorF16) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
-        b.Store(var, b.Composite(ty.vec3<f16>(), 2_h, 3_h, 4_h));
+        b.Store(var, b.Composite(ty.vec3h(), 2_h, 3_h, 4_h));
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.hlsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.hlsl;
     EXPECT_EQ(output_.hlsl, R"(
 RWByteAddressBuffer v : register(u0);
-void foo() {
+void main() {
   v.Store<vector<float16_t, 3> >(0u, vector<float16_t, 3>(float16_t(2.0h), float16_t(3.0h), float16_t(4.0h)));
 }
 
@@ -1682,17 +1738,18 @@ TEST_F(HlslWriterTest, AccessStoreMatrixElement) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         b.StoreVectorElement(
             b.Access(ty.ptr<storage, vec4<f32>, core::Access::kReadWrite>(), var, 1_u), 2_u, 5_f);
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.hlsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.hlsl;
     EXPECT_EQ(output_.hlsl, R"(
 RWByteAddressBuffer v : register(u0);
-void foo() {
+void main() {
   v.Store(24u, asuint(5.0f));
 }
 
@@ -1704,17 +1761,18 @@ TEST_F(HlslWriterTest, AccessStoreMatrixElementF16) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         b.StoreVectorElement(
             b.Access(ty.ptr<storage, vec2<f16>, core::Access::kReadWrite>(), var, 2_u), 1_u, 5_h);
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.hlsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.hlsl;
     EXPECT_EQ(output_.hlsl, R"(
 RWByteAddressBuffer v : register(u0);
-void foo() {
+void main() {
   v.Store<float16_t>(10u, float16_t(5.0h));
 }
 
@@ -1726,17 +1784,18 @@ TEST_F(HlslWriterTest, AccessStoreMatrixColumn) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         b.Store(b.Access(ty.ptr<storage, vec4<f32>, core::Access::kReadWrite>(), var, 1_u),
                 b.Splat<vec4<f32>>(5_f));
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.hlsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.hlsl;
     EXPECT_EQ(output_.hlsl, R"(
 RWByteAddressBuffer v : register(u0);
-void foo() {
+void main() {
   v.Store4(16u, asuint((5.0f).xxxx));
 }
 
@@ -1748,17 +1807,18 @@ TEST_F(HlslWriterTest, AccessStoreMatrixColumnF16) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         b.Store(b.Access(ty.ptr<storage, vec3<f16>, core::Access::kReadWrite>(), var, 1_u),
                 b.Splat<vec3<f16>>(5_h));
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.hlsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.hlsl;
     EXPECT_EQ(output_.hlsl, R"(
 RWByteAddressBuffer v : register(u0);
-void foo() {
+void main() {
   v.Store<vector<float16_t, 3> >(8u, (float16_t(5.0h)).xxx);
 }
 
@@ -1770,13 +1830,14 @@ TEST_F(HlslWriterTest, AccessStoreMatrix) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         b.Store(var, b.Zero<mat4x4<f32>>());
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.hlsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.hlsl;
     EXPECT_EQ(output_.hlsl, R"(
 RWByteAddressBuffer v : register(u0);
 void v_1(uint offset, float4x4 obj) {
@@ -1786,7 +1847,7 @@ void v_1(uint offset, float4x4 obj) {
   v.Store4((offset + 48u), asuint(obj[3u]));
 }
 
-void foo() {
+void main() {
   v_1(0u, float4x4((0.0f).xxxx, (0.0f).xxxx, (0.0f).xxxx, (0.0f).xxxx));
 }
 
@@ -1798,13 +1859,14 @@ TEST_F(HlslWriterTest, AccessStoreMatrixF16) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         b.Store(var, b.Zero<mat4x4<f16>>());
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.hlsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.hlsl;
     EXPECT_EQ(output_.hlsl, R"(
 RWByteAddressBuffer v : register(u0);
 void v_1(uint offset, matrix<float16_t, 4, 4> obj) {
@@ -1814,7 +1876,7 @@ void v_1(uint offset, matrix<float16_t, 4, 4> obj) {
   v.Store<vector<float16_t, 4> >((offset + 24u), obj[3u]);
 }
 
-void foo() {
+void main() {
   v_1(0u, matrix<float16_t, 4, 4>((float16_t(0.0h)).xxxx, (float16_t(0.0h)).xxxx, (float16_t(0.0h)).xxxx, (float16_t(0.0h)).xxxx));
 }
 
@@ -1826,16 +1888,17 @@ TEST_F(HlslWriterTest, AccessStoreArrayElement) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         b.Store(b.Access(ty.ptr<storage, f32, core::Access::kReadWrite>(), var, 3_u), 1_f);
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.hlsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.hlsl;
     EXPECT_EQ(output_.hlsl, R"(
 RWByteAddressBuffer v : register(u0);
-void foo() {
+void main() {
   v.Store(12u, asuint(1.0f));
 }
 
@@ -1847,16 +1910,17 @@ TEST_F(HlslWriterTest, AccessStoreArrayElementF16) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         b.Store(b.Access(ty.ptr<storage, f16, core::Access::kReadWrite>(), var, 3_u), 1_h);
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.hlsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.hlsl;
     EXPECT_EQ(output_.hlsl, R"(
 RWByteAddressBuffer v : register(u0);
-void foo() {
+void main() {
   v.Store<float16_t>(6u, float16_t(1.0h));
 }
 
@@ -1868,14 +1932,15 @@ TEST_F(HlslWriterTest, AccessStoreArray) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         auto* ary = b.Let("ary", b.Zero<array<vec3<f32>, 5>>());
         b.Store(var, ary);
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.hlsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.hlsl;
     EXPECT_EQ(output_.hlsl, R"(
 RWByteAddressBuffer v : register(u0);
 void v_1(uint offset, float3 obj[5]) {
@@ -1891,12 +1956,11 @@ void v_1(uint offset, float3 obj[5]) {
       {
         v_2 = (v_3 + 1u);
       }
-      continue;
     }
   }
 }
 
-void foo() {
+void main() {
   float3 ary[5] = (float3[5])0;
   v_1(0u, ary);
 }
@@ -1914,16 +1978,17 @@ TEST_F(HlslWriterTest, AccessStoreStructMember) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         b.Store(b.Access(ty.ptr<storage, f32, core::Access::kReadWrite>(), var, 1_u), 3_f);
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.hlsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.hlsl;
     EXPECT_EQ(output_.hlsl, R"(
 RWByteAddressBuffer v : register(u0);
-void foo() {
+void main() {
   v.Store(4u, asuint(3.0f));
 }
 
@@ -1940,16 +2005,17 @@ TEST_F(HlslWriterTest, AccessStoreStructMemberF16) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         b.Store(b.Access(ty.ptr<storage, f16, core::Access::kReadWrite>(), var, 1_u), 3_h);
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.hlsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.hlsl;
     EXPECT_EQ(output_.hlsl, R"(
 RWByteAddressBuffer v : register(u0);
-void foo() {
+void main() {
   v.Store<float16_t>(4u, float16_t(3.0h));
 }
 
@@ -1976,16 +2042,17 @@ TEST_F(HlslWriterTest, AccessStoreStructNested) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         b.Store(b.Access(ty.ptr<storage, f32, core::Access::kReadWrite>(), var, 1_u, 0_u), 2_f);
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.hlsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.hlsl;
     EXPECT_EQ(output_.hlsl, R"(
 RWByteAddressBuffer v : register(u0);
-void foo() {
+void main() {
   v.Store(16u, asuint(2.0f));
 }
 
@@ -1995,7 +2062,7 @@ void foo() {
 TEST_F(HlslWriterTest, AccessStoreStruct) {
     auto* Inner = ty.Struct(mod.symbols.New("Inner"), {
                                                           {mod.symbols.New("s"), ty.f32()},
-                                                          {mod.symbols.New("t"), ty.vec3<f32>()},
+                                                          {mod.symbols.New("t"), ty.vec3f()},
                                                       });
     auto* Outer = ty.Struct(mod.symbols.New("Outer"), {
                                                           {mod.symbols.New("x"), ty.f32()},
@@ -2011,14 +2078,15 @@ TEST_F(HlslWriterTest, AccessStoreStruct) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         auto* s = b.Let("s", b.Zero(SB));
         b.Store(var, s);
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.hlsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.hlsl;
     EXPECT_EQ(output_.hlsl, R"(struct Inner {
   float s;
   float3 t;
@@ -2053,7 +2121,7 @@ void v_4(uint offset, SB obj) {
   v_2((offset + 16u), v_5);
 }
 
-void foo() {
+void main() {
   SB s = (SB)0;
   v_4(0u, s);
 }
@@ -2081,14 +2149,15 @@ TEST_F(HlslWriterTest, AccessStoreStructComplex) {
     var->SetBindingPoint(0, 0);
 
     b.ir.root_block->Append(var);
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         auto* s = b.Let("s", b.Zero(SB));
         b.Store(var, s);
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.hlsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.hlsl;
     EXPECT_EQ(output_.hlsl, R"(struct Inner {
   float3x3 s;
   float3 t[5];
@@ -2119,7 +2188,6 @@ void v_1(uint offset, float3 obj[5]) {
       {
         v_2 = (v_3 + 1u);
       }
-      continue;
     }
   }
 }
@@ -2148,7 +2216,7 @@ void v_9(uint offset, SB obj) {
   v_7((offset + 16u), v_10);
 }
 
-void foo() {
+void main() {
   SB s = (SB)0;
   v_9(0u, s);
 }
@@ -2159,25 +2227,26 @@ void foo() {
 TEST_F(HlslWriterTest, AccessChainReused) {
     auto* sb = ty.Struct(mod.symbols.New("SB"), {
                                                     {mod.symbols.New("a"), ty.i32()},
-                                                    {mod.symbols.New("b"), ty.vec3<f32>()},
+                                                    {mod.symbols.New("b"), ty.vec3f()},
                                                 });
 
     auto* var = b.Var("v", storage, sb, core::Access::kReadWrite);
     var->SetBindingPoint(0, 0);
     b.ir.root_block->Append(var);
 
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
-        auto* x = b.Access(ty.ptr(storage, ty.vec3<f32>(), core::Access::kReadWrite), var, 1_u);
+        auto* x = b.Access(ty.ptr(storage, ty.vec3f(), core::Access::kReadWrite), var, 1_u);
         b.Let("b", b.LoadVectorElement(x, 1_u));
         b.Let("c", b.LoadVectorElement(x, 2_u));
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.hlsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.hlsl;
     EXPECT_EQ(output_.hlsl, R"(
 RWByteAddressBuffer v : register(u0);
-void foo() {
+void main() {
   float b = asfloat(v.Load(20u));
   float c = asfloat(v.Load(24u));
 }
@@ -2188,29 +2257,87 @@ void foo() {
 TEST_F(HlslWriterTest, UniformAccessChainReused) {
     auto* sb = ty.Struct(mod.symbols.New("SB"), {
                                                     {mod.symbols.New("c"), ty.f32()},
-                                                    {mod.symbols.New("d"), ty.vec3<f32>()},
+                                                    {mod.symbols.New("d"), ty.vec3f()},
                                                 });
 
     auto* var = b.Var("v", uniform, sb, core::Access::kRead);
     var->SetBindingPoint(0, 0);
     b.ir.root_block->Append(var);
 
-    auto* func = b.Function("foo", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
-        auto* x = b.Access(ty.ptr(uniform, ty.vec3<f32>(), core::Access::kRead), var, 1_u);
+        auto* x = b.Access(ty.ptr(uniform, ty.vec3f(), core::Access::kRead), var, 1_u);
         b.Let("b", b.LoadVectorElement(x, 1_u));
         b.Let("c", b.LoadVectorElement(x, 2_u));
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.hlsl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.hlsl;
     EXPECT_EQ(output_.hlsl, R"(
 cbuffer cbuffer_v : register(b0) {
   uint4 v[2];
 };
-void foo() {
+void main() {
   float b = asfloat(v[1u].y);
   float c = asfloat(v[1u].z);
+}
+
+)");
+}
+
+TEST_F(HlslWriterTest, AccessStorage_OffsetFromUniform) {
+    auto* arr = b.Var<storage, array<vec3<f32>, 10>, core::Access::kReadWrite>("array");
+    arr->SetBindingPoint(1, 2);
+
+    auto* vec2_u32 = b.Var<storage, vec2<u32>, core::Access::kReadWrite>("vec2_u32");
+    vec2_u32->SetBindingPoint(1, 3);
+
+    auto* vec4_f16 = b.Var<storage, vec4<f16>, core::Access::kReadWrite>("vec4_f16");
+    vec4_f16->SetBindingPoint(1, 4);
+
+    b.ir.root_block->Append(arr);
+    b.ir.root_block->Append(vec2_u32);
+    b.ir.root_block->Append(vec4_f16);
+
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
+    b.Append(func->Block(), [&] {
+        b.Let("a",
+              b.Load(b.Access(ty.ptr<storage, vec3<f32>, core::Access::kReadWrite>(), arr, 3_u)));
+        b.Store(b.Access(ty.ptr<storage, vec3<f32>, core::Access::kReadWrite>(), arr, 5_u),
+                b.Zero<vec3<f32>>());
+
+        b.Let("b", b.LoadVectorElement(vec2_u32, 1_u));
+        b.StoreVectorElement(vec2_u32, 1_u, 42_u);
+
+        b.Let("c", b.LoadVectorElement(vec4_f16, 3_u));
+        b.StoreVectorElement(vec4_f16, 3_u, 43_h);
+
+        b.Return(func);
+    });
+
+    Options options;
+    options.entry_point_name = "main";
+    options.array_offset_from_uniform.ubo_binding = {11, 12};
+    options.array_offset_from_uniform.bindpoint_to_offset_index[{1, 2}] = 3;
+    options.array_offset_from_uniform.bindpoint_to_offset_index[{1, 3}] = 4;
+    options.array_offset_from_uniform.bindpoint_to_offset_index[{1, 4}] = 5;
+    auto result = Generate(options);
+    ASSERT_EQ(result, Success) << result.Failure().reason << output_.hlsl;
+    EXPECT_EQ(output_.hlsl, R"(
+RWByteAddressBuffer array_1 : register(u2, space1);
+RWByteAddressBuffer vec2_u32 : register(u3, space1);
+RWByteAddressBuffer vec4_f16 : register(u4, space1);
+cbuffer cbuffer_tint_storage_buffer_dynamic_offsets : register(b12, space11) {
+  uint4 tint_storage_buffer_dynamic_offsets[2];
+};
+void main() {
+  float3 a = asfloat(array_1.Load3((48u + tint_storage_buffer_dynamic_offsets[0u].w)));
+  array_1.Store3((80u + tint_storage_buffer_dynamic_offsets[0u].w), asuint((0.0f).xxx));
+  uint b = vec2_u32.Load((4u + tint_storage_buffer_dynamic_offsets[1u].x));
+  vec2_u32.Store((4u + tint_storage_buffer_dynamic_offsets[1u].x), 42u);
+  float16_t c = vec4_f16.Load<float16_t>((6u + tint_storage_buffer_dynamic_offsets[1u].y));
+  vec4_f16.Store<float16_t>((6u + tint_storage_buffer_dynamic_offsets[1u].y), float16_t(43.0h));
 }
 
 )");

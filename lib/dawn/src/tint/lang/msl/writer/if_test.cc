@@ -33,16 +33,18 @@ namespace tint::msl::writer {
 namespace {
 
 TEST_F(MslWriterTest, If) {
-    auto* func = b.Function("foo", ty.void_());
+    auto* func = b.ComputeFunction("entry");
     b.Append(func->Block(), [&] {
         auto* if_ = b.If(true);
         b.Append(if_->True(), [&] { b.ExitIf(if_); });
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.msl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_.msl;
     EXPECT_EQ(output_.msl, MetalHeader() + R"(
-void foo() {
+[[max_total_threads_per_threadgroup(1)]]
+kernel void entry() {
   if (true) {
   }
 }
@@ -50,7 +52,7 @@ void foo() {
 }
 
 TEST_F(MslWriterTest, IfWithElseIf) {
-    auto* func = b.Function("foo", ty.void_());
+    auto* func = b.ComputeFunction("entry");
     b.Append(func->Block(), [&] {
         auto* if_ = b.If(true);
         b.Append(if_->True(), [&] { b.ExitIf(if_); });
@@ -62,9 +64,11 @@ TEST_F(MslWriterTest, IfWithElseIf) {
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.msl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_.msl;
     EXPECT_EQ(output_.msl, MetalHeader() + R"(
-void foo() {
+[[max_total_threads_per_threadgroup(1)]]
+kernel void entry() {
   if (true) {
   } else {
     if (false) {
@@ -75,7 +79,7 @@ void foo() {
 }
 
 TEST_F(MslWriterTest, IfWithElse) {
-    auto* func = b.Function("foo", ty.void_());
+    auto* func = b.ComputeFunction("entry");
     b.Append(func->Block(), [&] {
         auto* if_ = b.If(true);
         b.Append(if_->True(), [&] { b.ExitIf(if_); });
@@ -83,9 +87,11 @@ TEST_F(MslWriterTest, IfWithElse) {
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.msl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_.msl;
     EXPECT_EQ(output_.msl, MetalHeader() + R"(
-void foo() {
+[[max_total_threads_per_threadgroup(1)]]
+kernel void entry() {
   if (true) {
   } else {
     return;
@@ -95,7 +101,7 @@ void foo() {
 }
 
 TEST_F(MslWriterTest, IfBothBranchesReturn) {
-    auto* func = b.Function("foo", ty.void_());
+    auto* func = b.ComputeFunction("entry");
     b.Append(func->Block(), [&] {
         auto* if_ = b.If(true);
         b.Append(if_->True(), [&] { b.Return(func); });
@@ -103,9 +109,11 @@ TEST_F(MslWriterTest, IfBothBranchesReturn) {
         b.Unreachable();
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.msl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_.msl;
     EXPECT_EQ(output_.msl, MetalHeader() + R"(
-void foo() {
+[[max_total_threads_per_threadgroup(1)]]
+kernel void entry() {
   if (true) {
     return;
   } else {
@@ -116,11 +124,46 @@ void foo() {
 )");
 }
 
+TEST_F(MslWriterTest, IfBothBranchesReturn_NonVoidFunction) {
+    auto* func = b.Function("foo", ty.u32());
+    b.Append(func->Block(), [&] {
+        auto* if_ = b.If(true);
+        b.Append(if_->True(), [&] { b.Return(func, 0_u); });
+        b.Append(if_->False(), [&] { b.Return(func, 1_u); });
+        b.Unreachable();
+    });
+
+    auto* eb = b.ComputeFunction("entry");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_.msl;
+    EXPECT_EQ(output_.msl, MetalHeader() + R"(
+uint foo() {
+  if (true) {
+    return 0u;
+  } else {
+    return 1u;
+  }
+  /* unreachable */
+  return 0u;
+}
+
+[[max_total_threads_per_threadgroup(1)]]
+kernel void entry() {
+  uint const x = foo();
+}
+)");
+}
+
 TEST_F(MslWriterTest, IfWithSinglePhi) {
-    auto* func = b.Function("foo", ty.void_());
+    auto* func = b.ComputeFunction("entry");
     b.Append(func->Block(), [&] {
         auto* i = b.If(true);
-        i->SetResults(b.InstructionResult(ty.i32()));
+        i->SetResult(b.InstructionResult(ty.i32()));
         b.Append(i->True(), [&] {  //
             b.ExitIf(i, 10_i);
         });
@@ -130,9 +173,11 @@ TEST_F(MslWriterTest, IfWithSinglePhi) {
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.msl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_.msl;
     EXPECT_EQ(output_.msl, MetalHeader() + R"(
-void foo() {
+[[max_total_threads_per_threadgroup(1)]]
+kernel void entry() {
   int v = 0;
   if (true) {
     v = 10;
@@ -144,7 +189,7 @@ void foo() {
 }
 
 TEST_F(MslWriterTest, IfWithMultiPhi) {
-    auto* func = b.Function("foo", ty.void_());
+    auto* func = b.ComputeFunction("entry");
     b.Append(func->Block(), [&] {
         auto* i = b.If(true);
         i->SetResults(b.InstructionResult(ty.i32()), b.InstructionResult(ty.bool_()));
@@ -157,9 +202,11 @@ TEST_F(MslWriterTest, IfWithMultiPhi) {
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.msl;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_.msl;
     EXPECT_EQ(output_.msl, MetalHeader() + R"(
-void foo() {
+[[max_total_threads_per_threadgroup(1)]]
+kernel void entry() {
   int v = 0;
   bool v_1 = false;
   if (true) {
@@ -187,7 +234,14 @@ TEST_F(MslWriterTest, IfWithMultiPhiReturn1) {
         b.Return(func, i->Result(0));
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.msl;
+    auto* eb = b.ComputeFunction("entry");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_.msl;
     EXPECT_EQ(output_.msl, MetalHeader() + R"(
 int foo() {
   int v = 0;
@@ -200,6 +254,11 @@ int foo() {
     v_1 = false;
   }
   return v;
+}
+
+[[max_total_threads_per_threadgroup(1)]]
+kernel void entry() {
+  int const x = foo();
 }
 )");
 }
@@ -218,7 +277,14 @@ TEST_F(MslWriterTest, IfWithMultiPhiReturn2) {
         b.Return(func, i->Result(1));
     });
 
-    ASSERT_TRUE(Generate()) << err_ << output_.msl;
+    auto* eb = b.ComputeFunction("entry");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_.msl;
     EXPECT_EQ(output_.msl, MetalHeader() + R"(
 bool foo() {
   int v = 0;
@@ -231,6 +297,11 @@ bool foo() {
     v_1 = false;
   }
   return v_1;
+}
+
+[[max_total_threads_per_threadgroup(1)]]
+kernel void entry() {
+  bool const x = foo();
 }
 )");
 }

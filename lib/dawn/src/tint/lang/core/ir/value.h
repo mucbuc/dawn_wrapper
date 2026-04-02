@@ -81,7 +81,11 @@ class Value : public Castable<Value> {
     ~Value() override;
 
     /// @returns the type of the value
-    virtual const core::type::Type* Type() const { return nullptr; }
+    const core::type::Type* Type() const { return type_; }
+
+    /// Sets the type of the value to @p type
+    /// @param type the new type of the value
+    void SetType(const core::type::Type* type) { type_ = type; }
 
     /// Destroys the Value. Once called, the Value must not be used again.
     /// The Value must not be in use by any instruction.
@@ -104,7 +108,7 @@ class Value : public Castable<Value> {
 
     /// @returns the set of usages of this value. An instruction may appear multiple times if it
     /// uses the value for multiple different operands.
-    const Hashset<Usage, 4>& UsagesUnsorted() { return uses_; }
+    const Hashset<Usage, 4>& UsagesUnsorted() const { return uses_; }
 
     /// @returns a sorted list of usages of this value. The usages are in the order of
     /// <instruction, operand index> where the instructions are ordered earliest instruction to
@@ -144,7 +148,8 @@ class Value : public Castable<Value> {
 
   protected:
     /// Constructor
-    Value();
+    /// @param type the type of the value
+    explicit Value(const core::type::Type* type);
 
   private:
     /// Flags applied to an Value
@@ -153,6 +158,7 @@ class Value : public Castable<Value> {
         kDead,
     };
 
+    const core::type::Type* type_ = nullptr;
     Hashset<Usage, 4> uses_;
 
     /// Bitset of value flags

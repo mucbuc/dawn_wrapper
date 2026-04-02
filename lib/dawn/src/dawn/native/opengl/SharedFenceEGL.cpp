@@ -30,10 +30,11 @@
 #include <utility>
 
 #include "dawn/native/ChainUtils.h"
-#include "dawn/native/SystemHandle.h"
 #include "dawn/native/opengl/DeviceGL.h"
+#include "dawn/native/opengl/DisplayEGL.h"
 #include "dawn/native/opengl/EGLFunctions.h"
 #include "dawn/native/opengl/PhysicalDeviceGL.h"
+#include "dawn/utils/SystemHandle.h"
 
 namespace dawn::native::opengl {
 ResultOrError<Ref<SharedFence>> SharedFenceEGL::Create(
@@ -44,8 +45,7 @@ ResultOrError<Ref<SharedFence>> SharedFenceEGL::Create(
     DAWN_INVALID_IF(descriptor->handle < 0, "File descriptor (%d) was invalid.",
                     descriptor->handle);
 
-    SystemHandle handleForSyncCreation;
-    DAWN_TRY_ASSIGN(handleForSyncCreation, SystemHandle::Duplicate(descriptor->handle));
+    utils::SystemHandle handleForSyncCreation = utils::SystemHandle::Duplicate(descriptor->handle);
 
     const EGLint attribs[] = {
         EGL_SYNC_NATIVE_FENCE_FD_ANDROID,
@@ -53,29 +53,52 @@ ResultOrError<Ref<SharedFence>> SharedFenceEGL::Create(
         EGL_NONE,
     };
 
-    DisplayEGL* display = ToBackend(device->GetPhysicalDevice())->GetDisplay();
+    return device->ExecuteGL(
+        ExecutionQueueBase::SubmitMode::Passive,
+        [&](const OpenGLFunctions& gl) -> ResultOrError<Ref<SharedFence>> {
+            DisplayEGL* display = ToBackend(device->GetPhysicalDevice())->GetDisplay();
+            Ref<WrappedEGLSync> sync;
+            EGLint fdForSharedFence;
 
-    Ref<WrappedEGLSync> sync;
-    DAWN_TRY_ASSIGN(sync, WrappedEGLSync::Create(display, EGL_SYNC_NATIVE_FENCE_ANDROID, attribs));
+            DAWN_TRY_ASSIGN(
+                sync, WrappedEGLSync::Create(display, gl, EGL_SYNC_NATIVE_FENCE_ANDROID, attribs));
 
-    // If EGLSync creation succeeded, the sync now owns the handle.
-    handleForSyncCreation.Detach();
+            // If EGLSync creation succeeded, the sync now owns the handle.
+            handleForSyncCreation.Detach();
 
-    EGLint fdForSharedFence;
-    DAWN_TRY_ASSIGN(fdForSharedFence, sync->DupFD());
+            DAWN_TRY_ASSIGN(fdForSharedFence, sync->DupFD(gl));
 
-    auto fence = AcquireRef(new SharedFenceEGL(device, label, wgpu::SharedFenceType::SyncFD,
-                                               SystemHandle::Acquire(fdForSharedFence), sync));
-    return fence;
+            auto fence = AcquireRef(
+                new SharedFenceEGL(device, label, wgpu::SharedFenceType::SyncFD,
+                                   utils::SystemHandle::Acquire(fdForSharedFence), sync));
+            return fence;
+        });
+
 #else
     DAWN_UNREACHABLE();
 #endif
 }
 
+ResultOrError<Ref<SharedFence>> SharedFenceEGL::Create(
+    Device* device,
+    StringView label,
+    const SharedFenceEGLSyncDescriptor* descriptor) {
+    DAWN_INVALID_IF(descriptor->sync == EGL_NO_SYNC, "EGLSync is null.");
+
+    DisplayEGL* display = ToBackend(device->GetPhysicalDevice())->GetDisplay();
+
+    Ref<WrappedEGLSync> sync;
+    DAWN_TRY_ASSIGN(sync, WrappedEGLSync::AcquireExternal(display, descriptor->sync));
+
+    auto fence = AcquireRef(new SharedFenceEGL(device, label, wgpu::SharedFenceType::EGLSync,
+                                               utils::SystemHandle(), sync));
+    return fence;
+}
+
 SharedFenceEGL::SharedFenceEGL(Device* device,
                                StringView label,
                                wgpu::SharedFenceType type,
-                               SystemHandle&& handle,
+                               utils::SystemHandle&& handle,
                                Ref<WrappedEGLSync> sync)
     : SharedFence(device, label), mType(type), mHandle(std::move(handle)), mSync(sync) {}
 
@@ -83,8 +106,12 @@ MaybeError SharedFenceEGL::ServerWait(uint64_t signaledValue) {
     // All GL sync objects are binary, this should be validated at SharedTextureMemory::BeginAccess.
     DAWN_ASSERT(signaledValue == 1);
 
-    DAWN_TRY(mSync->Wait());
-    return {};
+    Device* device = ToBackend(GetDevice());
+    Ref<WrappedEGLSync> sync = mSync;
+    return device->EnqueueGL([sync](const OpenGLFunctions& gl) -> MaybeError {
+        DAWN_TRY(sync->Wait(gl));
+        return {};
+    });
 }
 
 MaybeError SharedFenceEGL::ExportInfoImpl(UnpackedPtr<SharedFenceExportInfo>& info) const {
@@ -103,6 +130,17 @@ MaybeError SharedFenceEGL::ExportInfoImpl(UnpackedPtr<SharedFenceExportInfo>& in
             }
             break;
 #endif
+
+        case wgpu::SharedFenceType::EGLSync:
+            DAWN_TRY(info.ValidateSubset<SharedFenceEGLSyncExportInfo>());
+            {
+                SharedFenceEGLSyncExportInfo* exportInfo = info.Get<SharedFenceEGLSyncExportInfo>();
+                if (exportInfo != nullptr) {
+                    exportInfo->sync = mSync->Get();
+                }
+            }
+            break;
+
         default:
             DAWN_UNREACHABLE();
     }

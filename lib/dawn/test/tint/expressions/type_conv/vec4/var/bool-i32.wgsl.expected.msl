@@ -1,11 +1,13 @@
 #include <metal_stdlib>
-
 using namespace metal;
-struct tint_private_vars_struct {
-  bool4 u;
+
+struct tint_module_vars_struct {
+  thread bool4* u;
 };
 
-void f(thread tint_private_vars_struct* const tint_private_vars) {
-  int4 const v = int4((*(tint_private_vars)).u);
+[[max_total_threads_per_threadgroup(1)]]
+kernel void f() {
+  thread bool4 u = bool4(true);
+  tint_module_vars_struct const tint_module_vars = tint_module_vars_struct{.u=(&u)};
+  int4 const v = int4((*tint_module_vars.u));
 }
-

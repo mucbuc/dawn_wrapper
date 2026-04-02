@@ -43,10 +43,16 @@ if(TINT_BUILD_SPV_WRITER)
 tint_add_target(tint_lang_spirv_writer_raise lib
   lang/spirv/writer/raise/builtin_polyfill.cc
   lang/spirv/writer/raise/builtin_polyfill.h
+  lang/spirv/writer/raise/case_switch_to_if_else.cc
+  lang/spirv/writer/raise/case_switch_to_if_else.h
   lang/spirv/writer/raise/expand_implicit_splats.cc
   lang/spirv/writer/raise/expand_implicit_splats.h
+  lang/spirv/writer/raise/fork_explicit_layout_types.cc
+  lang/spirv/writer/raise/fork_explicit_layout_types.h
   lang/spirv/writer/raise/handle_matrix_arithmetic.cc
   lang/spirv/writer/raise/handle_matrix_arithmetic.h
+  lang/spirv/writer/raise/keep_binding_array_as_pointer.cc
+  lang/spirv/writer/raise/keep_binding_array_as_pointer.h
   lang/spirv/writer/raise/merge_return.cc
   lang/spirv/writer/raise/merge_return.h
   lang/spirv/writer/raise/pass_matrix_by_pointer.cc
@@ -55,8 +61,12 @@ tint_add_target(tint_lang_spirv_writer_raise lib
   lang/spirv/writer/raise/raise.h
   lang/spirv/writer/raise/remove_unreachable_in_loop_continuing.cc
   lang/spirv/writer/raise/remove_unreachable_in_loop_continuing.h
+  lang/spirv/writer/raise/resource_table_helper.cc
+  lang/spirv/writer/raise/resource_table_helper.h
   lang/spirv/writer/raise/shader_io.cc
   lang/spirv/writer/raise/shader_io.h
+  lang/spirv/writer/raise/unary_polyfill.cc
+  lang/spirv/writer/raise/unary_polyfill.h
   lang/spirv/writer/raise/var_for_dynamic_index.cc
   lang/spirv/writer/raise/var_for_dynamic_index.h
 )
@@ -64,7 +74,6 @@ tint_add_target(tint_lang_spirv_writer_raise lib
 tint_target_add_dependencies(tint_lang_spirv_writer_raise lib
   tint_api_common
   tint_lang_core
-  tint_lang_core_common
   tint_lang_core_constant
   tint_lang_core_intrinsic
   tint_lang_core_ir
@@ -74,19 +83,16 @@ tint_target_add_dependencies(tint_lang_spirv_writer_raise lib
   tint_lang_spirv_intrinsic
   tint_lang_spirv_ir
   tint_lang_spirv_type
+  tint_utils
   tint_utils_containers
   tint_utils_diagnostic
   tint_utils_ice
-  tint_utils_id
   tint_utils_macros
   tint_utils_math
   tint_utils_memory
-  tint_utils_reflection
-  tint_utils_result
   tint_utils_rtti
   tint_utils_symbol
   tint_utils_text
-  tint_utils_traits
 )
 
 tint_target_add_external_dependencies(tint_lang_spirv_writer_raise lib
@@ -114,12 +120,16 @@ if(TINT_BUILD_SPV_WRITER)
 ################################################################################
 tint_add_target(tint_lang_spirv_writer_raise_test test
   lang/spirv/writer/raise/builtin_polyfill_test.cc
+  lang/spirv/writer/raise/case_switch_to_if_else_test.cc
   lang/spirv/writer/raise/expand_implicit_splats_test.cc
+  lang/spirv/writer/raise/fork_explicit_layout_types_test.cc
   lang/spirv/writer/raise/handle_matrix_arithmetic_test.cc
+  lang/spirv/writer/raise/keep_binding_array_as_pointer_test.cc
   lang/spirv/writer/raise/merge_return_test.cc
   lang/spirv/writer/raise/pass_matrix_by_pointer_test.cc
   lang/spirv/writer/raise/remove_unreachable_in_loop_continuing_test.cc
   lang/spirv/writer/raise/shader_io_test.cc
+  lang/spirv/writer/raise/unary_polyfill_test.cc
   lang/spirv/writer/raise/var_for_dynamic_index_test.cc
 )
 
@@ -129,21 +139,23 @@ tint_target_add_dependencies(tint_lang_spirv_writer_raise_test test
   tint_lang_core_constant
   tint_lang_core_intrinsic
   tint_lang_core_ir
+  tint_lang_core_ir_transform
   tint_lang_core_ir_transform_test
   tint_lang_core_type
+  tint_lang_spirv
+  tint_lang_spirv_intrinsic
+  tint_lang_spirv_ir
+  tint_lang_spirv_type
+  tint_utils
   tint_utils_containers
   tint_utils_diagnostic
   tint_utils_ice
-  tint_utils_id
   tint_utils_macros
   tint_utils_math
   tint_utils_memory
-  tint_utils_reflection
-  tint_utils_result
   tint_utils_rtti
   tint_utils_symbol
   tint_utils_text
-  tint_utils_traits
 )
 
 tint_target_add_external_dependencies(tint_lang_spirv_writer_raise_test test
@@ -153,6 +165,7 @@ tint_target_add_external_dependencies(tint_lang_spirv_writer_raise_test test
 
 if(TINT_BUILD_SPV_WRITER)
   tint_target_add_dependencies(tint_lang_spirv_writer_raise_test test
+    tint_lang_spirv_writer_common
     tint_lang_spirv_writer_raise
   )
 endif(TINT_BUILD_SPV_WRITER)

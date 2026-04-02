@@ -40,21 +40,21 @@
 #include "dawn/native/PerStage.h"
 #include "dawn/native/PipelineLayout.h"
 #include "dawn/native/ShaderModule.h"
+#include "dawn/native/dawn_platform.h"
 #include "partition_alloc/pointers/raw_ptr.h"
 
-#include "dawn/native/dawn_platform.h"
-
 namespace dawn::native {
+
+class ComputePipelineBase;
+class RenderPipelineBase;
 
 ResultOrError<ShaderModuleEntryPoint> ValidateProgrammableStage(DeviceBase* device,
                                                                 const ShaderModuleBase* module,
                                                                 StringView entryPointName,
-                                                                uint32_t constantCount,
+                                                                size_t constantCount,
                                                                 const ConstantEntry* constants,
                                                                 const PipelineLayoutBase* layout,
                                                                 SingleShaderStage stage);
-
-WGPUCreatePipelineAsyncStatus CreatePipelineAsyncStatusFromErrorType(InternalErrorType error);
 
 struct ProgrammableStage {
     Ref<ShaderModuleBase> module;
@@ -66,9 +66,17 @@ struct ProgrammableStage {
     PipelineConstantEntries constants;
 };
 
+uint32_t GetRawBits(ImmediateConstantMask bits);
+
 class PipelineBase : public ApiObjectBase, public CachedObject {
   public:
     ~PipelineBase() override;
+
+    virtual const ComputePipelineBase* AsComputePipeline() const { return nullptr; }
+    virtual ComputePipelineBase* AsComputePipeline() { return nullptr; }
+
+    virtual const RenderPipelineBase* AsRenderPipeline() const { return nullptr; }
+    virtual RenderPipelineBase* AsRenderPipeline() { return nullptr; }
 
     PipelineLayoutBase* GetLayout();
     const PipelineLayoutBase* GetLayout() const;
@@ -77,6 +85,8 @@ class PipelineBase : public ApiObjectBase, public CachedObject {
     const PerStage<ProgrammableStage>& GetAllStages() const;
     bool HasStage(SingleShaderStage stage) const;
     wgpu::ShaderStage GetStageMask() const;
+    const ImmediateConstantMask& GetImmediateMask() const;
+    virtual ImmediateConstantMask GetUserImmediateSlots() const;
 
     ResultOrError<Ref<BindGroupLayoutBase>> GetBindGroupLayout(uint32_t groupIndex);
 
@@ -90,8 +100,19 @@ class PipelineBase : public ApiObjectBase, public CachedObject {
     using ScopedUseShaderPrograms = PerStage<ShaderModuleBase::ScopedUseTintProgram>;
     ScopedUseShaderPrograms UseShaderPrograms();
 
-    // Initialize() should only be called once by the frontend.
+    // Initialize() should only be called once by the frontend when the shaders are ready.
     MaybeError Initialize(std::optional<ScopedUseShaderPrograms> scopedUsePrograms = std::nullopt);
+
+    uint32_t GetImmediateConstantSize() const;
+
+    void SetImmediateMaskForTesting(ImmediateConstantMask immediateConstantMask);
+
+    // Returns for each ExternalTexture bind point for this pipeline, which sampler bind point it is
+    // used with (if any). If it is used with multiple samplers, only one is returned and a warning
+    // emitted.
+    using SamplerForExternalTextureMap =
+        absl::flat_hash_map<APIBindPoint, std::optional<BindPoint>>;
+    SamplerForExternalTextureMap ComputeSamplerForExternalTextureMap() const;
 
   protected:
     PipelineBase(DeviceBase* device,
@@ -100,10 +121,14 @@ class PipelineBase : public ApiObjectBase, public CachedObject {
                  std::vector<StageAndDescriptor> stages);
     PipelineBase(DeviceBase* device, ObjectBase::ErrorTag tag, StringView label);
 
+    ImmediateConstantMask mImmediateMask = ImmediateConstantMask(0);
+    ImmediateConstantMask mUserImmdiateSlots = ImmediateConstantMask(0);
+
   private:
     MaybeError ValidateGetBindGroupLayout(BindGroupIndex group);
 
-    virtual MaybeError InitializeImpl() = 0;
+    // Overridden by child classes to perform their initialization when the shaders are ready.
+    virtual MaybeError InitializeWithShaders() = 0;
 
     wgpu::ShaderStage mStageMask = wgpu::ShaderStage::None;
     PerStage<ProgrammableStage> mStages;

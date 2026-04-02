@@ -33,6 +33,7 @@
 #include <utility>
 #include <vector>
 
+#include "dawn/common/Assert.h"
 #include "dawn/native/vulkan/DeviceVk.h"
 #include "dawn/native/vulkan/UtilsVulkan.h"
 #include "dawn/native/vulkan/VulkanError.h"
@@ -185,17 +186,31 @@ class SharedTextureMemoryTestAndroidVulkanBackend
     }
 };
 
-class SharedTextureMemoryTestAndroidOpenGLESBackend
+class SharedTextureMemoryTestAndroidSyncFDOpenGLESBackend
     : public SharedTextureMemoryTestAndroidBackend<SharedTextureMemoryTestBackend> {
   public:
     static SharedTextureMemoryTestBackend* GetInstance() {
-        static SharedTextureMemoryTestAndroidOpenGLESBackend b;
+        static SharedTextureMemoryTestAndroidSyncFDOpenGLESBackend b;
         return &b;
     }
 
     std::vector<wgpu::FeatureName> RequiredFeatures(const wgpu::Adapter&) const override {
         return {wgpu::FeatureName::SharedTextureMemoryAHardwareBuffer,
                 wgpu::FeatureName::SharedFenceSyncFD};
+    }
+};
+
+class SharedTextureMemoryTestAndroidEGLSyncOpenGLESBackend
+    : public SharedTextureMemoryTestAndroidBackend<SharedTextureMemoryTestBackend> {
+  public:
+    static SharedTextureMemoryTestBackend* GetInstance() {
+        static SharedTextureMemoryTestAndroidEGLSyncOpenGLESBackend b;
+        return &b;
+    }
+
+    std::vector<wgpu::FeatureName> RequiredFeatures(const wgpu::Adapter&) const override {
+        return {wgpu::FeatureName::SharedTextureMemoryAHardwareBuffer,
+                wgpu::FeatureName::SharedFenceEGLSync};
     }
 };
 
@@ -253,14 +268,24 @@ TEST_P(SharedTextureMemoryTests, GPUWriteThenCPURead) {
     memory.EndAccess(texture, &endState);
 
     wgpu::SharedFenceExportInfo exportInfo;
-    wgpu::SharedFenceSyncFDExportInfo syncFdExportInfo;
-    exportInfo.nextInChain = &syncFdExportInfo;
-
     endState.fences[0].ExportInfo(&exportInfo);
 
+    // AHardwareBuffer_lock requires a fd to wait on. Otherwise we would need wait until the
+    // submitted work is finished here.
+    DAWN_TEST_UNSUPPORTED_IF(exportInfo.type != wgpu::SharedFenceType::SyncFD);
+
+    wgpu::SharedFenceSyncFDExportInfo syncFdExportInfo;
+    exportInfo.nextInChain = &syncFdExportInfo;
+    endState.fences[0].ExportInfo(&exportInfo);
+
+    // AHardwareBuffer_lock consumes the fd, so duplicate it before passing.
+    // The original fd will be closed when endState is destroyed.
+    const int dupFd = dup(syncFdExportInfo.handle);
+    EXPECT_GE(dupFd, 0);
+
     void* ptr;
-    EXPECT_EQ(AHardwareBuffer_lock(aHardwareBuffer, AHARDWAREBUFFER_USAGE_CPU_READ_OFTEN,
-                                   syncFdExportInfo.handle, nullptr, &ptr),
+    EXPECT_EQ(AHardwareBuffer_lock(aHardwareBuffer, AHARDWAREBUFFER_USAGE_CPU_READ_OFTEN, dupFd,
+                                   nullptr, &ptr),
               0);
 
     auto* pixels = static_cast<utils::RGBA8*>(ptr);
@@ -277,6 +302,9 @@ TEST_P(SharedTextureMemoryTests, GPUWriteThenCPURead) {
 
 // Test writing the memory on the CPU, then sampling on the device.
 TEST_P(SharedTextureMemoryTests, CPUWriteThenGPURead) {
+    // TODO(crbug.com/444741058): Fails on Intel-based brya devices running Android Desktop.
+    DAWN_SUPPRESS_TEST_IF(IsVulkan() && IsIntel() && IsAndroid());
+
     AHardwareBuffer_Desc aHardwareBufferDesc = {
         .width = 4,
         .height = 4,
@@ -348,299 +376,6 @@ TEST_P(SharedTextureMemoryTests, CPUWriteThenGPURead) {
                       {aHardwareBufferDesc.width, aHardwareBufferDesc.height});
 }
 
-// Test validation of an incorrectly-configured SharedTextureMemoryAHardwareBufferProperties
-// instance.
-TEST_P(SharedTextureMemoryTests, InvalidSharedTextureMemoryAHardwareBufferProperties) {
-    DAWN_TEST_UNSUPPORTED_IF(!SupportsFeatures({wgpu::FeatureName::YCbCrVulkanSamplers}));
-
-    AHardwareBuffer_Desc aHardwareBufferDesc = {
-        .width = 4,
-        .height = 4,
-        .layers = 1,
-        .format = AHARDWAREBUFFER_FORMAT_R8G8B8A8_UNORM,
-    };
-    AHardwareBuffer* aHardwareBuffer;
-    EXPECT_EQ(AHardwareBuffer_allocate(&aHardwareBufferDesc, &aHardwareBuffer), 0);
-
-    wgpu::SharedTextureMemoryAHardwareBufferDescriptor stmAHardwareBufferDesc;
-    stmAHardwareBufferDesc.handle = aHardwareBuffer;
-
-    wgpu::SharedTextureMemoryDescriptor desc;
-    desc.nextInChain = &stmAHardwareBufferDesc;
-
-    wgpu::SharedTextureMemory memory = device.ImportSharedTextureMemory(&desc);
-
-    wgpu::SharedTextureMemoryProperties properties;
-    wgpu::SharedTextureMemoryAHardwareBufferProperties ahbProperties = {};
-    wgpu::YCbCrVkDescriptor yCbCrDesc;
-
-    // Chaining anything onto the passed-in YCbCrVkDescriptor is invalid.
-    yCbCrDesc.nextInChain = &stmAHardwareBufferDesc;
-    ahbProperties.yCbCrInfo = yCbCrDesc;
-    properties.nextInChain = &ahbProperties;
-
-    ASSERT_DEVICE_ERROR(memory.GetProperties(&properties));
-}
-
-// Test querying YCbCr info from the Device.
-TEST_P(SharedTextureMemoryTests, QueryYCbCrInfoFromDevice) {
-    DAWN_TEST_UNSUPPORTED_IF(!SupportsFeatures({wgpu::FeatureName::YCbCrVulkanSamplers}));
-
-    AHardwareBuffer_Desc aHardwareBufferDesc = {
-        .width = 4,
-        .height = 4,
-        .layers = 1,
-        .format = AHARDWAREBUFFER_FORMAT_R8G8B8A8_UNORM,
-    };
-    AHardwareBuffer* aHardwareBuffer;
-    EXPECT_EQ(AHardwareBuffer_allocate(&aHardwareBufferDesc, &aHardwareBuffer), 0);
-
-    // Query the YCbCr properties of the AHardwareBuffer.
-    auto deviceVk = native::vulkan::ToBackend(native::FromAPI(device.Get()));
-
-    VkAndroidHardwareBufferPropertiesANDROID bufferProperties = {
-        .sType = VK_STRUCTURE_TYPE_ANDROID_HARDWARE_BUFFER_PROPERTIES_ANDROID,
-    };
-
-    VkAndroidHardwareBufferFormatPropertiesANDROID bufferFormatProperties;
-    native::vulkan::PNextChainBuilder bufferPropertiesChain(&bufferProperties);
-    bufferPropertiesChain.Add(&bufferFormatProperties,
-                              VK_STRUCTURE_TYPE_ANDROID_HARDWARE_BUFFER_FORMAT_PROPERTIES_ANDROID);
-
-    VkDevice vkDevice = deviceVk->GetVkDevice();
-    EXPECT_EQ(deviceVk->fn.GetAndroidHardwareBufferPropertiesANDROID(vkDevice, aHardwareBuffer,
-                                                                     &bufferProperties),
-              VK_SUCCESS);
-
-    // Query the YCbCr properties of this AHB via the Device.
-    wgpu::AHardwareBufferProperties ahbProperties;
-    device.GetAHardwareBufferProperties(aHardwareBuffer, &ahbProperties);
-    auto yCbCrInfo = ahbProperties.yCbCrInfo;
-    uint32_t formatFeatures = bufferFormatProperties.formatFeatures;
-
-    // Verify that the YCbCr properties match.
-    EXPECT_EQ(bufferFormatProperties.format, yCbCrInfo.vkFormat);
-    EXPECT_EQ(bufferFormatProperties.suggestedYcbcrModel, yCbCrInfo.vkYCbCrModel);
-    EXPECT_EQ(bufferFormatProperties.suggestedYcbcrRange, yCbCrInfo.vkYCbCrRange);
-    EXPECT_EQ(bufferFormatProperties.samplerYcbcrConversionComponents.r,
-              yCbCrInfo.vkComponentSwizzleRed);
-    EXPECT_EQ(bufferFormatProperties.samplerYcbcrConversionComponents.g,
-              yCbCrInfo.vkComponentSwizzleGreen);
-    EXPECT_EQ(bufferFormatProperties.samplerYcbcrConversionComponents.b,
-              yCbCrInfo.vkComponentSwizzleBlue);
-    EXPECT_EQ(bufferFormatProperties.samplerYcbcrConversionComponents.a,
-              yCbCrInfo.vkComponentSwizzleAlpha);
-    EXPECT_EQ(bufferFormatProperties.suggestedXChromaOffset, yCbCrInfo.vkXChromaOffset);
-    EXPECT_EQ(bufferFormatProperties.suggestedYChromaOffset, yCbCrInfo.vkYChromaOffset);
-
-    wgpu::FilterMode expectedFilter =
-        (formatFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_YCBCR_CONVERSION_LINEAR_FILTER_BIT)
-            ? wgpu::FilterMode::Linear
-            : wgpu::FilterMode::Nearest;
-    EXPECT_EQ(expectedFilter, yCbCrInfo.vkChromaFilter);
-    EXPECT_EQ(
-        formatFeatures &
-            VK_FORMAT_FEATURE_SAMPLED_IMAGE_YCBCR_CONVERSION_CHROMA_RECONSTRUCTION_EXPLICIT_BIT,
-        yCbCrInfo.forceExplicitReconstruction);
-    EXPECT_EQ(bufferFormatProperties.externalFormat, yCbCrInfo.externalFormat);
-}
-
-// Test querying YCbCr info from the SharedTextureMemory without external format.
-TEST_P(SharedTextureMemoryTests, QueryYCbCrInfoWithoutExternalFormat) {
-    DAWN_TEST_UNSUPPORTED_IF(!SupportsFeatures({wgpu::FeatureName::YCbCrVulkanSamplers}));
-
-    AHardwareBuffer_Desc aHardwareBufferDesc = {
-        .width = 4,
-        .height = 4,
-        .layers = 1,
-        .format = AHARDWAREBUFFER_FORMAT_R8G8B8A8_UNORM,
-    };
-    AHardwareBuffer* aHardwareBuffer;
-    EXPECT_EQ(AHardwareBuffer_allocate(&aHardwareBufferDesc, &aHardwareBuffer), 0);
-
-    // Query the YCbCr properties of the AHardwareBuffer.
-    auto deviceVk = native::vulkan::ToBackend(native::FromAPI(device.Get()));
-
-    VkAndroidHardwareBufferPropertiesANDROID bufferProperties = {
-        .sType = VK_STRUCTURE_TYPE_ANDROID_HARDWARE_BUFFER_PROPERTIES_ANDROID,
-    };
-
-    VkAndroidHardwareBufferFormatPropertiesANDROID bufferFormatProperties;
-    native::vulkan::PNextChainBuilder bufferPropertiesChain(&bufferProperties);
-    bufferPropertiesChain.Add(&bufferFormatProperties,
-                              VK_STRUCTURE_TYPE_ANDROID_HARDWARE_BUFFER_FORMAT_PROPERTIES_ANDROID);
-
-    VkDevice vkDevice = deviceVk->GetVkDevice();
-    EXPECT_EQ(deviceVk->fn.GetAndroidHardwareBufferPropertiesANDROID(vkDevice, aHardwareBuffer,
-                                                                     &bufferProperties),
-              VK_SUCCESS);
-
-    // Query the YCbCr properties of a SharedTextureMemory created from this
-    // AHB.
-    wgpu::SharedTextureMemoryAHardwareBufferDescriptor stmAHardwareBufferDesc;
-    stmAHardwareBufferDesc.handle = aHardwareBuffer;
-    stmAHardwareBufferDesc.useExternalFormat = false;
-
-    wgpu::SharedTextureMemoryDescriptor desc;
-    desc.nextInChain = &stmAHardwareBufferDesc;
-
-    wgpu::SharedTextureMemory memory = device.ImportSharedTextureMemory(&desc);
-
-    wgpu::SharedTextureMemoryProperties properties;
-    wgpu::SharedTextureMemoryAHardwareBufferProperties ahbProperties = {};
-    properties.nextInChain = &ahbProperties;
-    memory.GetProperties(&properties);
-    auto yCbCrInfo = ahbProperties.yCbCrInfo;
-    uint32_t formatFeatures = bufferFormatProperties.formatFeatures;
-
-    // Verify that the YCbCr properties match.
-    EXPECT_EQ(bufferFormatProperties.format, yCbCrInfo.vkFormat);
-    EXPECT_EQ(bufferFormatProperties.suggestedYcbcrModel, yCbCrInfo.vkYCbCrModel);
-    EXPECT_EQ(bufferFormatProperties.suggestedYcbcrRange, yCbCrInfo.vkYCbCrRange);
-    EXPECT_EQ(bufferFormatProperties.samplerYcbcrConversionComponents.r,
-              yCbCrInfo.vkComponentSwizzleRed);
-    EXPECT_EQ(bufferFormatProperties.samplerYcbcrConversionComponents.g,
-              yCbCrInfo.vkComponentSwizzleGreen);
-    EXPECT_EQ(bufferFormatProperties.samplerYcbcrConversionComponents.b,
-              yCbCrInfo.vkComponentSwizzleBlue);
-    EXPECT_EQ(bufferFormatProperties.samplerYcbcrConversionComponents.a,
-              yCbCrInfo.vkComponentSwizzleAlpha);
-    EXPECT_EQ(bufferFormatProperties.suggestedXChromaOffset, yCbCrInfo.vkXChromaOffset);
-    EXPECT_EQ(bufferFormatProperties.suggestedYChromaOffset, yCbCrInfo.vkYChromaOffset);
-
-    wgpu::FilterMode expectedFilter =
-        (formatFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_YCBCR_CONVERSION_LINEAR_FILTER_BIT)
-            ? wgpu::FilterMode::Linear
-            : wgpu::FilterMode::Nearest;
-    EXPECT_EQ(expectedFilter, yCbCrInfo.vkChromaFilter);
-    EXPECT_EQ(
-        formatFeatures &
-            VK_FORMAT_FEATURE_SAMPLED_IMAGE_YCBCR_CONVERSION_CHROMA_RECONSTRUCTION_EXPLICIT_BIT,
-        yCbCrInfo.forceExplicitReconstruction);
-    uint64_t expectedExternalFormat = 0u;
-    EXPECT_EQ(expectedExternalFormat, yCbCrInfo.externalFormat);
-}
-
-// Test querying YCbCr info from the SharedTextureMemory with external format.
-TEST_P(SharedTextureMemoryTests, QueryYCbCrInfoWithExternalFormat) {
-    DAWN_TEST_UNSUPPORTED_IF(!SupportsFeatures({wgpu::FeatureName::YCbCrVulkanSamplers}));
-
-    AHardwareBuffer_Desc aHardwareBufferDesc = {
-        .width = 4,
-        .height = 4,
-        .layers = 1,
-        .format = AHARDWAREBUFFER_FORMAT_R8G8B8A8_UNORM,
-        .usage = AHARDWAREBUFFER_USAGE_GPU_SAMPLED_IMAGE,
-    };
-    AHardwareBuffer* aHardwareBuffer;
-    EXPECT_EQ(AHardwareBuffer_allocate(&aHardwareBufferDesc, &aHardwareBuffer), 0);
-
-    // Query the YCbCr properties of the AHardwareBuffer.
-    auto deviceVk = native::vulkan::ToBackend(native::FromAPI(device.Get()));
-
-    VkAndroidHardwareBufferPropertiesANDROID bufferProperties = {
-        .sType = VK_STRUCTURE_TYPE_ANDROID_HARDWARE_BUFFER_PROPERTIES_ANDROID,
-    };
-
-    VkAndroidHardwareBufferFormatPropertiesANDROID bufferFormatProperties;
-    native::vulkan::PNextChainBuilder bufferPropertiesChain(&bufferProperties);
-    bufferPropertiesChain.Add(&bufferFormatProperties,
-                              VK_STRUCTURE_TYPE_ANDROID_HARDWARE_BUFFER_FORMAT_PROPERTIES_ANDROID);
-
-    VkDevice vkDevice = deviceVk->GetVkDevice();
-    EXPECT_EQ(deviceVk->fn.GetAndroidHardwareBufferPropertiesANDROID(vkDevice, aHardwareBuffer,
-                                                                     &bufferProperties),
-              VK_SUCCESS);
-
-    // Query the YCbCr properties of a SharedTextureMemory created from this
-    // AHB.
-    wgpu::SharedTextureMemoryAHardwareBufferDescriptor stmAHardwareBufferDesc;
-    stmAHardwareBufferDesc.handle = aHardwareBuffer;
-    stmAHardwareBufferDesc.useExternalFormat = true;
-
-    wgpu::SharedTextureMemoryDescriptor desc;
-    desc.nextInChain = &stmAHardwareBufferDesc;
-
-    wgpu::SharedTextureMemory memory = device.ImportSharedTextureMemory(&desc);
-
-    wgpu::SharedTextureMemoryProperties properties;
-    wgpu::SharedTextureMemoryAHardwareBufferProperties ahbProperties = {};
-    properties.nextInChain = &ahbProperties;
-    memory.GetProperties(&properties);
-    auto yCbCrInfo = ahbProperties.yCbCrInfo;
-    uint32_t formatFeatures = bufferFormatProperties.formatFeatures;
-
-    // Verify that the YCbCr properties match.
-    VkFormat expectedVkFormat = VK_FORMAT_UNDEFINED;
-    EXPECT_EQ(expectedVkFormat, yCbCrInfo.vkFormat);
-    EXPECT_EQ(bufferFormatProperties.suggestedYcbcrModel, yCbCrInfo.vkYCbCrModel);
-    EXPECT_EQ(bufferFormatProperties.suggestedYcbcrRange, yCbCrInfo.vkYCbCrRange);
-    EXPECT_EQ(bufferFormatProperties.samplerYcbcrConversionComponents.r,
-              yCbCrInfo.vkComponentSwizzleRed);
-    EXPECT_EQ(bufferFormatProperties.samplerYcbcrConversionComponents.g,
-              yCbCrInfo.vkComponentSwizzleGreen);
-    EXPECT_EQ(bufferFormatProperties.samplerYcbcrConversionComponents.b,
-              yCbCrInfo.vkComponentSwizzleBlue);
-    EXPECT_EQ(bufferFormatProperties.samplerYcbcrConversionComponents.a,
-              yCbCrInfo.vkComponentSwizzleAlpha);
-    EXPECT_EQ(bufferFormatProperties.suggestedXChromaOffset, yCbCrInfo.vkXChromaOffset);
-    EXPECT_EQ(bufferFormatProperties.suggestedYChromaOffset, yCbCrInfo.vkYChromaOffset);
-
-    wgpu::FilterMode expectedFilter =
-        (formatFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_YCBCR_CONVERSION_LINEAR_FILTER_BIT)
-            ? wgpu::FilterMode::Linear
-            : wgpu::FilterMode::Nearest;
-    EXPECT_EQ(expectedFilter, yCbCrInfo.vkChromaFilter);
-    EXPECT_EQ(
-        formatFeatures &
-            VK_FORMAT_FEATURE_SAMPLED_IMAGE_YCBCR_CONVERSION_CHROMA_RECONSTRUCTION_EXPLICIT_BIT,
-        yCbCrInfo.forceExplicitReconstruction);
-    EXPECT_EQ(bufferFormatProperties.externalFormat, yCbCrInfo.externalFormat);
-}
-
-// Test BeginAccess on an uninitialized texture with external format fails.
-TEST_P(SharedTextureMemoryTests, GPUReadForUninitializedTextureWithExternalFormatFails) {
-    DAWN_TEST_UNSUPPORTED_IF(!SupportsFeatures({wgpu::FeatureName::YCbCrVulkanSamplers}));
-
-    const AHardwareBuffer_Desc aHardwareBufferDesc = {
-        .width = 4,
-        .height = 4,
-        .layers = 1,
-        .format = AHARDWAREBUFFER_FORMAT_R8G8B8A8_UNORM,
-        .usage = AHARDWAREBUFFER_USAGE_GPU_SAMPLED_IMAGE,
-    };
-    AHardwareBuffer* aHardwareBuffer;
-    EXPECT_EQ(AHardwareBuffer_allocate(&aHardwareBufferDesc, &aHardwareBuffer), 0);
-
-    wgpu::SharedTextureMemoryAHardwareBufferDescriptor stmAHardwareBufferDesc;
-    stmAHardwareBufferDesc.handle = aHardwareBuffer;
-    stmAHardwareBufferDesc.useExternalFormat = true;
-
-    wgpu::SharedTextureMemoryDescriptor desc;
-    desc.nextInChain = &stmAHardwareBufferDesc;
-
-    const wgpu::SharedTextureMemory memory = device.ImportSharedTextureMemory(&desc);
-
-    wgpu::TextureDescriptor descriptor;
-    descriptor.dimension = wgpu::TextureDimension::e2D;
-    descriptor.size.width = 4;
-    descriptor.size.height = 4;
-    descriptor.size.depthOrArrayLayers = 1u;
-    descriptor.sampleCount = 1u;
-    descriptor.format = wgpu::TextureFormat::External;
-    descriptor.mipLevelCount = 1u;
-    descriptor.usage = wgpu::TextureUsage::TextureBinding;
-    auto texture = memory.CreateTexture(&descriptor);
-    AHardwareBuffer_release(aHardwareBuffer);
-
-    wgpu::SharedTextureMemoryBeginAccessDescriptor beginDesc = {};
-    beginDesc.initialized = false;
-    wgpu::SharedTextureMemoryVkImageLayoutBeginState beginLayout{};
-    beginDesc.nextInChain = &beginLayout;
-
-    ASSERT_DEVICE_ERROR(memory.BeginAccess(texture, &beginDesc));
-}
-
 DAWN_INSTANTIATE_PREFIXED_TEST_P(Vulkan,
                                  SharedTextureMemoryNoFeatureTests,
                                  {VulkanBackend()},
@@ -653,17 +388,32 @@ DAWN_INSTANTIATE_PREFIXED_TEST_P(Vulkan,
                                  {SharedTextureMemoryTestAndroidVulkanBackend::GetInstance()},
                                  {1});
 
-DAWN_INSTANTIATE_PREFIXED_TEST_P(OpenGLES,
-                                 SharedTextureMemoryNoFeatureTests,
-                                 {OpenGLESBackend()},
-                                 {SharedTextureMemoryTestAndroidOpenGLESBackend::GetInstance()},
-                                 {1});
+DAWN_INSTANTIATE_PREFIXED_TEST_P(
+    OpenGLES_SyncFD,
+    SharedTextureMemoryNoFeatureTests,
+    {OpenGLESBackend()},
+    {SharedTextureMemoryTestAndroidSyncFDOpenGLESBackend::GetInstance()},
+    {1});
 
-DAWN_INSTANTIATE_PREFIXED_TEST_P(OpenGLES,
-                                 SharedTextureMemoryTests,
-                                 {OpenGLESBackend()},
-                                 {SharedTextureMemoryTestAndroidOpenGLESBackend::GetInstance()},
-                                 {1});
+DAWN_INSTANTIATE_PREFIXED_TEST_P(
+    OpenGLES_SyncFD,
+    SharedTextureMemoryTests,
+    {OpenGLESBackend()},
+    {SharedTextureMemoryTestAndroidSyncFDOpenGLESBackend::GetInstance()},
+    {1});
 
+DAWN_INSTANTIATE_PREFIXED_TEST_P(
+    OpenGLES_EGLSync,
+    SharedTextureMemoryNoFeatureTests,
+    {OpenGLESBackend()},
+    {SharedTextureMemoryTestAndroidEGLSyncOpenGLESBackend::GetInstance()},
+    {1});
+
+DAWN_INSTANTIATE_PREFIXED_TEST_P(
+    OpenGLES_EGLSync,
+    SharedTextureMemoryTests,
+    {OpenGLESBackend()},
+    {SharedTextureMemoryTestAndroidEGLSyncOpenGLESBackend::GetInstance()},
+    {1});
 }  // anonymous namespace
 }  // namespace dawn

@@ -36,16 +36,6 @@ namespace dawn::native {
 
 MaybeError ValidateComputePipelineDescriptor(DeviceBase* device,
                                              const ComputePipelineDescriptor* descriptor) {
-    UnpackedPtr<ComputePipelineDescriptor> unpacked;
-    DAWN_TRY_ASSIGN(unpacked, ValidateAndUnpack(descriptor));
-    auto* fullSubgroupsOption = unpacked.Get<DawnComputePipelineFullSubgroups>();
-    // TODO(349125474): Decide what to do with fullSubgroupsOption before removing deprecated
-    // ChromiumExperimentalSubgroups.
-    DAWN_INVALID_IF(
-        (fullSubgroupsOption && !device->HasFeature(Feature::ChromiumExperimentalSubgroups)),
-        "DawnComputePipelineFullSubgroups is used without %s enabled.",
-        ToAPI(Feature::ChromiumExperimentalSubgroups));
-
     if (descriptor->layout != nullptr) {
         DAWN_TRY(device->ValidateObject(descriptor->layout));
     }
@@ -70,17 +60,21 @@ ComputePipelineBase::ComputePipelineBase(DeviceBase* device,
           descriptor->layout,
           descriptor->label,
           {{SingleShaderStage::Compute, descriptor->compute.module, descriptor->compute.entryPoint,
-            descriptor->compute.constantCount, descriptor->compute.constants}}),
-      mRequiresFullSubgroups(false) {
+            descriptor->compute.constantCount, descriptor->compute.constants}}) {
+    const EntryPointMetadata& metadata = *GetStage(SingleShaderStage::Compute).metadata;
+    mUsesLinearIndex = metadata.usesGlobalInvocationIndex || metadata.usesWorkgroupIndex;
+    mUsesGlobalInvocationIndex = metadata.usesGlobalInvocationIndex;
+
     SetContentHash(ComputeContentHash());
     GetObjectTrackingList()->Track(this);
 
-    if (auto* fullSubgroupsOption = descriptor.Get<DawnComputePipelineFullSubgroups>()) {
-        mRequiresFullSubgroups = fullSubgroupsOption->requiresFullSubgroups;
-    }
-
     // Initialize the cache key to include the cache type and device information.
     StreamIn(&mCacheKey, CacheKey::Type::ComputePipeline, device->GetCacheKey());
+}
+
+MaybeError ComputePipelineBase::InitializeWithShaders() {
+    DAWN_TRY_ASSIGN(mWorkgroupSize, InitializeImpl());
+    return {};
 }
 
 ComputePipelineBase::ComputePipelineBase(DeviceBase* device,
@@ -90,12 +84,23 @@ ComputePipelineBase::ComputePipelineBase(DeviceBase* device,
 
 ComputePipelineBase::~ComputePipelineBase() = default;
 
-void ComputePipelineBase::DestroyImpl() {
+void ComputePipelineBase::DestroyImpl(DestroyReason reason) {
     Uncache();
 }
 
-bool ComputePipelineBase::IsFullSubgroupsRequired() const {
-    return mRequiresFullSubgroups;
+Extent3D ComputePipelineBase::GetWorkgroupSize() const {
+    DAWN_ASSERT(!IsError());
+    return mWorkgroupSize;
+}
+
+bool ComputePipelineBase::UsesLinearIndexing() const {
+    DAWN_ASSERT(!IsError());
+    return mUsesLinearIndex;
+}
+
+bool ComputePipelineBase::UsesGlobalInvocationIndex() const {
+    DAWN_ASSERT(!IsError());
+    return mUsesGlobalInvocationIndex;
 }
 
 // static
@@ -105,10 +110,8 @@ Ref<ComputePipelineBase> ComputePipelineBase::MakeError(DeviceBase* device, Stri
         explicit ErrorComputePipeline(DeviceBase* device, StringView label)
             : ComputePipelineBase(device, ObjectBase::kError, label) {}
 
-        MaybeError InitializeImpl() override {
-            DAWN_UNREACHABLE();
-            return {};
-        }
+      private:
+        ResultOrError<Extent3D> InitializeImpl() override { DAWN_UNREACHABLE(); }
     };
 
     return AcquireRef(new ErrorComputePipeline(device, label));
@@ -120,8 +123,7 @@ ObjectType ComputePipelineBase::GetType() const {
 
 bool ComputePipelineBase::EqualityFunc::operator()(const ComputePipelineBase* a,
                                                    const ComputePipelineBase* b) const {
-    return PipelineBase::EqualForCache(a, b) &&
-           (a->IsFullSubgroupsRequired() == b->IsFullSubgroupsRequired());
+    return PipelineBase::EqualForCache(a, b);
 }
 
 }  // namespace dawn::native

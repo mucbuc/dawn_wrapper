@@ -39,11 +39,11 @@ using namespace tint::core::number_suffixes;  // NOLINT
 using IR_LoadVectorElementTest = IRTestHelper;
 
 TEST_F(IR_LoadVectorElementTest, Create) {
-    auto* from = b.Var(ty.ptr<private_, vec3<i32>>());
+    auto* from = b.Var(ty.ptr<private_, vec3i>());
     auto* inst = b.LoadVectorElement(from, 2_i);
 
     ASSERT_TRUE(inst->Is<LoadVectorElement>());
-    ASSERT_EQ(inst->From(), from->Result(0));
+    ASSERT_EQ(inst->From(), from->Result());
 
     ASSERT_TRUE(inst->Index()->Is<Constant>());
     auto index = inst->Index()->As<Constant>()->Value();
@@ -52,7 +52,7 @@ TEST_F(IR_LoadVectorElementTest, Create) {
 }
 
 TEST_F(IR_LoadVectorElementTest, Usage) {
-    auto* from = b.Var(ty.ptr<private_, vec3<i32>>());
+    auto* from = b.Var(ty.ptr<private_, vec3i>());
     auto* inst = b.LoadVectorElement(from, 2_i);
 
     ASSERT_NE(inst->From(), nullptr);
@@ -63,24 +63,24 @@ TEST_F(IR_LoadVectorElementTest, Usage) {
 }
 
 TEST_F(IR_LoadVectorElementTest, Result) {
-    auto* from = b.Var(ty.ptr<private_, vec3<i32>>());
+    auto* from = b.Var(ty.ptr<private_, vec3i>());
     auto* inst = b.LoadVectorElement(from, 2_i);
 
     EXPECT_EQ(inst->Results().Length(), 1u);
 }
 
 TEST_F(IR_LoadVectorElementTest, Clone) {
-    auto* from = b.Var(ty.ptr<private_, vec3<i32>>());
+    auto* from = b.Var(ty.ptr<private_, vec3i>());
     auto* inst = b.LoadVectorElement(from, 2_i);
 
     auto* new_from = clone_ctx.Clone(from);
     auto* new_inst = clone_ctx.Clone(inst);
 
     EXPECT_NE(inst, new_inst);
-    EXPECT_NE(nullptr, new_inst->Result(0));
-    EXPECT_NE(inst->Result(0), new_inst->Result(0));
+    EXPECT_NE(nullptr, new_inst->Result());
+    EXPECT_NE(inst->Result(), new_inst->Result());
 
-    EXPECT_EQ(new_from->Result(0), new_inst->From());
+    EXPECT_EQ(new_from->Result(), new_inst->From());
 
     auto new_idx = new_inst->Index()->As<Constant>()->Value();
     ASSERT_TRUE(new_idx->Is<core::constant::Scalar<i32>>());

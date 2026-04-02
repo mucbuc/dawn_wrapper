@@ -29,6 +29,7 @@
 
 #include "dawn/native/metal/DeviceMTL.h"
 #include "dawn/tests/white_box/GPUTimestampCalibrationTests.h"
+#include "partition_alloc/pointers/raw_ptr.h"
 
 namespace dawn {
 namespace {
@@ -39,25 +40,16 @@ class GPUTimestampCalibrationTestsMetal : public GPUTimestampCalibrationTestBack
         mBackendDevice = dawn::native::metal::ToBackend(dawn::native::FromAPI(device.Get()));
     }
 
-    // The API used in timestamp calibration is only available on macOS 10.15+ and iOS 14.0+
-    bool IsSupported() const override {
-        if (@available(macOS 10.15, iOS 14.0, *)) {
-            return true;
-        }
-        return false;
-    }
+    bool IsSupported() const override { return true; }
 
     void GetTimestampCalibration(uint64_t* gpuTimestamp, uint64_t* cpuTimestamp) override {
-        if (@available(macOS 10.15, iOS 14.0, *)) {
-            [mBackendDevice->GetMTLDevice() sampleTimestamps:cpuTimestamp
-                                                gpuTimestamp:gpuTimestamp];
-        }
+        [mBackendDevice->GetMTLDevice() sampleTimestamps:cpuTimestamp gpuTimestamp:gpuTimestamp];
     }
 
     float GetTimestampPeriod() const override { return mBackendDevice->GetTimestampPeriodInNS(); }
 
   private:
-    dawn::native::metal::Device* mBackendDevice;
+    raw_ptr<dawn::native::metal::Device> mBackendDevice;
 };
 
 }  // anonymous namespace

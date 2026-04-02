@@ -25,6 +25,11 @@
 // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+#ifdef UNSAFE_BUFFERS_BUILD
+// TODO(crbug.com/439062058): Remove this and convert code to safer constructs.
+#pragma allow_unsafe_buffers
+#endif
+
 #include <algorithm>
 #include <iomanip>
 #include <iostream>
@@ -197,9 +202,6 @@ std::string LimitsToString(const wgpu::Limits& limits, const std::string& indent
         << "maxVertexBufferArrayStride: " << FormatNumber(limits.maxVertexBufferArrayStride)
         << "\n";
     out << indent
-        << "maxInterStageShaderComponents: " << FormatNumber(limits.maxInterStageShaderComponents)
-        << "\n";
-    out << indent
         << "maxInterStageShaderVariables: " << FormatNumber(limits.maxInterStageShaderVariables)
         << "\n";
     out << indent << "maxColorAttachments: " << FormatNumber(limits.maxColorAttachments) << "\n";
@@ -230,6 +232,8 @@ void DumpAdapterInfo(const wgpu::Adapter& adapter) {
 
     adapter.GetInfo(&info);
     std::cout << AdapterInfoToString(info);
+    std::cout << "Subgroup min size: " << info.subgroupMinSize << "\n";
+    std::cout << "Subgroup max size: " << info.subgroupMaxSize << "\n";
     std::cout << "Power: " << PowerPreferenceToString(power_props) << "\n";
     std::cout << "\n";
 }
@@ -249,12 +253,12 @@ void DumpAdapterFeatures(const wgpu::Adapter& adapter) {
 }
 
 void DumpAdapterLimits(const wgpu::Adapter& adapter) {
-    wgpu::SupportedLimits adapterLimits;
+    wgpu::Limits adapterLimits;
     if (adapter.GetLimits(&adapterLimits)) {
         std::cout << "\n";
         std::cout << "  Adapter Limits\n";
         std::cout << "  ==============\n";
-        std::cout << LimitsToString(adapterLimits.limits, "    ") << "\n";
+        std::cout << LimitsToString(adapterLimits, "    ") << "\n";
     }
 }
 

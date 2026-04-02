@@ -27,27 +27,50 @@
 
 #include "src/tint/lang/spirv/reader/lower/lower.h"
 
+#include "src/tint/lang/core/ir/transform/dead_code_elimination.h"
+#include "src/tint/lang/core/ir/transform/remove_terminator_args.h"
 #include "src/tint/lang/core/ir/validator.h"
+#include "src/tint/lang/spirv/reader/lower/atomics.h"
+#include "src/tint/lang/spirv/reader/lower/builtins.h"
+#include "src/tint/lang/spirv/reader/lower/decompose_strided_array.h"
+#include "src/tint/lang/spirv/reader/lower/decompose_strided_matrix.h"
 #include "src/tint/lang/spirv/reader/lower/shader_io.h"
+#include "src/tint/lang/spirv/reader/lower/texture.h"
+#include "src/tint/lang/spirv/reader/lower/transpose_row_major.h"
 #include "src/tint/lang/spirv/reader/lower/vector_element_pointer.h"
 
 namespace tint::spirv::reader {
 
 Result<SuccessType> Lower(core::ir::Module& mod) {
-#define RUN_TRANSFORM(name, ...)         \
-    do {                                 \
-        auto result = name(__VA_ARGS__); \
-        if (result != Success) {         \
-            return result;               \
-        }                                \
-    } while (false)
+    TINT_CHECK_RESULT(core::ir::transform::DeadCodeElimination(mod));
+    TINT_CHECK_RESULT(lower::VectorElementPointer(mod));
+    TINT_CHECK_RESULT(lower::ShaderIO(mod));
+    TINT_CHECK_RESULT(lower::Builtins(mod));
 
-    RUN_TRANSFORM(lower::VectorElementPointer, mod);
-    RUN_TRANSFORM(lower::ShaderIO, mod);
+    // TransposeRowMajor must come before DecomposeStridedMatrix as we need to convert the matrices
+    // first.
+    TINT_CHECK_RESULT(lower::TransposeRowMajor(mod));
+    // DecomposeStridedMatrix must come before DecomposeStridedArray, as it introduces strided
+    // arrays that need to be replaced.
+    TINT_CHECK_RESULT(lower::DecomposeStridedMatrix(mod));
+    TINT_CHECK_RESULT(lower::DecomposeStridedArray(mod));
+    TINT_CHECK_RESULT(lower::Atomics(mod));
+    TINT_CHECK_RESULT(lower::Texture(mod));
 
-    if (auto res = core::ir::ValidateAndDumpIfNeeded(mod, "spirv.Lower"); res != Success) {
-        return res.Failure();
-    }
+    // Remove the terminator args at this point. There are no logical short-circuiting operators in
+    // SPIR-V that we will lose track of, all the terminators are for hoisted values. We don't do
+    // this on WGSL raise because `RemoveTerminatorArgs` loses the ability to determine logical `&&`
+    // and `||` operators based on the terminators. Moving the logical detection to a separate
+    // transform is also complicated because of the way it currently detects multi element `&&` and
+    // `||` statements.
+    TINT_CHECK_RESULT(core::ir::transform::RemoveTerminatorArgs(mod));
+
+    core::ir::AssertValid(mod,
+                          core::ir::Capabilities{
+                              core::ir::Capability::kAllowMultipleEntryPoints,
+                              core::ir::Capability::kAllowOverrides,
+                          },
+                          "after spirv.Lower");
 
     return Success;
 }

@@ -31,12 +31,12 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 
 	"dawn.googlesource.com/dawn/tools/src/fileutils"
+	"dawn.googlesource.com/dawn/tools/src/oswrapper"
 	"dawn.googlesource.com/dawn/tools/src/subcmd"
 	"dawn.googlesource.com/dawn/tools/src/term"
 )
@@ -45,6 +45,7 @@ import (
 type Flags struct {
 	Verbose          bool
 	Colors           bool
+	FailuresOnly     bool
 	NumRunners       int
 	Log              string
 	ResultsPath      string
@@ -54,23 +55,25 @@ type Flags struct {
 	Npx              string // Path to the npx executable
 }
 
-func (f *Flags) Register() {
+func (f *Flags) Register(fsReader oswrapper.FilesystemReader) {
 	flag.BoolVar(&f.Verbose, "verbose", false, "print extra information while testing")
 	flag.BoolVar(&f.Colors, "colors", term.CanUseAnsiEscapeSequences(), "enable / disable colors")
+	flag.BoolVar(&f.FailuresOnly, "failures-only", false, "output only failures to log file")
 	flag.IntVar(&f.NumRunners, "j", runtime.NumCPU()/2, "number of concurrent runners. 0 runs serially")
 	flag.StringVar(&f.Log, "log", "", "path to log file of tests run and result")
 	flag.StringVar(&f.ResultsPath, "output", "", "path to write test results file")
 	flag.StringVar(&f.ExpectationsPath, "expect", "", "path to expectations file")
-	flag.StringVar(&f.CTS, "cts", defaultCtsPath(), "root directory of WebGPU CTS")
-	flag.StringVar(&f.Node, "node", fileutils.NodePath(), "path to node executable")
+	flag.StringVar(&f.CTS, "cts", defaultCtsPath(fsReader), "root directory of WebGPU CTS")
+	flag.StringVar(&f.Node, "node", fileutils.NodePath(fsReader), "path to node executable")
 	flag.StringVar(&f.Npx, "npx", defaultNpxPath(), "path to npx executable")
 }
 
 // Process processes the flags, returning a State.
 // Note: Ensure you call Close() on the returned State
-func (f *Flags) Process() (*State, error) {
+func (f *Flags) Process(fsReaderWriter oswrapper.FilesystemReaderWriter) (*State, error) {
 	s := &State{
-		resultsPath: f.ResultsPath,
+		resultsPath:  f.ResultsPath,
+		failuresOnly: f.FailuresOnly,
 	}
 
 	// Create the stdout writer
@@ -80,7 +83,7 @@ func (f *Flags) Process() (*State, error) {
 	if f.CTS == "" {
 		return nil, subcmd.InvalidCLA()
 	}
-	if !fileutils.IsDir(f.CTS) {
+	if !fileutils.IsDir(f.CTS, fsReaderWriter) {
 		return nil, fmt.Errorf("'%v' is not a directory", f.CTS)
 	}
 	absCTS, err := filepath.Abs(f.CTS)
@@ -91,7 +94,7 @@ func (f *Flags) Process() (*State, error) {
 
 	// Build the logger, if needed
 	if f.Log != "" {
-		writer, err := os.Create(f.Log)
+		writer, err := fsReaderWriter.Create(f.Log)
 		if err != nil {
 			return nil, fmt.Errorf("failed to open log '%v': %w", f.Log, err)
 		}
@@ -123,6 +126,7 @@ type State struct {
 	Expectations Expectations
 	CTS          CTS
 	resultsPath  string
+	failuresOnly bool
 	logWriter    io.WriteCloser
 }
 
@@ -136,7 +140,9 @@ func (s *State) Close(results Results) error {
 	if s.resultsPath != "" {
 		expectations := Expectations{}
 		for testCase, result := range results {
-			expectations[testCase] = result.Status
+			if !s.failuresOnly || result.Status == Fail {
+				expectations[testCase] = result.Status
+			}
 		}
 
 		if err := expectations.Save(s.resultsPath); err != nil {
@@ -159,10 +165,10 @@ func (s *State) Close(results Results) error {
 
 // defaultCtsPath looks for the webgpu-cts directory in dawn's third_party
 // directory. This is used as the default for the --cts command line flag.
-func defaultCtsPath() string {
-	if dawnRoot := fileutils.DawnRoot(); dawnRoot != "" {
-		cts := filepath.Join(dawnRoot, "third_party/webgpu-cts")
-		if info, err := os.Stat(cts); err == nil && info.IsDir() {
+func defaultCtsPath(fsReader oswrapper.FilesystemReader) string {
+	if dawnRoot := fileutils.DawnRoot(fsReader); dawnRoot != "" {
+		cts := filepath.Join(dawnRoot, "third_party", "webgpu-cts")
+		if info, err := fsReader.Stat(cts); err == nil && info.IsDir() {
 			return cts
 		}
 	}

@@ -49,7 +49,7 @@ Ref<ComputePipeline> ComputePipeline::CreateUninitialized(
     return AcquireRef(new ComputePipeline(device, descriptor));
 }
 
-MaybeError ComputePipeline::InitializeImpl() {
+ResultOrError<Extent3D> ComputePipeline::InitializeImpl() {
     Device* device = ToBackend(GetDevice());
     uint32_t compileFlags = 0;
 
@@ -60,6 +60,10 @@ MaybeError ComputePipeline::InitializeImpl() {
 
     if (device->IsToggleEnabled(Toggle::EmitHLSLDebugSymbols)) {
         compileFlags |= D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION;
+    }
+
+    if (device->IsToggleEnabled(Toggle::D3DSkipShaderOptimizations)) {
+        compileFlags |= D3DCOMPILE_SKIP_OPTIMIZATION;
     }
 
     if (device->IsToggleEnabled(Toggle::UseDXC) &&
@@ -84,15 +88,9 @@ MaybeError ComputePipeline::InitializeImpl() {
     d3dDesc.pRootSignature = ToBackend(GetLayout())->GetRootSignature();
 
     d3d::CompiledShader compiledShader;
-    DAWN_TRY_ASSIGN(
-        compiledShader,
-        module->Compile(
-            computeStage, SingleShaderStage::Compute, ToBackend(GetLayout()), compileFlags,
-            /* usedInterstageVariables */ {},
-            /* maxSubgroupSizeForFullSubgroups */
-            IsFullSubgroupsRequired()
-                ? std::make_optional(device->GetLimits().experimentalSubgroupLimits.maxSubgroupSize)
-                : std::nullopt));
+    DAWN_TRY_ASSIGN(compiledShader, module->Compile(computeStage, SingleShaderStage::Compute,
+                                                    ToBackend(GetLayout()), compileFlags,
+                                                    /* usedInterstageVariables */ {}));
     d3dDesc.CS = {compiledShader.shaderBlob.Data(), compiledShader.shaderBlob.Size()};
 
     StreamIn(&mCacheKey, d3dDesc, ToBackend(GetLayout())->GetRootSignatureBlob());
@@ -137,13 +135,13 @@ MaybeError ComputePipeline::InitializeImpl() {
 
     SetLabelImpl();
 
-    return {};
+    return {compiledShader.workgroupSize};
 }
 
 ComputePipeline::~ComputePipeline() = default;
 
-void ComputePipeline::DestroyImpl() {
-    ComputePipelineBase::DestroyImpl();
+void ComputePipeline::DestroyImpl(DestroyReason reason) {
+    ComputePipelineBase::DestroyImpl(reason);
     ToBackend(GetDevice())->ReferenceUntilUnused(mPipelineState);
 }
 

@@ -25,13 +25,14 @@
 // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+#include "dawn/tests/white_box/VulkanImageWrappingTests.h"
+
 #include <utility>
 
 #include "dawn/common/Math.h"
 #include "dawn/native/Adapter.h"
 #include "dawn/native/vulkan/DeviceVk.h"
 #include "dawn/tests/DawnTest.h"
-#include "dawn/tests/white_box/VulkanImageWrappingTests.h"
 #include "dawn/tests/white_box/VulkanImageWrappingTests_DmaBuf.h"
 #include "dawn/tests/white_box/VulkanImageWrappingTests_OpaqueFD.h"
 #include "dawn/utils/ComboRenderPipelineDescriptor.h"
@@ -79,6 +80,10 @@ class VulkanImageWrappingTestBase : public DawnTestWithParams<ImageWrappingParam
         // dedicated allocation.
         DAWN_SUPPRESS_TEST_IF(IsLinux() && IsNvidia() && GetParam().mUseDedicatedAllocation &&
                               GetParam().mDetectDedicatedAllocation);
+
+        // TODO(crbug.com/438257193): Nvidia is crashing for all tests that use DMA buffers.
+        DAWN_SUPPRESS_TEST_IF(IsLinux() && IsNvidia() &&
+                              GetParam().mExternalImageType == ExternalImageType::DmaBuf);
 
         // TODO(crbug.com/342213634): Crashes on ChromeOS volteer devices.
         DAWN_SUPPRESS_TEST_IF(IsChromeOS() && IsIntel() && IsBackendValidationEnabled());
@@ -167,10 +172,10 @@ class VulkanImageWrappingTestBase : public DawnTestWithParams<ImageWrappingParam
             mBackend->WrapImage(dawnDevice, externalTexture, descriptor, std::move(semaphores));
 
         if (expectValid) {
-            EXPECT_NE(texture, nullptr) << "Failed to wrap image, are external memory / "
-                                           "semaphore extensions supported?";
+            EXPECT_NE(texture.Get(), nullptr) << "Failed to wrap image, are external memory / "
+                                                 "semaphore extensions supported?";
         } else {
-            EXPECT_EQ(texture, nullptr);
+            EXPECT_EQ(texture.Get(), nullptr);
         }
 
         return texture;
@@ -219,7 +224,7 @@ TEST_P(VulkanImageWrappingValidationTests, SuccessfulImportWithInternalUsageDesc
 // Test an error occurs if an invalid sType is the nextInChain
 TEST_P(VulkanImageWrappingValidationTests, InvalidTextureDescriptor) {
     wgpu::ChainedStruct chainedDescriptor;
-    chainedDescriptor.sType = wgpu::SType::SurfaceDescriptorFromWindowsSwapChainPanel;
+    chainedDescriptor.sType = wgpu::SType::SurfaceDescriptorFromWindowsUWPSwapChainPanel;
     defaultDescriptor.nextInChain = &chainedDescriptor;
 
     ASSERT_DEVICE_ERROR(wgpu::Texture texture = WrapVulkanImage(device, &defaultDescriptor,
@@ -368,8 +373,10 @@ class VulkanImageWrappingUsageTests : public VulkanImageWrappingTestBase {
                                     wgpu::Queue dawnQueue,
                                     wgpu::Texture source,
                                     wgpu::Texture destination) {
-        wgpu::ImageCopyTexture copySrc = utils::CreateImageCopyTexture(source, 0, {0, 0, 0});
-        wgpu::ImageCopyTexture copyDst = utils::CreateImageCopyTexture(destination, 0, {0, 0, 0});
+        wgpu::TexelCopyTextureInfo copySrc =
+            utils::CreateTexelCopyTextureInfo(source, 0, {0, 0, 0});
+        wgpu::TexelCopyTextureInfo copyDst =
+            utils::CreateTexelCopyTextureInfo(destination, 0, {0, 0, 0});
 
         wgpu::Extent3D copySize = {1, 1, 1};
 
@@ -388,6 +395,7 @@ TEST_P(VulkanImageWrappingUsageTests, ClearImageAcrossDevices) {
     wgpu::Texture wrappedTexture =
         WrapVulkanImage(secondDevice, &defaultDescriptor, defaultTexture, {},
                         VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    ASSERT_NE(wrappedTexture.Get(), nullptr);
 
     // Clear |wrappedTexture| on |secondDevice|
     ClearImage(secondDevice, wrappedTexture, {1 / 255.0f, 2 / 255.0f, 3 / 255.0f, 4 / 255.0f});
@@ -399,6 +407,7 @@ TEST_P(VulkanImageWrappingUsageTests, ClearImageAcrossDevices) {
     wgpu::Texture nextWrappedTexture = WrapVulkanImage(
         device, &defaultDescriptor, defaultTexture, std::move(exportInfo.semaphores),
         exportInfo.releasedOldLayout, exportInfo.releasedNewLayout);
+    ASSERT_NE(nextWrappedTexture.Get(), nullptr);
 
     // Verify |device| sees the changes from |secondDevice|
     EXPECT_PIXEL_RGBA8_EQ(utils::RGBA8(1, 2, 3, 4), nextWrappedTexture, 0, 0);
@@ -422,9 +431,11 @@ TEST_P(VulkanImageWrappingUsageTests, ClearTwoImagesAcrossDevices) {
     std::vector<wgpu::Texture> wrappedTextures;
     for (int i = 0; i < 2; ++i) {
         // Import the images on |secondDevice|
-        wrappedTextures.push_back(
+        wgpu::Texture wrappedTexture =
             WrapVulkanImage(secondDevice, &defaultDescriptor, testTextures[i].get(), {},
-                            VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL));
+                            VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+        ASSERT_NE(wrappedTexture.Get(), nullptr);
+        wrappedTextures.push_back(wrappedTexture);
     }
 
     // Clear |wrappedTextures| on |secondDevice|
@@ -438,6 +449,7 @@ TEST_P(VulkanImageWrappingUsageTests, ClearTwoImagesAcrossDevices) {
         wgpu::Texture nextWrappedTexture = WrapVulkanImage(
             device, &defaultDescriptor, testTextures[i].get(), std::move(exportInfo.semaphores),
             exportInfo.releasedOldLayout, exportInfo.releasedNewLayout);
+        ASSERT_NE(nextWrappedTexture.Get(), nullptr);
 
         // Verify |device| sees the changes from |secondDevice|
         EXPECT_PIXEL_RGBA8_EQ(utils::RGBA8(1, 2, 3, 4), nextWrappedTexture, 0, 0);
@@ -453,6 +465,7 @@ TEST_P(VulkanImageWrappingUsageTests, UninitializedTextureIsCleared) {
     wgpu::Texture wrappedTexture =
         WrapVulkanImage(secondDevice, &defaultDescriptor, defaultTexture, {},
                         VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    ASSERT_NE(wrappedTexture.Get(), nullptr);
 
     // Clear |wrappedTexture| on |secondDevice|
     ClearImage(secondDevice, wrappedTexture, {1 / 255.0f, 2 / 255.0f, 3 / 255.0f, 4 / 255.0f});
@@ -464,6 +477,7 @@ TEST_P(VulkanImageWrappingUsageTests, UninitializedTextureIsCleared) {
     wgpu::Texture nextWrappedTexture = WrapVulkanImage(
         device, &defaultDescriptor, defaultTexture, std::move(exportInfo.semaphores),
         exportInfo.releasedOldLayout, exportInfo.releasedNewLayout, false);
+    ASSERT_NE(nextWrappedTexture.Get(), nullptr);
 
     // Verify |device| doesn't see the changes from |secondDevice|
     EXPECT_PIXEL_RGBA8_EQ(utils::RGBA8(0, 0, 0, 0), nextWrappedTexture, 0, 0);
@@ -480,6 +494,7 @@ TEST_P(VulkanImageWrappingUsageTests, CopyTextureToTextureSrcSync) {
     wgpu::Texture wrappedTexture =
         WrapVulkanImage(secondDevice, &defaultDescriptor, defaultTexture, {},
                         VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    ASSERT_NE(wrappedTexture.Get(), nullptr);
 
     // Clear |wrappedTexture| on |secondDevice|
     ClearImage(secondDevice, wrappedTexture, {1 / 255.0f, 2 / 255.0f, 3 / 255.0f, 4 / 255.0f});
@@ -491,6 +506,7 @@ TEST_P(VulkanImageWrappingUsageTests, CopyTextureToTextureSrcSync) {
     wgpu::Texture deviceWrappedTexture = WrapVulkanImage(
         device, &defaultDescriptor, defaultTexture, std::move(exportInfo.semaphores),
         exportInfo.releasedOldLayout, exportInfo.releasedNewLayout);
+    ASSERT_NE(deviceWrappedTexture.Get(), nullptr);
 
     // Create a second texture on |device|
     wgpu::Texture copyDstTexture = device.CreateTexture(&defaultDescriptor);
@@ -518,6 +534,7 @@ TEST_P(VulkanImageWrappingUsageTests, CopyTextureToTextureDstSync) {
     wgpu::Texture wrappedTexture =
         WrapVulkanImage(device, &defaultDescriptor, defaultTexture, {}, VK_IMAGE_LAYOUT_UNDEFINED,
                         VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    ASSERT_NE(wrappedTexture.Get(), nullptr);
 
     // Clear |wrappedTexture| on |device|
     ClearImage(device, wrappedTexture, {5 / 255.0f, 6 / 255.0f, 7 / 255.0f, 8 / 255.0f});
@@ -529,6 +546,7 @@ TEST_P(VulkanImageWrappingUsageTests, CopyTextureToTextureDstSync) {
     wgpu::Texture secondDeviceWrappedTexture = WrapVulkanImage(
         secondDevice, &defaultDescriptor, defaultTexture, std::move(exportInfo.semaphores),
         exportInfo.releasedOldLayout, exportInfo.releasedNewLayout);
+    ASSERT_NE(secondDeviceWrappedTexture.Get(), nullptr);
 
     // Create a texture with color B on |secondDevice|
     wgpu::Texture copySrcTexture = secondDevice.CreateTexture(&defaultDescriptor);
@@ -546,6 +564,7 @@ TEST_P(VulkanImageWrappingUsageTests, CopyTextureToTextureDstSync) {
     wgpu::Texture nextWrappedTexture = WrapVulkanImage(
         device, &defaultDescriptor, defaultTexture, std::move(secondExportInfo.semaphores),
         secondExportInfo.releasedOldLayout, secondExportInfo.releasedNewLayout);
+    ASSERT_NE(nextWrappedTexture.Get(), nullptr);
 
     // Verify |nextWrappedTexture| contains the color from our copy
     EXPECT_PIXEL_RGBA8_EQ(utils::RGBA8(1, 2, 3, 4), nextWrappedTexture, 0, 0);
@@ -562,6 +581,7 @@ TEST_P(VulkanImageWrappingUsageTests, CopyTextureToBufferSrcSync) {
     wgpu::Texture wrappedTexture =
         WrapVulkanImage(secondDevice, &defaultDescriptor, defaultTexture, {},
                         VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    ASSERT_NE(wrappedTexture.Get(), nullptr);
 
     // Clear |wrappedTexture| on |secondDevice|
     ClearImage(secondDevice, wrappedTexture, {1 / 255.0f, 2 / 255.0f, 3 / 255.0f, 4 / 255.0f});
@@ -573,6 +593,7 @@ TEST_P(VulkanImageWrappingUsageTests, CopyTextureToBufferSrcSync) {
     wgpu::Texture deviceWrappedTexture = WrapVulkanImage(
         device, &defaultDescriptor, defaultTexture, std::move(exportInfo.semaphores),
         exportInfo.releasedOldLayout, exportInfo.releasedNewLayout);
+    ASSERT_NE(deviceWrappedTexture.Get(), nullptr);
 
     // Create a destination buffer on |device|
     wgpu::BufferDescriptor bufferDesc;
@@ -581,9 +602,9 @@ TEST_P(VulkanImageWrappingUsageTests, CopyTextureToBufferSrcSync) {
     wgpu::Buffer copyDstBuffer = device.CreateBuffer(&bufferDesc);
 
     // Copy |deviceWrappedTexture| into |copyDstBuffer|
-    wgpu::ImageCopyTexture copySrc =
-        utils::CreateImageCopyTexture(deviceWrappedTexture, 0, {0, 0, 0});
-    wgpu::ImageCopyBuffer copyDst = utils::CreateImageCopyBuffer(copyDstBuffer, 0, 256);
+    wgpu::TexelCopyTextureInfo copySrc =
+        utils::CreateTexelCopyTextureInfo(deviceWrappedTexture, 0, {0, 0, 0});
+    wgpu::TexelCopyBufferInfo copyDst = utils::CreateTexelCopyBufferInfo(copyDstBuffer, 0, 256);
 
     wgpu::Extent3D copySize = {1, 1, 1};
 
@@ -612,6 +633,7 @@ TEST_P(VulkanImageWrappingUsageTests, CopyBufferToTextureDstSync) {
     wgpu::Texture wrappedTexture =
         WrapVulkanImage(device, &defaultDescriptor, defaultTexture, {}, VK_IMAGE_LAYOUT_UNDEFINED,
                         VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    ASSERT_NE(wrappedTexture.Get(), nullptr);
 
     // Clear |wrappedTexture| on |device|
     ClearImage(device, wrappedTexture, {5 / 255.0f, 6 / 255.0f, 7 / 255.0f, 8 / 255.0f});
@@ -623,6 +645,7 @@ TEST_P(VulkanImageWrappingUsageTests, CopyBufferToTextureDstSync) {
     wgpu::Texture secondDeviceWrappedTexture = WrapVulkanImage(
         secondDevice, &defaultDescriptor, defaultTexture, std::move(exportInfo.semaphores),
         exportInfo.releasedOldLayout, exportInfo.releasedNewLayout);
+    ASSERT_NE(secondDeviceWrappedTexture.Get(), nullptr);
 
     // Copy color B on |secondDevice|
     wgpu::Queue secondDeviceQueue = secondDevice.GetQueue();
@@ -632,9 +655,9 @@ TEST_P(VulkanImageWrappingUsageTests, CopyBufferToTextureDstSync) {
         utils::CreateBufferFromData(secondDevice, wgpu::BufferUsage::CopySrc, {0x04030201});
 
     // Copy |copySrcBuffer| into |secondDeviceWrappedTexture|
-    wgpu::ImageCopyBuffer copySrc = utils::CreateImageCopyBuffer(copySrcBuffer, 0, 256);
-    wgpu::ImageCopyTexture copyDst =
-        utils::CreateImageCopyTexture(secondDeviceWrappedTexture, 0, {0, 0, 0});
+    wgpu::TexelCopyBufferInfo copySrc = utils::CreateTexelCopyBufferInfo(copySrcBuffer, 0, 256);
+    wgpu::TexelCopyTextureInfo copyDst =
+        utils::CreateTexelCopyTextureInfo(secondDeviceWrappedTexture, 0, {0, 0, 0});
 
     wgpu::Extent3D copySize = {1, 1, 1};
 
@@ -650,6 +673,7 @@ TEST_P(VulkanImageWrappingUsageTests, CopyBufferToTextureDstSync) {
     wgpu::Texture nextWrappedTexture = WrapVulkanImage(
         device, &defaultDescriptor, defaultTexture, std::move(secondExportInfo.semaphores),
         secondExportInfo.releasedOldLayout, secondExportInfo.releasedNewLayout);
+    ASSERT_NE(nextWrappedTexture.Get(), nullptr);
 
     // Verify |nextWrappedTexture| contains the color from our copy
     EXPECT_PIXEL_RGBA8_EQ(utils::RGBA8(1, 2, 3, 4), nextWrappedTexture, 0, 0);
@@ -667,6 +691,7 @@ TEST_P(VulkanImageWrappingUsageTests, DoubleTextureUsage) {
     wgpu::Texture wrappedTexture =
         WrapVulkanImage(secondDevice, &defaultDescriptor, defaultTexture, {},
                         VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    ASSERT_NE(wrappedTexture.Get(), nullptr);
 
     // Clear |wrappedTexture| on |secondDevice|
     ClearImage(secondDevice, wrappedTexture, {1 / 255.0f, 2 / 255.0f, 3 / 255.0f, 4 / 255.0f});
@@ -678,6 +703,7 @@ TEST_P(VulkanImageWrappingUsageTests, DoubleTextureUsage) {
     wgpu::Texture deviceWrappedTexture = WrapVulkanImage(
         device, &defaultDescriptor, defaultTexture, std::move(exportInfo.semaphores),
         exportInfo.releasedOldLayout, exportInfo.releasedNewLayout);
+    ASSERT_NE(deviceWrappedTexture.Get(), nullptr);
 
     // Create a second texture on |device|
     wgpu::Texture copyDstTexture = device.CreateTexture(&defaultDescriptor);
@@ -732,10 +758,12 @@ TEST_P(VulkanImageWrappingUsageTests, ChainTextureCopy) {
     wgpu::Texture wrappedTexADevice3 =
         WrapVulkanImage(thirdDevice, &defaultDescriptor, textureA.get(), {},
                         VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    ASSERT_NE(wrappedTexADevice3.Get(), nullptr);
 
     wgpu::Texture wrappedTexBDevice3 =
         WrapVulkanImage(thirdDevice, &defaultDescriptor, textureB.get(), {},
                         VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    ASSERT_NE(wrappedTexBDevice3.Get(), nullptr);
 
     // Clear TexA
     ClearImage(thirdDevice, wrappedTexADevice3, {1 / 255.0f, 2 / 255.0f, 3 / 255.0f, 4 / 255.0f});
@@ -753,10 +781,12 @@ TEST_P(VulkanImageWrappingUsageTests, ChainTextureCopy) {
         secondDevice, &defaultDescriptor, textureB.get(),
         std::move(exportInfoTexBDevice3.semaphores), exportInfoTexBDevice3.releasedOldLayout,
         exportInfoTexBDevice3.releasedNewLayout);
+    ASSERT_NE(wrappedTexBDevice2.Get(), nullptr);
 
     wgpu::Texture wrappedTexCDevice2 =
         WrapVulkanImage(secondDevice, &defaultDescriptor, textureC.get(), {},
                         VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    ASSERT_NE(wrappedTexCDevice2.Get(), nullptr);
 
     // Copy B->C on device 2
     SimpleCopyTextureToTexture(secondDevice, secondDeviceQueue, wrappedTexBDevice2,
@@ -770,6 +800,7 @@ TEST_P(VulkanImageWrappingUsageTests, ChainTextureCopy) {
     wgpu::Texture wrappedTexCDevice1 = WrapVulkanImage(
         device, &defaultDescriptor, textureC.get(), std::move(exportInfoTexCDevice2.semaphores),
         exportInfoTexCDevice2.releasedOldLayout, exportInfoTexCDevice2.releasedNewLayout);
+    ASSERT_NE(wrappedTexCDevice1.Get(), nullptr);
 
     // Create TexD on device 1
     wgpu::Texture texD = device.CreateTexture(&defaultDescriptor);
@@ -811,6 +842,7 @@ TEST_P(VulkanImageWrappingUsageTests, LargerImage) {
     wgpu::Texture wrappedTexture =
         WrapVulkanImage(secondDevice, &descriptor, texture.get(), {}, VK_IMAGE_LAYOUT_UNDEFINED,
                         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    ASSERT_NE(wrappedTexture.Get(), nullptr);
 
     // Draw a non-trivial picture
     uint32_t width = 640, height = 480, pixelSize = 4;
@@ -834,9 +866,10 @@ TEST_P(VulkanImageWrappingUsageTests, LargerImage) {
     {
         wgpu::Buffer copySrcBuffer = utils::CreateBufferFromData(
             secondDevice, data.data(), data.size(), wgpu::BufferUsage::CopySrc);
-        wgpu::ImageCopyBuffer copySrc = utils::CreateImageCopyBuffer(copySrcBuffer, 0, bytesPerRow);
-        wgpu::ImageCopyTexture copyDst =
-            utils::CreateImageCopyTexture(wrappedTexture, 0, {0, 0, 0});
+        wgpu::TexelCopyBufferInfo copySrc =
+            utils::CreateTexelCopyBufferInfo(copySrcBuffer, 0, bytesPerRow);
+        wgpu::TexelCopyTextureInfo copyDst =
+            utils::CreateTexelCopyTextureInfo(wrappedTexture, 0, {0, 0, 0});
         wgpu::Extent3D copySize = {width, height, 1};
 
         wgpu::CommandEncoder encoder = secondDevice.CreateCommandEncoder();
@@ -851,6 +884,7 @@ TEST_P(VulkanImageWrappingUsageTests, LargerImage) {
     wgpu::Texture nextWrappedTexture =
         WrapVulkanImage(device, &descriptor, texture.get(), std::move(exportInfo.semaphores),
                         exportInfo.releasedOldLayout, exportInfo.releasedNewLayout);
+    ASSERT_NE(nextWrappedTexture.Get(), nullptr);
 
     // Copy the image into a buffer for comparison
     wgpu::BufferDescriptor copyDesc;
@@ -858,9 +892,10 @@ TEST_P(VulkanImageWrappingUsageTests, LargerImage) {
     copyDesc.usage = wgpu::BufferUsage::CopySrc | wgpu::BufferUsage::CopyDst;
     wgpu::Buffer copyDstBuffer = device.CreateBuffer(&copyDesc);
     {
-        wgpu::ImageCopyTexture copySrc =
-            utils::CreateImageCopyTexture(nextWrappedTexture, 0, {0, 0, 0});
-        wgpu::ImageCopyBuffer copyDst = utils::CreateImageCopyBuffer(copyDstBuffer, 0, bytesPerRow);
+        wgpu::TexelCopyTextureInfo copySrc =
+            utils::CreateTexelCopyTextureInfo(nextWrappedTexture, 0, {0, 0, 0});
+        wgpu::TexelCopyBufferInfo copyDst =
+            utils::CreateTexelCopyBufferInfo(copyDstBuffer, 0, bytesPerRow);
 
         wgpu::Extent3D copySize = {width, height, 1};
 
@@ -899,7 +934,7 @@ TEST_P(VulkanImageWrappingUsageTests, SRGBReinterpretation) {
                         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
     ASSERT_NE(texture.Get(), nullptr);
 
-    wgpu::ImageCopyTexture dst = {};
+    wgpu::TexelCopyTextureInfo dst = {};
     dst.texture = texture;
     std::array<utils::RGBA8, 4> rgbaTextureData = {
         utils::RGBA8(180, 0, 0, 255),
@@ -908,7 +943,7 @@ TEST_P(VulkanImageWrappingUsageTests, SRGBReinterpretation) {
         utils::RGBA8(62, 180, 84, 90),
     };
 
-    wgpu::TextureDataLayout dataLayout = {};
+    wgpu::TexelCopyBufferLayout dataLayout = {};
     dataLayout.bytesPerRow = textureDesc.size.width * sizeof(utils::RGBA8);
 
     queue.WriteTexture(&dst, rgbaTextureData.data(), rgbaTextureData.size() * sizeof(utils::RGBA8),
@@ -1014,6 +1049,7 @@ TEST_P(VulkanImageWrappingMultithreadTests, WrapAndClear_OnMultipleThreads) {
         wgpu::Texture wrappedTexture =
             WrapVulkanImage(writeDevice, &defaultDescriptor, testTextures[idx].get(), {},
                             VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+        ASSERT_NE(wrappedTexture.Get(), nullptr);
 
         // Clear |wrappedTexture| on |writeDevice|
         ClearImage(writeDevice, wrappedTexture, {1 / 255.0f, 2 / 255.0f, 3 / 255.0f, 4 / 255.0f});
@@ -1025,6 +1061,7 @@ TEST_P(VulkanImageWrappingMultithreadTests, WrapAndClear_OnMultipleThreads) {
         wgpu::Texture nextWrappedTexture = WrapVulkanImage(
             device, &defaultDescriptor, testTextures[idx].get(), std::move(exportInfo.semaphores),
             exportInfo.releasedOldLayout, exportInfo.releasedNewLayout);
+        ASSERT_NE(nextWrappedTexture.Get(), nullptr);
 
         // Verify |device| sees the changes from |secondDevice|
         EXPECT_PIXEL_RGBA8_EQ(utils::RGBA8(1, 2, 3, 4), nextWrappedTexture, 0, 0);

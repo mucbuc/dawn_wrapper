@@ -46,7 +46,16 @@ TEST_F(SpirvWriterTest, Loop_BreakIf) {
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Call(func);
+        b.Return(eb);
+    });
+
+    Options options;
+    options.disable_robustness = true;
+    auto result = Generate(options);
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST(R"(
           %4 = OpLabel
                OpBranch %7
@@ -63,6 +72,70 @@ TEST_F(SpirvWriterTest, Loop_BreakIf) {
 )");
 }
 
+TEST_F(SpirvWriterTest, Loop_BreakIf_WithRobustness) {
+    auto* func = b.Function("foo", ty.void_());
+    b.Append(func->Block(), [&] {
+        auto* loop = b.Loop();
+        b.Append(loop->Body(), [&] {  //
+            b.Continue(loop);
+
+            b.Append(loop->Continuing(), [&] {  //
+                b.BreakIf(loop, true);
+            });
+        });
+        b.Return(func);
+    });
+
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Call(func);
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
+
+    EXPECT_INST("%14 = OpConstantComposite %v2uint %uint_4294967295 %uint_4294967295");
+    EXPECT_INST(R"(
+          %4 = OpLabel
+%tint_loop_idx = OpVariable %_ptr_Function_v2uint Function
+               OpBranch %5
+          %5 = OpLabel
+               OpStore %tint_loop_idx %14
+               OpBranch %8
+          %8 = OpLabel
+               OpLoopMerge %9 %7 None
+               OpBranch %6
+          %6 = OpLabel
+         %16 = OpLoad %v2uint %tint_loop_idx None
+         %17 = OpIEqual %v2bool %16 %18
+         %21 = OpAll %bool %17
+               OpSelectionMerge %22 None
+               OpBranchConditional %21 %23 %22
+         %23 = OpLabel
+               OpBranch %9
+         %22 = OpLabel
+               OpBranch %7
+          %7 = OpLabel
+         %24 = OpAccessChain %_ptr_Function_uint %tint_loop_idx %uint_0
+         %27 = OpLoad %uint %24 None
+%tint_low_inc = OpISub %uint %27 %uint_1
+         %30 = OpAccessChain %_ptr_Function_uint %tint_loop_idx %uint_0
+               OpStore %30 %tint_low_inc None
+         %31 = OpIEqual %bool %tint_low_inc %uint_4294967295
+ %tint_carry = OpSelect %uint %31 %uint_1 %uint_0
+         %33 = OpAccessChain %_ptr_Function_uint %tint_loop_idx %uint_1
+         %34 = OpLoad %uint %33 None
+         %35 = OpISub %uint %34 %tint_carry
+         %36 = OpAccessChain %_ptr_Function_uint %tint_loop_idx %uint_1
+               OpStore %36 %35 None
+               OpBranchConditional %true %9 %8
+          %9 = OpLabel
+               OpReturn
+               OpFunctionEnd
+)");
+}
+
 // Test that we still emit the continuing block with a back-edge, even when it is unreachable.
 TEST_F(SpirvWriterTest, Loop_UnconditionalBreakInBody) {
     auto* func = b.Function("foo", ty.void_());
@@ -74,7 +147,16 @@ TEST_F(SpirvWriterTest, Loop_UnconditionalBreakInBody) {
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Call(func);
+        b.Return(eb);
+    });
+
+    Options options;
+    options.disable_robustness = true;
+    auto result = Generate(options);
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST(R"(
           %4 = OpLabel
                OpBranch %7
@@ -112,7 +194,16 @@ TEST_F(SpirvWriterTest, Loop_ConditionalBreakInBody) {
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Call(func);
+        b.Return(eb);
+    });
+
+    Options options;
+    options.disable_robustness = true;
+    auto result = Generate(options);
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST(R"(
           %4 = OpLabel
                OpBranch %7
@@ -155,7 +246,16 @@ TEST_F(SpirvWriterTest, Loop_ConditionalContinueInBody) {
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Call(func);
+        b.Return(eb);
+    });
+
+    Options options;
+    options.disable_robustness = true;
+    auto result = Generate(options);
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST(R"(
           %4 = OpLabel
                OpBranch %7
@@ -189,7 +289,16 @@ TEST_F(SpirvWriterTest, Loop_UnconditionalReturnInBody) {
         b.Unreachable();
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Call(func);
+        b.Return(eb);
+    });
+
+    Options options;
+    options.disable_robustness = true;
+    auto result = Generate(options);
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST(R"(
           %4 = OpLabel
                OpBranch %7
@@ -211,7 +320,7 @@ TEST_F(SpirvWriterTest, Loop_UseResultFromBodyInContinuing) {
     b.Append(func->Block(), [&] {
         auto* loop = b.Loop();
         b.Append(loop->Body(), [&] {
-            auto* result = b.Equal(ty.bool_(), 1_i, 2_i);
+            auto* result = b.Equal(1_i, 2_i);
             b.Continue(loop);
 
             b.Append(loop->Continuing(), [&] {  //
@@ -221,7 +330,16 @@ TEST_F(SpirvWriterTest, Loop_UseResultFromBodyInContinuing) {
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Call(func);
+        b.Return(eb);
+    });
+
+    Options options;
+    options.disable_robustness = true;
+    auto result = Generate(options);
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST(R"(
           %4 = OpLabel
                OpBranch %7
@@ -262,7 +380,16 @@ TEST_F(SpirvWriterTest, Loop_NestedLoopInBody) {
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Call(func);
+        b.Return(eb);
+    });
+
+    Options options;
+    options.disable_robustness = true;
+    auto result = Generate(options);
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST(R"(
           %4 = OpLabel
                OpBranch %7
@@ -310,7 +437,16 @@ TEST_F(SpirvWriterTest, Loop_NestedLoopInContinuing) {
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Call(func);
+        b.Return(eb);
+    });
+
+    Options options;
+    options.disable_robustness = true;
+    auto result = Generate(options);
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST(R"(
           %4 = OpLabel
                OpBranch %7
@@ -369,7 +505,16 @@ TEST_F(SpirvWriterTest, Loop_NestedLoopInContinuing_UnreachableInNestedBody) {
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Call(func);
+        b.Return(eb);
+    });
+
+    Options options;
+    options.disable_robustness = true;
+    auto result = Generate(options);
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST(R"(
           %4 = OpLabel
                OpBranch %7
@@ -384,13 +529,13 @@ TEST_F(SpirvWriterTest, Loop_NestedLoopInContinuing_UnreachableInNestedBody) {
                OpLoopMerge %12 %10 None
                OpBranch %9
           %9 = OpLabel
-               OpSelectionMerge %13 None
-               OpBranchConditional %true %14 %15
-         %14 = OpLabel
+               OpSelectionMerge %15 None
+               OpBranchConditional %true %16 %17
+         %16 = OpLabel
+               OpBranch %12
+         %17 = OpLabel
                OpBranch %12
          %15 = OpLabel
-               OpBranch %12
-         %13 = OpLabel
                OpBranch %12
          %10 = OpLabel
                OpBranchConditional %true %12 %11
@@ -407,14 +552,14 @@ TEST_F(SpirvWriterTest, Loop_NestedLoopInContinuing_UnreachableInNestedBody_With
     b.Append(func->Block(), [&] {
         auto* outer_result = b.InstructionResult(ty.i32());
         auto* outer_loop = b.Loop();
-        outer_loop->SetResults(Vector{outer_result});
+        outer_loop->SetResult(outer_result);
         b.Append(outer_loop->Body(), [&] {
             b.Continue(outer_loop);
 
             b.Append(outer_loop->Continuing(), [&] {
                 auto* inner_result = b.InstructionResult(ty.i32());
                 auto* inner_loop = b.Loop();
-                inner_loop->SetResults(Vector{inner_result});
+                inner_loop->SetResult(inner_result);
                 b.Append(inner_loop->Body(), [&] {
                     auto* ifelse = b.If(true);
                     b.Append(ifelse->True(), [&] {  //
@@ -435,8 +580,19 @@ TEST_F(SpirvWriterTest, Loop_NestedLoopInContinuing_UnreachableInNestedBody_With
         b.Return(func, outer_result);
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func));
+        b.Return(eb);
+    });
+
+    Options options;
+    options.disable_robustness = true;
+    auto result = Generate(options);
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST(R"(
+               ; Function foo
+        %foo = OpFunction %int None %3
           %4 = OpLabel
                OpBranch %7
           %7 = OpLabel
@@ -445,32 +601,33 @@ TEST_F(SpirvWriterTest, Loop_NestedLoopInContinuing_UnreachableInNestedBody_With
           %5 = OpLabel
                OpBranch %6
           %6 = OpLabel
-               OpBranch %11
-         %11 = OpLabel
-               OpLoopMerge %12 %10 None
-               OpBranch %9
-          %9 = OpLabel
-               OpSelectionMerge %13 None
-               OpBranchConditional %true %14 %15
+               OpBranch %14
          %14 = OpLabel
+               OpLoopMerge %9 %13 None
                OpBranch %12
-         %15 = OpLabel
-               OpBranch %12
-         %13 = OpLabel
-               OpBranch %12
-         %10 = OpLabel
-               OpBranchConditional %true %12 %11
          %12 = OpLabel
-         %18 = OpPhi %int %int_3 %10 %20 %13 %int_1 %14 %int_2 %15
+               OpSelectionMerge %17 None
+               OpBranchConditional %true %15 %16
+         %15 = OpLabel
+               OpBranch %9
+         %16 = OpLabel
+               OpBranch %9
+         %17 = OpLabel
+               OpBranch %9
+         %13 = OpLabel
+               OpBranchConditional %true %9 %14
+          %9 = OpLabel
+         %11 = OpPhi %int %int_3 %13 %int_1 %15 %int_2 %16 %21 %17
                OpBranchConditional %true %8 %7
           %8 = OpLabel
-         %23 = OpPhi %int %18 %12
-               OpReturnValue %23
+         %10 = OpPhi %int %11 %9
+               OpReturnValue %10
                OpFunctionEnd
 
-               ; Function unused_entry_point
-%unused_entry_point = OpFunction %void None %26
+               ; Function main
+       %main = OpFunction %void None %26
          %27 = OpLabel
+          %x = OpFunctionCall %int %foo
                OpReturn
                OpFunctionEnd
 )");
@@ -478,7 +635,6 @@ TEST_F(SpirvWriterTest, Loop_NestedLoopInContinuing_UnreachableInNestedBody_With
 
 TEST_F(SpirvWriterTest, Loop_Phi_SingleValue) {
     auto* func = b.Function("foo", ty.void_());
-
     b.Append(func->Block(), [&] {
         auto* loop = b.Loop();
 
@@ -490,21 +646,30 @@ TEST_F(SpirvWriterTest, Loop_Phi_SingleValue) {
         loop->Body()->SetParams({loop_param});
 
         b.Append(loop->Body(), [&] {
-            auto* inc = b.Add(ty.i32(), loop_param, 1_i);
+            auto* inc = b.Add(loop_param, 1_i);
             b.Continue(loop, inc);
         });
 
         auto* cont_param = b.BlockParam(ty.i32());
         loop->Continuing()->SetParams({cont_param});
         b.Append(loop->Continuing(), [&] {
-            auto* cmp = b.GreaterThan(ty.bool_(), cont_param, 5_i);
+            auto* cmp = b.GreaterThan(cont_param, 5_i);
             b.BreakIf(loop, cmp, /* next_iter */ Vector{cont_param}, /* exit */ Empty);
         });
 
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Call(func);
+        b.Return(eb);
+    });
+
+    Options options;
+    options.disable_robustness = true;
+    auto result = Generate(options);
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST(R"(
           %5 = OpLabel
                OpBranch %8
@@ -513,12 +678,15 @@ TEST_F(SpirvWriterTest, Loop_Phi_SingleValue) {
                OpLoopMerge %9 %7 None
                OpBranch %6
           %6 = OpLabel
-         %14 = OpIAdd %int %11 %int_1
+         %16 = OpBitcast %uint %11
+         %17 = OpBitcast %uint %int_1
+         %18 = OpIAdd %uint %16 %17
+         %14 = OpBitcast %int %18
                OpBranch %7
           %7 = OpLabel
          %13 = OpPhi %int %14 %6
-         %15 = OpSGreaterThan %bool %13 %int_5
-               OpBranchConditional %15 %9 %8
+         %19 = OpSGreaterThan %bool %13 %int_5
+               OpBranchConditional %19 %9 %8
           %9 = OpLabel
                OpReturn
                OpFunctionEnd
@@ -527,7 +695,6 @@ TEST_F(SpirvWriterTest, Loop_Phi_SingleValue) {
 
 TEST_F(SpirvWriterTest, Loop_Phi_MultipleValue) {
     auto* func = b.Function("foo", ty.void_());
-
     b.Append(func->Block(), [&] {
         auto* loop = b.Loop();
 
@@ -540,7 +707,7 @@ TEST_F(SpirvWriterTest, Loop_Phi_MultipleValue) {
         loop->Body()->SetParams({loop_param_a, loop_param_b});
 
         b.Append(loop->Body(), [&] {
-            auto* inc = b.Add(ty.i32(), loop_param_a, 1_i);
+            auto* inc = b.Add(loop_param_a, 1_i);
             b.Continue(loop, inc, loop_param_b);
         });
 
@@ -548,15 +715,24 @@ TEST_F(SpirvWriterTest, Loop_Phi_MultipleValue) {
         auto* cont_param_b = b.BlockParam(ty.bool_());
         loop->Continuing()->SetParams({cont_param_a, cont_param_b});
         b.Append(loop->Continuing(), [&] {
-            auto* cmp = b.GreaterThan(ty.bool_(), cont_param_a, 5_i);
-            auto* not_b = b.Not(ty.bool_(), cont_param_b);
+            auto* cmp = b.GreaterThan(cont_param_a, 5_i);
+            auto* not_b = b.Not(cont_param_b);
             b.BreakIf(loop, cmp, b.Values(cont_param_a, not_b), Empty);
         });
 
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Call(func);
+        b.Return(eb);
+    });
+
+    Options options;
+    options.disable_robustness = true;
+    auto result = Generate(options);
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST(R"(
           %5 = OpLabel
                OpBranch %8
@@ -566,14 +742,17 @@ TEST_F(SpirvWriterTest, Loop_Phi_MultipleValue) {
                OpLoopMerge %9 %7 None
                OpBranch %6
           %6 = OpLabel
-         %18 = OpIAdd %int %11 %int_1
+         %21 = OpBitcast %uint %11
+         %22 = OpBitcast %uint %int_1
+         %23 = OpIAdd %uint %21 %22
+         %18 = OpBitcast %int %23
                OpBranch %7
           %7 = OpLabel
          %13 = OpPhi %int %18 %6
          %19 = OpPhi %bool %15 %6
-         %20 = OpSGreaterThan %bool %13 %int_5
+         %24 = OpSGreaterThan %bool %13 %int_5
          %17 = OpLogicalNot %bool %19
-               OpBranchConditional %20 %9 %8
+               OpBranchConditional %24 %9 %8
           %9 = OpLabel
                OpReturn
                OpFunctionEnd
@@ -582,7 +761,6 @@ TEST_F(SpirvWriterTest, Loop_Phi_MultipleValue) {
 
 TEST_F(SpirvWriterTest, Loop_Phi_NestedIf) {
     auto* func = b.Function("foo", ty.void_());
-
     b.Append(func->Block(), [&] {
         auto* loop = b.Loop();
         b.Append(loop->Initializer(), [&] {  //
@@ -593,27 +771,36 @@ TEST_F(SpirvWriterTest, Loop_Phi_NestedIf) {
         loop->Body()->SetParams({loop_param});
         b.Append(loop->Body(), [&] {
             auto* inner = b.If(true);
-            inner->SetResults(b.InstructionResult(ty.i32()));
+            inner->SetResult(b.InstructionResult(ty.i32()));
             b.Append(inner->True(), [&] {  //
                 b.ExitIf(inner, 10_i);
             });
             b.Append(inner->False(), [&] {  //
                 b.ExitIf(inner, 20_i);
             });
-            b.Continue(loop, inner->Result(0));
+            b.Continue(loop, inner->Result());
         });
 
         auto* cont_param = b.BlockParam(ty.i32());
         loop->Continuing()->SetParams({cont_param});
         b.Append(loop->Continuing(), [&] {
-            auto* cmp = b.GreaterThan(ty.bool_(), cont_param, 5_i);
+            auto* cmp = b.GreaterThan(cont_param, 5_i);
             b.BreakIf(loop, cmp, /* next_iter */ Vector{cont_param}, /* exit */ Empty);
         });
 
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Call(func);
+        b.Return(eb);
+    });
+
+    Options options;
+    options.disable_robustness = true;
+    auto result = Generate(options);
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST(R"(
           %4 = OpLabel
                OpBranch %5
@@ -624,17 +811,17 @@ TEST_F(SpirvWriterTest, Loop_Phi_NestedIf) {
                OpLoopMerge %9 %7 None
                OpBranch %6
           %6 = OpLabel
-               OpSelectionMerge %14 None
-               OpBranchConditional %true %15 %16
-         %15 = OpLabel
-               OpBranch %14
+               OpSelectionMerge %15 None
+               OpBranchConditional %true %16 %17
          %16 = OpLabel
-               OpBranch %14
-         %14 = OpLabel
-         %19 = OpPhi %int %int_10 %15 %int_20 %16
+               OpBranch %15
+         %17 = OpLabel
+               OpBranch %15
+         %15 = OpLabel
+         %14 = OpPhi %int %int_10 %16 %int_20 %17
                OpBranch %7
           %7 = OpLabel
-         %13 = OpPhi %int %19 %14
+         %13 = OpPhi %int %14 %15
          %22 = OpSGreaterThan %bool %13 %int_5
                OpBranchConditional %22 %9 %8
           %9 = OpLabel
@@ -645,7 +832,6 @@ TEST_F(SpirvWriterTest, Loop_Phi_NestedIf) {
 
 TEST_F(SpirvWriterTest, Loop_Phi_NestedLoop) {
     auto* func = b.Function("foo", ty.void_());
-
     b.Append(func->Block(), [&] {
         auto* outer = b.Loop();
         b.Append(outer->Initializer(), [&] {  //
@@ -672,14 +858,23 @@ TEST_F(SpirvWriterTest, Loop_Phi_NestedLoop) {
         auto* cont_param = b.BlockParam(ty.i32());
         outer->Continuing()->SetParams({cont_param});
         b.Append(outer->Continuing(), [&] {
-            auto* cmp = b.GreaterThan(ty.bool_(), cont_param, 5_i);
+            auto* cmp = b.GreaterThan(cont_param, 5_i);
             b.BreakIf(outer, cmp, /* next_iter */ Vector{cont_param}, /* exit */ Empty);
         });
 
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Call(func);
+        b.Return(eb);
+    });
+
+    Options options;
+    options.disable_robustness = true;
+    auto result = Generate(options);
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST(R"(
           %4 = OpLabel
                OpBranch %5
@@ -690,22 +885,22 @@ TEST_F(SpirvWriterTest, Loop_Phi_NestedLoop) {
                OpLoopMerge %9 %7 None
                OpBranch %6
           %6 = OpLabel
-               OpBranch %14
-         %14 = OpLabel
-               OpBranch %17
-         %17 = OpLabel
-               OpLoopMerge %18 %16 None
                OpBranch %15
          %15 = OpLabel
+               OpBranch %18
+         %18 = OpLabel
+               OpLoopMerge %14 %17 None
                OpBranch %16
          %16 = OpLabel
-               OpBranchConditional %true %18 %17
-         %18 = OpLabel
+               OpBranch %17
+         %17 = OpLabel
+               OpBranchConditional %true %14 %18
+         %14 = OpLabel
                OpBranch %7
           %7 = OpLabel
-         %13 = OpPhi %int %11 %18
-         %21 = OpSGreaterThan %bool %13 %int_5
-               OpBranchConditional %21 %9 %8
+         %13 = OpPhi %int %11 %14
+         %19 = OpSGreaterThan %bool %13 %int_5
+               OpBranchConditional %19 %9 %8
           %9 = OpLabel
                OpReturn
                OpFunctionEnd
@@ -714,7 +909,6 @@ TEST_F(SpirvWriterTest, Loop_Phi_NestedLoop) {
 
 TEST_F(SpirvWriterTest, Loop_Phi_NestedIfWithResultAndImplicitFalse_InContinuing) {
     auto* func = b.Function("foo", ty.void_());
-
     b.Append(func->Block(), [&] {
         auto* loop = b.Loop();
 
@@ -725,7 +919,7 @@ TEST_F(SpirvWriterTest, Loop_Phi_NestedIfWithResultAndImplicitFalse_InContinuing
         b.Append(loop->Continuing(), [&] {
             auto* if_ = b.If(true);
             auto* cond = b.InstructionResult(ty.bool_());
-            if_->SetResults(Vector{cond});
+            if_->SetResult(cond);
             b.Append(if_->True(), [&] {  //
                 b.ExitIf(if_, true);
             });
@@ -735,7 +929,16 @@ TEST_F(SpirvWriterTest, Loop_Phi_NestedIfWithResultAndImplicitFalse_InContinuing
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Call(func);
+        b.Return(eb);
+    });
+
+    Options options;
+    options.disable_robustness = true;
+    auto result = Generate(options);
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST("%15 = OpUndef %bool");
     EXPECT_INST(R"(
           %4 = OpLabel
@@ -766,11 +969,17 @@ TEST_F(SpirvWriterTest, Loop_ExitValue) {
     b.Append(func->Block(), [&] {
         auto* result = b.InstructionResult(ty.i32());
         auto* loop = b.Loop();
-        loop->SetResults(Vector{result});
+        loop->SetResult(result);
         b.Append(loop->Body(), [&] {  //
             b.ExitLoop(loop, 42_i);
         });
         b.Return(func, result);
+    });
+
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func));
+        b.Return(eb);
     });
 
     EXPECT_EQ(IR(), R"(
@@ -784,9 +993,19 @@ TEST_F(SpirvWriterTest, Loop_ExitValue) {
     ret %2
   }
 }
+%main = @compute @workgroup_size(1u, 1u, 1u) func():void {
+  $B3: {
+    %4:i32 = call %foo
+    %x:i32 = let %4
+    ret
+  }
+}
 )");
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    Options options;
+    options.disable_robustness = true;
+    auto result = Generate(options);
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST(R"(
           %4 = OpLabel
                OpBranch %7
@@ -809,7 +1028,7 @@ TEST_F(SpirvWriterTest, Loop_ExitValue_BreakIf) {
     b.Append(func->Block(), [&] {
         auto* result = b.InstructionResult(ty.i32());
         auto* loop = b.Loop();
-        loop->SetResults(Vector{result});
+        loop->SetResult(result);
         b.Append(loop->Body(), [&] {  //
             auto* if_ = b.If(false);
             b.Append(if_->True(), [&] {  //
@@ -822,6 +1041,12 @@ TEST_F(SpirvWriterTest, Loop_ExitValue_BreakIf) {
             });
         });
         b.Return(func, result);
+    });
+
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func));
+        b.Return(eb);
     });
 
     EXPECT_EQ(IR(), R"(
@@ -843,9 +1068,19 @@ TEST_F(SpirvWriterTest, Loop_ExitValue_BreakIf) {
     ret %2
   }
 }
+%main = @compute @workgroup_size(1u, 1u, 1u) func():void {
+  $B5: {
+    %4:i32 = call %foo
+    %x:i32 = let %4
+    ret
+  }
+}
 )");
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    Options options;
+    options.disable_robustness = true;
+    auto result = Generate(options);
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST(R"(
           %4 = OpLabel
                OpBranch %7
@@ -853,17 +1088,17 @@ TEST_F(SpirvWriterTest, Loop_ExitValue_BreakIf) {
                OpLoopMerge %8 %6 None
                OpBranch %5
           %5 = OpLabel
-               OpSelectionMerge %9 None
-               OpBranchConditional %false %10 %9
-         %10 = OpLabel
-               OpBranch %8
+               OpSelectionMerge %13 None
+               OpBranchConditional %false %9 %13
           %9 = OpLabel
+               OpBranch %8
+         %13 = OpLabel
                OpBranch %6
           %6 = OpLabel
                OpBranchConditional %true %8 %7
           %8 = OpLabel
-         %14 = OpPhi %int %int_42 %6 %int_1 %10
-               OpReturnValue %14
+         %10 = OpPhi %int %int_42 %6 %int_1 %9
+               OpReturnValue %10
                OpFunctionEnd
 )");
 }

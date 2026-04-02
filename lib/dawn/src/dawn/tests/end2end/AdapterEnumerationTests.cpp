@@ -36,6 +36,9 @@
 #include "dawn/native/DawnNative.h"
 
 #if defined(DAWN_ENABLE_BACKEND_VULKAN)
+// This must be above VulkanBackend.h otherwise vulkan.h will be included before we can wrap it with
+// vulkan_platform.h.
+#include "dawn/common/vulkan_platform.h"
 #include "dawn/native/VulkanBackend.h"
 #endif  // defined(DAWN_ENABLE_BACKEND_VULKAN)
 
@@ -68,11 +71,13 @@ TEST_F(AdapterEnumerationTests, OnlyFallback) {
     adapterOptions.forceFallbackAdapter = true;
 
     const auto& adapters = instance.EnumerateAdapters(&adapterOptions);
-    for (const auto& adapter : adapters) {
+    for (const auto& nativeAdapter : adapters) {
+        wgpu::Adapter adapter = wgpu::Adapter(nativeAdapter.Get());
         wgpu::AdapterInfo info;
         adapter.GetInfo(&info);
 
-        EXPECT_EQ(info.backendType, wgpu::BackendType::Vulkan);
+        EXPECT_TRUE(info.backendType == wgpu::BackendType::Vulkan ||
+                    info.backendType == wgpu::BackendType::WebGPU);
         EXPECT_EQ(info.adapterType, wgpu::AdapterType::CPU);
         EXPECT_TRUE(gpu_info::IsGoogleSwiftshader(info.vendorID, info.deviceID));
     }
@@ -86,7 +91,8 @@ TEST_F(AdapterEnumerationTests, OnlyVulkan) {
     adapterOptions.backendType = wgpu::BackendType::Vulkan;
 
     const auto& adapters = instance.EnumerateAdapters(&adapterOptions);
-    for (const auto& adapter : adapters) {
+    for (const auto& nativeAdapter : adapters) {
+        wgpu::Adapter adapter = wgpu::Adapter(nativeAdapter.Get());
         wgpu::AdapterInfo info;
         adapter.GetInfo(&info);
 
@@ -102,7 +108,8 @@ TEST_F(AdapterEnumerationTests, OnlyD3D11) {
     adapterOptions.backendType = wgpu::BackendType::D3D11;
 
     const auto& adapters = instance.EnumerateAdapters(&adapterOptions);
-    for (const auto& adapter : adapters) {
+    for (const auto& nativeAdapter : adapters) {
+        wgpu::Adapter adapter = wgpu::Adapter(nativeAdapter.Get());
         wgpu::AdapterInfo info;
         adapter.GetInfo(&info);
 
@@ -137,23 +144,25 @@ TEST_F(AdapterEnumerationTests, MatchingDXGIAdapterD3D11) {
         adapterOptions.backendType = wgpu::BackendType::D3D11;
         adapterOptions.nextInChain = &luidOptions;
 
-        const auto& adapters = instance.EnumerateAdapters(&adapterOptions);
-        if (adapters.empty()) {
+        const auto& nativeAdapters = instance.EnumerateAdapters(&adapterOptions);
+        if (nativeAdapters.empty()) {
             // Initialize of the backend may fail.
             continue;
         }
-        ASSERT_EQ(adapters.size(), 1u);
+        ASSERT_EQ(nativeAdapters.size(), 1u);
 
+        wgpu::Adapter adapter = wgpu::Adapter(nativeAdapters[0].Get());
         wgpu::AdapterInfo info;
-        adapters[0].GetInfo(&info);
+        adapter.GetInfo(&info);
         EXPECT_EQ(info.backendType, wgpu::BackendType::D3D11);
 
         // Test that enumeration again yields the same adapter device.
-        const auto& adaptersAgain = instance.EnumerateAdapters(&adapterOptions);
-        ASSERT_EQ(adaptersAgain.size(), 1u);
+        const auto& nativeAdaptersAgain = instance.EnumerateAdapters(&adapterOptions);
+        ASSERT_EQ(nativeAdaptersAgain.size(), 1u);
 
+        wgpu::Adapter adapterAgain = wgpu::Adapter(nativeAdaptersAgain[0].Get());
         wgpu::AdapterInfo infoAgain;
-        adaptersAgain[0].GetInfo(&infoAgain);
+        adapterAgain.GetInfo(&infoAgain);
 
         EXPECT_EQ(info.vendor, infoAgain.vendor);
         EXPECT_EQ(info.architecture, infoAgain.architecture);
@@ -163,7 +172,6 @@ TEST_F(AdapterEnumerationTests, MatchingDXGIAdapterD3D11) {
         EXPECT_EQ(info.adapterType, infoAgain.adapterType);
         EXPECT_EQ(info.vendorID, infoAgain.vendorID);
         EXPECT_EQ(info.deviceID, infoAgain.deviceID);
-        EXPECT_EQ(info.compatibilityMode, infoAgain.compatibilityMode);
     }
 }
 #endif  // defined(DAWN_ENABLE_BACKEND_D3D11)
@@ -176,7 +184,8 @@ TEST_F(AdapterEnumerationTests, OnlyD3D12) {
     adapterOptions.backendType = wgpu::BackendType::D3D12;
 
     const auto& adapters = instance.EnumerateAdapters(&adapterOptions);
-    for (const auto& adapter : adapters) {
+    for (const auto& nativeAdapter : adapters) {
+        wgpu::Adapter adapter = wgpu::Adapter(nativeAdapter.Get());
         wgpu::AdapterInfo info;
         adapter.GetInfo(&info);
 
@@ -211,23 +220,25 @@ TEST_F(AdapterEnumerationTests, MatchingDXGIAdapterD3D12) {
         adapterOptions.backendType = wgpu::BackendType::D3D12;
         adapterOptions.nextInChain = &luidOptions;
 
-        const auto& adapters = instance.EnumerateAdapters(&adapterOptions);
-        if (adapters.empty()) {
+        const auto& nativeAdapters = instance.EnumerateAdapters(&adapterOptions);
+        if (nativeAdapters.empty()) {
             // Initialize of the backend may fail.
             continue;
         }
-        ASSERT_EQ(adapters.size(), 1u);
+        ASSERT_EQ(nativeAdapters.size(), 1u);
 
+        wgpu::Adapter adapter = wgpu::Adapter(nativeAdapters[0].Get());
         wgpu::AdapterInfo info;
-        adapters[0].GetInfo(&info);
+        adapter.GetInfo(&info);
         EXPECT_EQ(info.backendType, wgpu::BackendType::D3D12);
 
         // Test that enumeration again yields the same adapter device.
-        const auto& adaptersAgain = instance.EnumerateAdapters(&adapterOptions);
-        ASSERT_EQ(adaptersAgain.size(), 1u);
+        const auto& nativeAdaptersAgain = instance.EnumerateAdapters(&adapterOptions);
+        ASSERT_EQ(nativeAdaptersAgain.size(), 1u);
 
+        wgpu::Adapter adaptersAgain = wgpu::Adapter(nativeAdaptersAgain[0].Get());
         wgpu::AdapterInfo infoAgain;
-        adaptersAgain[0].GetInfo(&infoAgain);
+        adaptersAgain.GetInfo(&infoAgain);
 
         EXPECT_EQ(info.vendor, infoAgain.vendor);
         EXPECT_EQ(info.architecture, infoAgain.architecture);
@@ -237,7 +248,6 @@ TEST_F(AdapterEnumerationTests, MatchingDXGIAdapterD3D12) {
         EXPECT_EQ(info.adapterType, infoAgain.adapterType);
         EXPECT_EQ(info.vendorID, infoAgain.vendorID);
         EXPECT_EQ(info.deviceID, infoAgain.deviceID);
-        EXPECT_EQ(info.compatibilityMode, infoAgain.compatibilityMode);
     }
 }
 #endif  // defined(DAWN_ENABLE_BACKEND_D3D12)
@@ -250,7 +260,8 @@ TEST_F(AdapterEnumerationTests, OnlyMetal) {
     adapterOptions.backendType = wgpu::BackendType::Metal;
 
     const auto& adapters = instance.EnumerateAdapters(&adapterOptions);
-    for (const auto& adapter : adapters) {
+    for (const auto& nativeAdapter : adapters) {
+        wgpu::Adapter adapter = wgpu::Adapter(nativeAdapter.Get());
         wgpu::AdapterInfo info;
         adapter.GetInfo(&info);
 
@@ -271,7 +282,8 @@ TEST_F(AdapterEnumerationTests, OneBackendThenTheOther) {
     {
         const auto& adapters = instance.EnumerateAdapters(&adapterOptions);
         metalAdapterCount = adapters.size();
-        for (const auto& adapter : adapters) {
+        for (const auto& nativeAdapter : adapters) {
+            wgpu::Adapter adapter = wgpu::Adapter(nativeAdapter.Get());
             wgpu::AdapterInfo info;
             adapter.GetInfo(&info);
 
@@ -283,7 +295,8 @@ TEST_F(AdapterEnumerationTests, OneBackendThenTheOther) {
         adapterOptions.backendType = wgpu::BackendType::Vulkan;
 
         const auto& adapters = instance.EnumerateAdapters(&adapterOptions);
-        for (const auto& adapter : adapters) {
+        for (const auto& nativeAdapter : adapters) {
+            wgpu::Adapter adapter = wgpu::Adapter(nativeAdapter.Get());
             wgpu::AdapterInfo info;
             adapter.GetInfo(&info);
 
@@ -297,7 +310,8 @@ TEST_F(AdapterEnumerationTests, OneBackendThenTheOther) {
 
         const auto& adapters = instance.EnumerateAdapters(&adapterOptions);
         uint32_t metalAdapterCount2 = adapters.size();
-        for (const auto& adapter : adapters) {
+        for (const auto& nativeAdapter : adapters) {
+            wgpu::Adapter adapter = wgpu::Adapter(nativeAdapter.Get());
             wgpu::AdapterInfo info;
             adapter.GetInfo(&info);
 
@@ -306,6 +320,132 @@ TEST_F(AdapterEnumerationTests, OneBackendThenTheOther) {
         EXPECT_EQ(metalAdapterCount, metalAdapterCount2);
     }
 }
+
+#if defined(DAWN_ENABLE_BACKEND_WEBGPU)
+// Test enumerating the WebGPU backend with the RequestAdapterWebGPUBackendOptions.
+TEST_F(AdapterEnumerationTests, WebGPUBackend) {
+    native::Instance instance;
+
+    wgpu::RequestAdapterOptions adapterOptions = {};
+
+    wgpu::RequestAdapterWebGPUBackendOptions webgpuBackendOptions = {};
+    adapterOptions.nextInChain = &webgpuBackendOptions;
+
+    // Test selecting without specifying the implementation backend type.
+    {
+        adapterOptions.backendType = wgpu::BackendType::Undefined;
+        const auto& adapters = instance.EnumerateAdapters(&adapterOptions);
+        EXPECT_TRUE(adapters.size() > 0);
+        for (const auto& nativeAdapter : adapters) {
+            wgpu::Adapter adapter = wgpu::Adapter(nativeAdapter.Get());
+            wgpu::AdapterInfo info;
+            adapter.GetInfo(&info);
+
+            EXPECT_EQ(info.backendType, wgpu::BackendType::WebGPU);
+        }
+    }
+
+    // Test selecting a specific implementation backend type.
+    {
+        adapterOptions.backendType = wgpu::BackendType::Vulkan;
+        const auto& adapters = instance.EnumerateAdapters(&adapterOptions);
+        for (const auto& nativeAdapter : adapters) {
+            wgpu::Adapter adapter = wgpu::Adapter(nativeAdapter.Get());
+            wgpu::AdapterInfo info;
+            adapter.GetInfo(&info);
+
+            EXPECT_EQ(info.backendType, wgpu::BackendType::WebGPU);
+            EXPECT_NE(std::string_view(info.device.data, info.device.length).find("Vulkan"),
+                      std::string_view::npos);
+        }
+    }
+
+    // Test selecting a force fallback adapter.
+    {
+        adapterOptions.backendType = wgpu::BackendType::Undefined;
+        adapterOptions.forceFallbackAdapter = true;
+        const auto& adapters = instance.EnumerateAdapters(&adapterOptions);
+        for (const auto& nativeAdapter : adapters) {
+            wgpu::Adapter adapter = wgpu::Adapter(nativeAdapter.Get());
+            wgpu::AdapterInfo info;
+            adapter.GetInfo(&info);
+
+            EXPECT_EQ(info.backendType, wgpu::BackendType::WebGPU);
+            EXPECT_NE(std::string_view(info.device.data, info.device.length).find("SwiftShader"),
+                      std::string_view::npos);
+        }
+    }
+
+    // Test selecting WebGPUBackend on WebGPUBackend gives nothing.
+    {
+        adapterOptions.backendType = wgpu::BackendType::WebGPU;
+        const auto& adapters = instance.EnumerateAdapters(&adapterOptions);
+        EXPECT_TRUE(adapters.empty());
+    }
+
+    // Test selecting WebGPUBackend without RequestAdapterWebGPUBackendOptions gives nothing.
+    {
+        adapterOptions.backendType = wgpu::BackendType::WebGPU;
+        adapterOptions.nextInChain = nullptr;
+        const auto& adapters = instance.EnumerateAdapters(&adapterOptions);
+        EXPECT_TRUE(adapters.empty());
+    }
+}
+
+// Test enumerating the WebGPU backend with the RequestAdapterWebGPUBackendOptions and
+// DawnTogglesDescriptor. Also check the toggle state.
+// As for now we only keep DawnTogglesDescriptor and drop all other chained extensions when passing
+// the adapter options to the inner layer. Testing to make sure DawnTogglesDescriptor is correctly
+// kept without other extensions.
+TEST_F(AdapterEnumerationTests, WebGPUBackendToggles) {
+    native::Instance instance;
+
+    constexpr const char* kAllowUnsafeAPIToggle = "allow_unsafe_apis";
+    constexpr const char* toggles[] = {kAllowUnsafeAPIToggle};
+    wgpu::DawnTogglesDescriptor togglesDesc = {};
+    togglesDesc.enabledToggleCount = 1;
+    togglesDesc.enabledToggles = toggles;
+
+    wgpu::RequestAdapterWebGPUBackendOptions webgpuBackendOptions = {};
+    wgpu::RequestAdapterOptions adapterOptions = {};
+
+    auto Validate = [&](const wgpu::RequestAdapterOptions* options) {
+        const auto& adapters = instance.EnumerateAdapters(options);
+        for (const auto& nativeAdapter : adapters) {
+            wgpu::Adapter adapter = wgpu::Adapter(nativeAdapter.Get());
+            wgpu::AdapterInfo info;
+            adapter.GetInfo(&info);
+
+            EXPECT_EQ(info.backendType, wgpu::BackendType::WebGPU);
+
+            // Validate toggles state.
+            auto togglesUsed = native::GetTogglesUsed(adapter);
+            EXPECT_TRUE(std::find_if(togglesUsed.begin(), togglesUsed.end(), [](const char* name) {
+                            return strcmp(kAllowUnsafeAPIToggle, name) == 0;
+                        }) != togglesUsed.end());
+        }
+    };
+
+    // Test adapterOptions -> RequestAdapterWebGPUBackendOptions -> DawnTogglesDescriptor
+    // RequestAdapterWebGPUBackendOptions should be removed.
+    {
+        adapterOptions.nextInChain = &webgpuBackendOptions;
+        webgpuBackendOptions.nextInChain = &togglesDesc;
+        togglesDesc.nextInChain = nullptr;
+        Validate(&adapterOptions);
+    }
+
+    // Test adapterOptions -> DawnTogglesDescriptor -> RequestAdapterWebGPUBackendOptions
+    // RequestAdapterWebGPUBackendOptions should be removed and DawnTogglesDescriptor.nextInChain
+    // should be set to nullptr internally.
+    {
+        adapterOptions.nextInChain = &togglesDesc;
+        togglesDesc.nextInChain = &webgpuBackendOptions;
+        webgpuBackendOptions.nextInChain = nullptr;
+        Validate(&adapterOptions);
+    }
+}
+#endif  // defined(DAWN_ENABLE_BACKEND_WEBGPU)
 
 }  // anonymous namespace
 }  // namespace dawn

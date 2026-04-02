@@ -27,8 +27,10 @@
 
 #include "dawn/native/AttachmentState.h"
 
-#include "dawn/common/BitSetIterator.h"
+#include <bit>
+
 #include "dawn/common/Enumerator.h"
+#include "dawn/common/Log.h"
 #include "dawn/common/ityp_span.h"
 #include "dawn/native/ChainUtils.h"
 #include "dawn/native/Device.h"
@@ -38,9 +40,8 @@
 
 namespace dawn::native {
 
-AttachmentState::AttachmentState(DeviceBase* device,
-                                 const RenderBundleEncoderDescriptor* descriptor)
-    : ObjectBase(device), mSampleCount(descriptor->sampleCount) {
+AttachmentState::AttachmentState(const RenderBundleEncoderDescriptor* descriptor)
+    : mSampleCount(descriptor->sampleCount) {
     DAWN_ASSERT(descriptor->colorFormatCount <= kMaxColorAttachments);
     auto colorFormats = ityp::SpanFromUntyped<ColorAttachmentIndex>(descriptor->colorFormats,
                                                                     descriptor->colorFormatCount);
@@ -60,10 +61,9 @@ AttachmentState::AttachmentState(DeviceBase* device,
     SetContentHash(ComputeContentHash());
 }
 
-AttachmentState::AttachmentState(DeviceBase* device,
-                                 const UnpackedPtr<RenderPipelineDescriptor>& descriptor,
+AttachmentState::AttachmentState(const UnpackedPtr<RenderPipelineDescriptor>& descriptor,
                                  const PipelineLayoutBase* layout)
-    : ObjectBase(device), mSampleCount(descriptor->multisample.count) {
+    : mSampleCount(descriptor->multisample.count) {
     if (descriptor->fragment != nullptr) {
         DAWN_ASSERT(descriptor->fragment->targetCount <= kMaxColorAttachments);
         auto targets = ityp::SpanFromUntyped<ColorAttachmentIndex>(
@@ -108,11 +108,19 @@ AttachmentState::AttachmentState(DeviceBase* device,
     SetContentHash(ComputeContentHash());
 }
 
-AttachmentState::AttachmentState(DeviceBase* device,
-                                 const UnpackedPtr<RenderPassDescriptor>& descriptor)
-    : ObjectBase(device) {
+AttachmentState::AttachmentState(const UnpackedPtr<RenderPassDescriptor>& descriptor) {
     auto colorAttachments = ityp::SpanFromUntyped<ColorAttachmentIndex>(
         descriptor->colorAttachments, descriptor->colorAttachmentCount);
+
+    // Override the sample count with an explicit sample count if provided. This is currently only
+    // valid if the MSAARenderToSingleSampled feature is enabled.
+    bool msrtssAllowed = false;
+    auto* renderPassSampleCount = descriptor.Get<DawnRenderPassSampleCount>();
+    if (renderPassSampleCount != nullptr && renderPassSampleCount->sampleCount > 1) {
+        mSampleCount = renderPassSampleCount->sampleCount;
+        msrtssAllowed = true;
+    }
+
     for (auto [i, colorAttachment] : Enumerate(colorAttachments)) {
         TextureViewBase* attachment = colorAttachment.view;
         if (attachment == nullptr) {
@@ -121,27 +129,20 @@ AttachmentState::AttachmentState(DeviceBase* device,
         mColorAttachmentsSet.set(i);
         mColorFormats[i] = attachment->GetFormat().format;
 
-        UnpackedPtr<RenderPassColorAttachment> unpackedColorAttachment = Unpack(&colorAttachment);
-        auto* msaaRenderToSingleSampledDesc =
-            unpackedColorAttachment.Get<DawnRenderPassColorAttachmentRenderToSingleSampled>();
-        uint32_t attachmentSampleCount;
-        if (msaaRenderToSingleSampledDesc != nullptr &&
-            msaaRenderToSingleSampledDesc->implicitSampleCount > 1) {
-            attachmentSampleCount = msaaRenderToSingleSampledDesc->implicitSampleCount;
-        } else {
-            attachmentSampleCount = attachment->GetTexture()->GetSampleCount();
-        }
-
+        uint32_t attachmentSampleCount = attachment->GetTexture()->GetSampleCount();
         if (mSampleCount == 0) {
             mSampleCount = attachmentSampleCount;
         } else {
-            DAWN_ASSERT(mSampleCount == attachmentSampleCount);
+            // Attachment sample counts are allowed to either match the sample count for the pass
+            // or, if MSAARenderToSingleSampled is enabled, be 1.
+            DAWN_ASSERT(mSampleCount == attachmentSampleCount ||
+                        (msrtssAllowed && attachmentSampleCount == 1));
         }
 
         if (colorAttachment.loadOp == wgpu::LoadOp::ExpandResolveTexture) {
             mExpandResolveInfo.attachmentsToExpandResolve.set(i);
         }
-        mExpandResolveInfo.resolveTargetsMask.set(i, colorAttachment.resolveTarget);
+        mExpandResolveInfo.resolveTargetsMask.set(i, colorAttachment.resolveTarget != nullptr);
     }
 
     // Gather the depth-stencil information.
@@ -186,8 +187,7 @@ AttachmentState::AttachmentState(DeviceBase* device,
     SetContentHash(ComputeContentHash());
 }
 
-AttachmentState::AttachmentState(const AttachmentState& blueprint)
-    : ObjectBase(blueprint.GetDevice()) {
+AttachmentState::AttachmentState(const AttachmentState& blueprint) {
     mColorAttachmentsSet = blueprint.mColorAttachmentsSet;
     mColorFormats = blueprint.mColorFormats;
     mDepthStencilFormat = blueprint.mDepthStencilFormat;
@@ -213,7 +213,7 @@ bool AttachmentState::EqualityFunc::operator()(const AttachmentState* a,
     }
 
     // Check color formats
-    for (auto i : IterateBitSet(a->mColorAttachmentsSet)) {
+    for (auto i : a->mColorAttachmentsSet) {
         if (a->mColorFormats[i] != b->mColorFormats[i]) {
             return false;
         }
@@ -260,7 +260,7 @@ size_t AttachmentState::ComputeContentHash() {
 
     // Hash color formats
     HashCombine(&hash, mColorAttachmentsSet);
-    for (auto i : IterateBitSet(mColorAttachmentsSet)) {
+    for (auto i : mColorAttachmentsSet) {
         HashCombine(&hash, mColorFormats[i]);
     }
 
@@ -329,7 +329,8 @@ AttachmentState::ComputeStorageAttachmentPackingInColorAttachments() const {
     auto availableSlots = ~mColorAttachmentsSet;
     for (size_t i = 0; i < mStorageAttachmentSlots.size(); i++) {
         DAWN_ASSERT(!availableSlots.none());
-        auto slot = ColorAttachmentIndex(uint8_t(ScanForward(availableSlots.to_ulong())));
+        auto slot = ColorAttachmentIndex(static_cast<uint8_t>(
+            std::countr_zero(static_cast<uint32_t>(availableSlots.to_ulong()))));
         availableSlots.reset(slot);
         result[i] = slot;
     }

@@ -32,6 +32,9 @@
 #include "dawn/dawn_proc.h"
 #include "dawn/native/ChainUtils.h"
 
+using testing::_;
+using testing::AtMost;
+
 namespace dawn::native {
 
 DawnMockTest::DawnMockTest() : mDeviceToggles(ToggleStage::Device) {}
@@ -42,23 +45,36 @@ void DawnMockTest::SetUp() {
     const auto& adapters = instance->EnumerateAdapters();
     DAWN_ASSERT(!adapters.empty());
 
-    auto result = ValidateAndUnpack(&mDeviceDescriptor);
+    wgpu::DeviceDescriptor desc = {};
+    desc.SetDeviceLostCallback(wgpu::CallbackMode::AllowSpontaneous,
+                               mDeviceLostCallback.Callback());
+    desc.SetUncapturedErrorCallback(mDeviceErrorCallback.TemplatedCallback(),
+                                    mDeviceErrorCallback.TemplatedCallbackUserdata());
+    desc.requiredFeatureCount = mRequiredFeatures.size();
+    desc.requiredFeatures = mRequiredFeatures.data();
+    DeviceDescriptor* nativeDesc = reinterpret_cast<DeviceDescriptor*>(&desc);
+
+    auto result = ValidateAndUnpack(nativeDesc);
     DAWN_ASSERT(result.IsSuccess());
-    UnpackedPtr<DeviceDescriptor> packedDeviceDescriptor = result.AcquireSuccess();
+    UnpackedPtr<DeviceDescriptor> unpackedDesc = result.AcquireSuccess();
 
-    Ref<DeviceBase::DeviceLostEvent> lostEvent =
-        DeviceBase::DeviceLostEvent::Create(&mDeviceDescriptor);
+    Ref<DeviceBase::DeviceLostEvent> lostEvent = DeviceBase::DeviceLostEvent::Create(nativeDesc);
 
+    mDeviceToggles.SetForTesting(Toggle::AllowUnsafeAPIs, true, true);
     auto deviceMock = AcquireRef(new ::testing::NiceMock<DeviceMock>(
-        adapters[0].Get(), packedDeviceDescriptor, mDeviceToggles, std::move(lostEvent)));
+        adapters[0].Get(), unpackedDesc, mDeviceToggles, lostEvent.Get()));
     mDeviceMock = deviceMock.Get();
     device = wgpu::Device::Acquire(ToAPI(ReturnToAPI<DeviceBase>(std::move(deviceMock))));
+    instance->GetEventManager()->TrackEvent(std::move(lostEvent));
 }
 
 void DawnMockTest::DropDevice() {
     if (device == nullptr) {
         return;
     }
+
+    EXPECT_CALL(mDeviceLostCallback, Call(CHandleIs(nullptr), wgpu::DeviceLostReason::Destroyed, _))
+        .Times(AtMost(1));
 
     // Since the device owns the instance in these tests, we need to explicitly verify that the
     // instance has completed all work. To do this, we take an additional ref to the instance here

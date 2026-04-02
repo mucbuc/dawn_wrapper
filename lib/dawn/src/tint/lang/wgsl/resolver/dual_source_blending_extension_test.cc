@@ -25,11 +25,10 @@
 // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+#include "gmock/gmock.h"
 #include "src/tint/lang/core/fluent_types.h"
 #include "src/tint/lang/wgsl/resolver/resolver.h"
 #include "src/tint/lang/wgsl/resolver/resolver_helper_test.h"
-
-#include "gmock/gmock.h"
 
 using namespace tint::core::number_suffixes;  // NOLINT
 using namespace tint::core::fluent_types;     // NOLINT
@@ -145,19 +144,6 @@ TEST_F(DualSourceBlendingExtensionTests, StructMemberBlendSrcAttribute_OnlyBlend
 
     EXPECT_FALSE(r()->Resolve());
     EXPECT_EQ(r()->error(), "12:34 error: '@blend_src(0)' is missing when '@blend_src' is used");
-}
-
-// Using a @blend_src attribute on a global variable should pass. This is needed internally when
-// using @blend_src with the canonicalize_entry_point transform. This test uses an internal
-// attribute to ignore address space, which is how it is used with the canonicalize_entry_point
-// transform.
-TEST_F(DualSourceBlendingExtensionTests, GlobalVariableBlendSrcAttributeAfterInternalTransform) {
-    GlobalVar(
-        "var", ty.vec4<f32>(),
-        Vector{Location(0_a), BlendSrc(0_a), Disable(ast::DisabledValidation::kIgnoreAddressSpace)},
-        core::AddressSpace::kOut);
-
-    EXPECT_TRUE(r()->Resolve()) << r()->error();
 }
 
 // Using the a @blend_src attribute with a non-zero location should fail.
@@ -314,7 +300,7 @@ TEST_F(DualSourceBlendingExtensionTests, BlendSrcAsFragmentInput) {
                        Member("a", ty.vec4<f32>(), Vector{Location(0_a), BlendSrc(0_a)}),
                        Member("b", ty.vec4<f32>(), Vector{Location(0_a), BlendSrc(1_a)}),
                    });
-    Func("F", Vector{Param("s_in", ty("S"))}, ty("S"), Vector{Return(Call("S"))},
+    Func("F", Vector{Param("s_in", ty.AsType("S"))}, ty.AsType("S"), Vector{Return(Call("S"))},
          Vector{Stage(ast::PipelineStage::kFragment)});
 
     EXPECT_FALSE(r()->Resolve());
@@ -357,7 +343,7 @@ TEST_P(DualSourceBlendingExtensionTestWithParams,
                   Member("b", ty.vec4<f32>(), Vector{Location(0_a), BlendSrc(Source{{1, 2}}, 1_a)}),
                   Member(Source{{3, 4}}, "c", ty.vec4<f32>(), Vector{Location(AInt(GetParam()))}),
               });
-    Func("F", Empty, ty("S"), Vector{Return(Call("S"))},
+    Func("F", Empty, ty.AsType("S"), Vector{Return(Call("S"))},
          Vector{Stage(ast::PipelineStage::kFragment)});
 
     EXPECT_FALSE(r()->Resolve());
@@ -380,7 +366,7 @@ TEST_P(DualSourceBlendingExtensionTestWithParams,
                   Member(Source{{1, 2}}, "b", ty.vec4<f32>(), Vector{Location(0_a), BlendSrc(0_a)}),
                   Member("c", ty.vec4<f32>(), Vector{Location(0_a), BlendSrc(Source{{3, 4}}, 1_a)}),
               });
-    Func(Source{{5, 6}}, "F", Empty, ty("S"), Vector{Return(Call("S"))},
+    Func(Source{{5, 6}}, "F", Empty, ty.AsType("S"), Vector{Return(Call("S"))},
          Vector{Stage(ast::PipelineStage::kFragment)});
 
     EXPECT_FALSE(r()->Resolve());

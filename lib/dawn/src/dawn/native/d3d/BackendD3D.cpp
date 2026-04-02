@@ -92,6 +92,10 @@ IDXGIFactory4* Backend::GetFactory() const {
     return mFactory.Get();
 }
 
+MaybeError Backend::EnsureFXC() {
+    return mFunctions.get()->EnsureFXC(GetInstance()->GetRuntimeSearchPaths());
+}
+
 const PlatformFunctions* Backend::GetFunctions() const {
     return mFunctions.get();
 }
@@ -136,15 +140,12 @@ std::vector<Ref<PhysicalDeviceBase>> Backend::DiscoverPhysicalDevices(
         return {};
     }
 
-    FeatureLevel featureLevel =
-        options->compatibilityMode ? FeatureLevel::Compatibility : FeatureLevel::Core;
-
     // Get or create just the physical device matching the dxgi adapter.
     if (auto* luidOptions = options.Get<RequestAdapterOptionsLUID>()) {
         Ref<PhysicalDeviceBase> physicalDevice;
         if (GetInstance()->ConsumedErrorAndWarnOnce(
                 GetOrCreatePhysicalDeviceFromLUID(luidOptions->adapterLUID), &physicalDevice) ||
-            !physicalDevice->SupportsFeatureLevel(featureLevel)) {
+            !physicalDevice->SupportsFeatureLevel(options->featureLevel, GetInstance())) {
             return {};
         }
         return {std::move(physicalDevice)};
@@ -180,7 +181,7 @@ std::vector<Ref<PhysicalDeviceBase>> Backend::DiscoverPhysicalDevices(
         if (GetInstance()->ConsumedErrorAndWarnOnce(
                 GetOrCreatePhysicalDeviceFromIDXGIAdapter(std::move(dxgiAdapter)),
                 &physicalDevice) ||
-            !physicalDevice->SupportsFeatureLevel(featureLevel)) {
+            !physicalDevice->SupportsFeatureLevel(options->featureLevel, GetInstance())) {
             continue;
         }
         physicalDevices.push_back(std::move(physicalDevice));

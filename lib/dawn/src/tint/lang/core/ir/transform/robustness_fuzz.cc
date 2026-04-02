@@ -25,31 +25,21 @@
 // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#include "src/tint/lang/core/ir/transform/robustness.h"
-
 #include "src/tint/cmd/fuzz/ir/fuzz.h"
+#include "src/tint/lang/core/ir/transform/robustness.h"
 #include "src/tint/lang/core/ir/validator.h"
 
 namespace tint::core::ir::transform {
 namespace {
 
-void RobustnessFuzzer(Module& module, RobustnessConfig config) {
-    if (!config.bindings_ignored.empty()) {
-        // TODO(jrprice): Handle config.bindings_ignored.
-        return;
-    }
-
-    if (auto res = Robustness(module, config); res != Success) {
-        return;
-    }
-
-    Capabilities capabilities;
-    if (auto res = Validate(module, capabilities); res != Success) {
-        TINT_ICE() << "result of Robustness failed IR validation\n" << res.Failure();
-    }
+Result<SuccessType> RobustnessFuzzer(Module& module,
+                                     const fuzz::ir::Context&,
+                                     RobustnessConfig config) {
+    return Robustness(module, config);
 }
 
 }  // namespace
 }  // namespace tint::core::ir::transform
 
-TINT_IR_MODULE_FUZZER(tint::core::ir::transform::RobustnessFuzzer, tint::core::ir::Capabilities{});
+TINT_IR_MODULE_FUZZER(tint::core::ir::transform::RobustnessFuzzer,
+                      tint::core::ir::transform::kRobustnessCapabilities);

@@ -31,10 +31,13 @@
 #include <utility>
 
 #include "dawn/native/CreatePipelineAsyncEvent.h"
+#include "dawn/native/ImmediateConstantsLayout.h"
 #include "dawn/native/d3d/D3DError.h"
 #include "dawn/native/d3d11/DeviceD3D11.h"
 #include "dawn/native/d3d11/ShaderModuleD3D11.h"
 #include "dawn/native/d3d11/UtilsD3D11.h"
+#include "dawn/platform/DawnPlatform.h"
+#include "dawn/platform/tracing/TraceEvent.h"
 
 namespace dawn::native::d3d11 {
 
@@ -47,9 +50,14 @@ Ref<ComputePipeline> ComputePipeline::CreateUninitialized(
 
 ComputePipeline::~ComputePipeline() = default;
 
-MaybeError ComputePipeline::InitializeImpl() {
+ResultOrError<Extent3D> ComputePipeline::InitializeImpl() {
     Device* device = ToBackend(GetDevice());
     uint32_t compileFlags = 0;
+
+    if (UsesNumWorkgroups()) {
+        mImmediateMask |= GetImmediateConstantBlockBits(
+            offsetof(ComputeImmediateConstants, numWorkgroups), sizeof(NumWorkgroupsDimensions));
+    }
 
     if (!device->IsToggleEnabled(Toggle::UseDXC) &&
         !device->IsToggleEnabled(Toggle::FxcOptimizations)) {
@@ -58,6 +66,9 @@ MaybeError ComputePipeline::InitializeImpl() {
 
     if (device->IsToggleEnabled(Toggle::EmitHLSLDebugSymbols)) {
         compileFlags |= D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION;
+    }
+    if (device->IsToggleEnabled(Toggle::D3DSkipShaderOptimizations)) {
+        compileFlags |= D3DCOMPILE_SKIP_OPTIMIZATION;
     }
 
     // Tint does matrix multiplication expecting row major matrices
@@ -70,17 +81,19 @@ MaybeError ComputePipeline::InitializeImpl() {
     }
 
     d3d::CompiledShader compiledShader;
-    DAWN_TRY_ASSIGN(compiledShader, ToBackend(programmableStage.module)
-                                        ->Compile(programmableStage, SingleShaderStage::Compute,
-                                                  ToBackend(GetLayout()), compileFlags));
-    DAWN_TRY(CheckHRESULT(device->GetD3D11Device()->CreateComputeShader(
-                              compiledShader.shaderBlob.Data(), compiledShader.shaderBlob.Size(),
-                              nullptr, &mComputeShader),
-                          "D3D11 create compute shader"));
+    DAWN_TRY_ASSIGN(compiledShader,
+                    ToBackend(programmableStage.module)
+                        ->Compile(programmableStage, SingleShaderStage::Compute,
+                                  ToBackend(GetLayout()), compileFlags, GetImmediateMask()));
+    {
+        TRACE_EVENT0(device->GetPlatform(), General, "ComputePipelineD3D11::CreateComputeShader");
+        SCOPED_DAWN_HISTOGRAM_TIMER_MICROS(device->GetPlatform(), "D3D11.CreateComputeShaderUs");
+        DAWN_TRY_ASSIGN(mComputeShader, device->GetOrCreateComputeShader(compiledShader));
+    }
 
     SetLabelImpl();
 
-    return {};
+    return {compiledShader.workgroupSize};
 }
 
 void ComputePipeline::SetLabelImpl() {
@@ -88,12 +101,16 @@ void ComputePipeline::SetLabelImpl() {
 }
 
 void ComputePipeline::ApplyNow(const ScopedSwapStateCommandRecordingContext* commandContext) {
-    auto* d3dDeviceContext = commandContext->GetD3D11DeviceContext4();
+    auto* d3dDeviceContext = commandContext->GetD3D11DeviceContext3();
     d3dDeviceContext->CSSetShader(mComputeShader.Get(), nullptr, 0);
 }
 
 bool ComputePipeline::UsesNumWorkgroups() const {
     return GetStage(SingleShaderStage::Compute).metadata->usesNumWorkgroups;
+}
+
+ID3D11ComputeShader* ComputePipeline::GetD3D11ComputeShaderForTesting() {
+    return mComputeShader.Get();
 }
 
 }  // namespace dawn::native::d3d11

@@ -1,20 +1,20 @@
 ; SPIR-V
 ; Version: 1.3
 ; Generator: Google Tint Compiler; 1
-; Bound: 43
+; Bound: 48
 ; Schema: 0
                OpCapability Shader
                OpMemoryModel Logical GLSL450
                OpEntryPoint Fragment %main "main"
                OpExecutionMode %main OriginUpperLeft
-               OpMemberName %buffer_block 0 "inner"
-               OpName %buffer_block "buffer_block"
+               OpMemberName %buffer_block_tint_explicit_layout 0 "inner"
+               OpName %buffer_block_tint_explicit_layout "buffer_block_tint_explicit_layout"
                OpName %foo "foo"
                OpName %i "i"
                OpName %main "main"
                OpDecorate %_arr_int_uint_4 ArrayStride 4
-               OpMemberDecorate %buffer_block 0 Offset 0
-               OpDecorate %buffer_block Block
+               OpMemberDecorate %buffer_block_tint_explicit_layout 0 Offset 0
+               OpDecorate %buffer_block_tint_explicit_layout Block
                OpDecorate %1 DescriptorSet 0
                OpDecorate %1 Binding 0
                OpDecorate %1 Coherent
@@ -22,9 +22,9 @@
        %uint = OpTypeInt 32 0
      %uint_4 = OpConstant %uint 4
 %_arr_int_uint_4 = OpTypeArray %int %uint_4
-%buffer_block = OpTypeStruct %_arr_int_uint_4
-%_ptr_StorageBuffer_buffer_block = OpTypePointer StorageBuffer %buffer_block
-          %1 = OpVariable %_ptr_StorageBuffer_buffer_block StorageBuffer
+%buffer_block_tint_explicit_layout = OpTypeStruct %_arr_int_uint_4
+%_ptr_StorageBuffer_buffer_block_tint_explicit_layout = OpTypePointer StorageBuffer %buffer_block_tint_explicit_layout
+          %1 = OpVariable %_ptr_StorageBuffer_buffer_block_tint_explicit_layout StorageBuffer
        %void = OpTypeVoid
          %10 = OpTypeFunction %void
 %_ptr_Function_int = OpTypePointer Function %int
@@ -33,8 +33,8 @@
        %bool = OpTypeBool
 %_ptr_StorageBuffer_int = OpTypePointer StorageBuffer %int
      %uint_0 = OpConstant %uint 0
-      %int_2 = OpConstant %int 2
       %int_1 = OpConstant %int 1
+      %int_2 = OpConstant %int 2
         %foo = OpFunction %void None %10
          %11 = OpLabel
           %i = OpVariable %_ptr_Function_int Function
@@ -54,29 +54,34 @@
                OpBranch %16
          %24 = OpLabel
          %26 = OpLoad %int %i None
-         %27 = OpAccessChain %_ptr_StorageBuffer_int %1 %uint_0 %26
-         %30 = OpLoad %int %27 None
-               OpSelectionMerge %33 None
-               OpSwitch %30 %31 1 %32
+         %30 = OpBitcast %uint %26
+         %27 = OpAccessChain %_ptr_StorageBuffer_int %1 %uint_0 %30
+         %31 = OpLoad %int %27 None
+               OpSelectionMerge %34 None
+               OpSwitch %31 %32 1 %33
          %32 = OpLabel
-               OpBranch %14
-         %31 = OpLabel
-         %34 = OpLoad %int %i None
-         %35 = OpAccessChain %_ptr_StorageBuffer_int %1 %uint_0 %34
-               OpStore %35 %int_2 None
-               OpBranch %33
+         %41 = OpLoad %int %i None
+         %43 = OpBitcast %uint %41
+         %42 = OpAccessChain %_ptr_StorageBuffer_int %1 %uint_0 %43
+               OpStore %42 %int_2 None
+               OpBranch %34
          %33 = OpLabel
                OpBranch %14
+         %34 = OpLabel
+               OpBranch %14
          %14 = OpLabel
-         %37 = OpLoad %int %i None
-         %38 = OpIAdd %int %37 %int_1
-               OpStore %i %38 None
+         %35 = OpLoad %int %i None
+         %36 = OpBitcast %uint %35
+         %37 = OpBitcast %uint %int_1
+         %39 = OpIAdd %uint %36 %37
+         %40 = OpBitcast %int %39
+               OpStore %i %40 None
                OpBranch %15
          %16 = OpLabel
                OpReturn
                OpFunctionEnd
        %main = OpFunction %void None %10
-         %41 = OpLabel
-         %42 = OpFunctionCall %void %foo
+         %46 = OpLabel
+         %47 = OpFunctionCall %void %foo
                OpReturn
                OpFunctionEnd

@@ -28,7 +28,6 @@
 #include <fcntl.h>
 #include <gbm.h>
 #include <unistd.h>
-#include <vulkan/vulkan.h>
 #include <webgpu/webgpu_cpp.h>
 
 #include <memory>
@@ -36,7 +35,10 @@
 #include <utility>
 #include <vector>
 
+// This must be included instead of vulkan.h so that we can wrap it with vulkan_platform.h.
+#include "dawn/common/vulkan_platform.h"
 #include "dawn/tests/white_box/SharedTextureMemoryTests.h"
+#include "partition_alloc/pointers/raw_ptr.h"
 
 namespace dawn {
 namespace {
@@ -168,7 +170,7 @@ class Backend : public SharedTextureMemoryTestVulkanBackend {
     }
 
   private:
-    void SetUp() override {
+    void SetUp(const wgpu::Device& device) override {
         // Render nodes [1] are the primary interface for communicating with the GPU on
         // devices that support DRM. The actual filename of the render node is
         // implementation-specific, so we must scan through all possible filenames to find
@@ -214,7 +216,8 @@ class Backend : public SharedTextureMemoryTestVulkanBackend {
     }
 
     int mRenderNodeFd = -1;
-    gbm_device* mGbmDevice = nullptr;
+    // TODO(crbug.com/485825675): Investigate why this pointer is dangling.
+    raw_ptr<gbm_device, DanglingUntriaged> mGbmDevice = nullptr;
 };
 
 DAWN_INSTANTIATE_PREFIXED_TEST_P(

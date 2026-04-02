@@ -27,13 +27,10 @@
 
 #include "src/tint/lang/spirv/writer/raise/var_for_dynamic_index.h"
 
-#include <utility>
-
 #include "src/tint/lang/core/fluent_types.h"
 #include "src/tint/lang/core/ir/builder.h"
 #include "src/tint/lang/core/ir/module.h"
 #include "src/tint/lang/core/ir/validator.h"
-#include "src/tint/lang/core/type/array.h"
 #include "src/tint/lang/core/type/matrix.h"
 #include "src/tint/lang/core/type/pointer.h"
 #include "src/tint/lang/core/type/vector.h"
@@ -94,7 +91,7 @@ struct State {
     void WalkAccessChain(core::ir::Access* access, CALLBACK&& callback) {
         auto indices = access->Indices();
         auto* type = access->Object()->Type();
-        for (size_t i = 0; i < indices.Length(); i++) {
+        for (size_t i = 0; i < indices.size(); i++) {
             if (callback(i, indices[i], type) == Action::kStop) {
                 break;
             }
@@ -107,7 +104,7 @@ struct State {
     /// Check if @p access needs to be replaced.
     /// @returns the access descriptor or std::nullopt
     std::optional<AccessToReplace> ShouldReplace(core::ir::Access* access) {
-        if (access->Result(0)->Type()->Is<core::type::Pointer>()) {
+        if (access->Result()->Type()->Is<core::type::Pointer>()) {
             // No need to modify accesses into pointer types.
             return {};
         }
@@ -161,8 +158,9 @@ struct State {
             // If the access starts with at least one constant index, extract the source of the
             // first dynamic access to avoid copying the whole object.
             if (to_replace.first_dynamic_index > 0) {
-                PartialAccess partial_access = {
-                    access->Object(), access->Indices().Truncate(to_replace.first_dynamic_index)};
+                auto indices = Vector<core::ir::Value*, 4>{
+                    access->Indices().subspan(0, to_replace.first_dynamic_index)};
+                auto partial_access = PartialAccess{access->Object(), indices};
                 source_object =
                     source_object_to_value.GetOrAdd(partial_access, [&]() -> core::ir::Value* {
                         // If the source is a constant, then the partial access will also produce a
@@ -183,8 +181,8 @@ struct State {
                         // object.
                         auto* intermediate_source = b.Access(to_replace.dynamic_index_source_type,
                                                              source_object, partial_access.indices);
-                        b.InsertAfter(source_object, [&] { b.Append(intermediate_source); });
-                        return intermediate_source->Result(0);
+                        b.InsertInBlockAfter(source_object, [&] { b.Append(intermediate_source); });
+                        return intermediate_source->Result();
                     });
             }
 
@@ -199,25 +197,25 @@ struct State {
                                         core::Access::kReadWrite));
                     ir.root_block->Append(decl);
                 } else {
-                    b.InsertAfter(source_object, [&] {
+                    b.InsertInBlockAfter(source_object, [&] {
                         decl = b.Var(ty.ptr(core::AddressSpace::kFunction, source_object->Type(),
                                             core::Access::kReadWrite));
 
                         // If we ever support value declarations at module-scope, we will need to
                         // modify the partial access logic above since `access` instructions cannot
                         // be used in the root block.
-                        TINT_ASSERT(decl->Block() != ir.root_block);
+                        TINT_IR_ASSERT(ir, decl->Block() != ir.root_block);
                     });
                 }
 
                 decl->SetInitializer(source_object);
-                return decl->Result(0);
+                return decl->Result();
             });
 
             // Create a new access instruction using the new variable as the source.
             Vector<core::ir::Value*, 4> indices{
-                access->Indices().Offset(to_replace.first_dynamic_index)};
-            const core::type::Type* access_type = access->Result(0)->Type();
+                access->Indices().subspan(to_replace.first_dynamic_index)};
+            const core::type::Type* access_type = access->Result()->Type();
             core::ir::Value* vector_index = nullptr;
             if (to_replace.vector_access_type) {
                 // The old access indexed the element of a vector.
@@ -237,7 +235,7 @@ struct State {
 
             core::ir::Instruction* load = nullptr;
             if (to_replace.vector_access_type) {
-                load = b.LoadVectorElementWithResult(access->DetachResult(), new_access->Result(0),
+                load = b.LoadVectorElementWithResult(access->DetachResult(), new_access->Result(),
                                                      vector_index);
             } else {
                 load = b.LoadWithResult(access->DetachResult(), new_access);
@@ -251,10 +249,7 @@ struct State {
 }  // namespace
 
 Result<SuccessType> VarForDynamicIndex(core::ir::Module& ir) {
-    auto result = ValidateAndDumpIfNeeded(ir, "spirv.VarForDynamicIndex");
-    if (result != Success) {
-        return result;
-    }
+    core::ir::AssertValid(ir, kVarForDynamicIndexCapabilities, "before spirv.VarForDynamicIndex");
 
     State{ir}.Process();
 

@@ -29,6 +29,7 @@
 #define SRC_DAWN_TESTS_WHITE_BOX_SHAREDTEXTUREMEMORYTESTS_H_
 
 #include <gtest/gtest.h>
+
 #include <memory>
 #include <string>
 #include <utility>
@@ -40,7 +41,7 @@ namespace dawn {
 
 class SharedTextureMemoryTestBackend {
   public:
-    virtual void SetUp() {}
+    virtual void SetUp(const wgpu::Device& device) {}
     virtual void TearDown() {}
 
     // The name used in gtest parameterization. Names of backends must be unique.

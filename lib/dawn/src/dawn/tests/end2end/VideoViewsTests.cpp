@@ -118,16 +118,15 @@ std::vector<wgpu::FeatureName> VideoViewsTestsBase::GetRequiredFeatures() {
     if (mIsMultiPlanarFormatNv12aSupported) {
         requiredFeatures.push_back(wgpu::FeatureName::MultiPlanarFormatNv12a);
     }
-    mIsUnorm16TextureFormatsSupported =
-        SupportsFeatures({wgpu::FeatureName::Unorm16TextureFormats});
-    if (mIsUnorm16TextureFormatsSupported) {
-        requiredFeatures.push_back(wgpu::FeatureName::Unorm16TextureFormats);
+    mIsUnorm16FormatsForExternalTextureSupported =
+        SupportsFeatures({wgpu::FeatureName::Unorm16FormatsForExternalTexture});
+    if (mIsUnorm16FormatsForExternalTextureSupported) {
+        requiredFeatures.push_back(wgpu::FeatureName::Unorm16FormatsForExternalTexture);
     }
-    mIsSnorm16TextureFormatsSupported =
-        SupportsFeatures({wgpu::FeatureName::Snorm16TextureFormats});
-    if (mIsSnorm16TextureFormatsSupported) {
-        requiredFeatures.push_back(wgpu::FeatureName::Snorm16TextureFormats);
+    if (SupportsFeatures({wgpu::FeatureName::FlexibleTextureViews})) {
+        requiredFeatures.push_back(wgpu::FeatureName::FlexibleTextureViews);
     }
+
     requiredFeatures.push_back(wgpu::FeatureName::DawnInternalUsages);
     return requiredFeatures;
 }
@@ -160,12 +159,8 @@ bool VideoViewsTestsBase::IsMultiPlanarFormatNv12aSupported() const {
     return mIsMultiPlanarFormatNv12aSupported;
 }
 
-bool VideoViewsTestsBase::IsUnorm16TextureFormatsSupported() const {
-    return mIsUnorm16TextureFormatsSupported;
-}
-
-bool VideoViewsTestsBase::IsSnorm16TextureFormatsSupported() const {
-    return mIsSnorm16TextureFormatsSupported;
+bool VideoViewsTestsBase::IsUnorm16FormatsForExternalTextureSupported() const {
+    return mIsUnorm16FormatsForExternalTextureSupported;
 }
 
 bool VideoViewsTestsBase::IsFormatSupported() const {
@@ -178,15 +173,15 @@ bool VideoViewsTestsBase::IsFormatSupported() const {
         if (IsWARP()) {
             return false;
         }
-        return IsUnorm16TextureFormatsSupported() && IsMultiPlanarFormatP010Supported();
+        return IsUnorm16FormatsForExternalTextureSupported() && IsMultiPlanarFormatP010Supported();
     }
 
     if (GetFormat() == wgpu::TextureFormat::R10X6BG10X6Biplanar422Unorm) {
-        return IsUnorm16TextureFormatsSupported() && IsMultiPlanarFormatP210Supported();
+        return IsUnorm16FormatsForExternalTextureSupported() && IsMultiPlanarFormatP210Supported();
     }
 
     if (GetFormat() == wgpu::TextureFormat::R10X6BG10X6Biplanar444Unorm) {
-        return IsUnorm16TextureFormatsSupported() && IsMultiPlanarFormatP410Supported();
+        return IsUnorm16FormatsForExternalTextureSupported() && IsMultiPlanarFormatP410Supported();
     }
 
     if (GetFormat() == wgpu::TextureFormat::R8BG8Biplanar422Unorm) {
@@ -568,9 +563,12 @@ TEST_P(VideoViewsTests, SampleYtoR) {
     viewDesc.aspect = wgpu::TextureAspect::Plane0Only;
     wgpu::TextureView textureView = platformTexture->wgpuTexture.CreateView(&viewDesc);
 
+    wgpu::BindGroupLayout bgl = utils::MakeBindGroupLayout(
+        device, {{0, wgpu::ShaderStage::Fragment, wgpu::SamplerBindingType::NonFiltering},
+                 {1, wgpu::ShaderStage::Fragment, wgpu::TextureSampleType::UnfilterableFloat}});
+
     utils::ComboRenderPipelineDescriptor renderPipelineDescriptor;
     renderPipelineDescriptor.vertex.module = GetTestVertexShaderModule();
-
     renderPipelineDescriptor.cFragment.module = utils::CreateShaderModule(device, R"(
             @group(0) @binding(0) var sampler0 : sampler;
             @group(0) @binding(1) var texture : texture_2d<f32>;
@@ -585,6 +583,7 @@ TEST_P(VideoViewsTests, SampleYtoR) {
         device, kYUVAImageDataWidthInTexels, kYUVAImageDataHeightInTexels);
     renderPipelineDescriptor.cTargets[0].format = renderPass.colorFormat;
     renderPipelineDescriptor.primitive.topology = wgpu::PrimitiveTopology::TriangleList;
+    renderPipelineDescriptor.layout = utils::MakeBasicPipelineLayout(device, &bgl);
 
     wgpu::RenderPipeline renderPipeline = device.CreateRenderPipeline(&renderPipelineDescriptor);
 
@@ -594,8 +593,7 @@ TEST_P(VideoViewsTests, SampleYtoR) {
     {
         wgpu::RenderPassEncoder pass = encoder.BeginRenderPass(&renderPass.renderPassInfo);
         pass.SetPipeline(renderPipeline);
-        pass.SetBindGroup(0, utils::MakeBindGroup(device, renderPipeline.GetBindGroupLayout(0),
-                                                  {{0, sampler}, {1, textureView}}));
+        pass.SetBindGroup(0, utils::MakeBindGroup(device, bgl, {{0, sampler}, {1, textureView}}));
         pass.Draw(6);
         pass.End();
     }
@@ -628,9 +626,12 @@ TEST_P(VideoViewsTests, SampleUVtoRG) {
     viewDesc.aspect = wgpu::TextureAspect::Plane1Only;
     wgpu::TextureView textureView = platformTexture->wgpuTexture.CreateView(&viewDesc);
 
+    wgpu::BindGroupLayout bgl = utils::MakeBindGroupLayout(
+        device, {{0, wgpu::ShaderStage::Fragment, wgpu::SamplerBindingType::NonFiltering},
+                 {1, wgpu::ShaderStage::Fragment, wgpu::TextureSampleType::UnfilterableFloat}});
+
     utils::ComboRenderPipelineDescriptor renderPipelineDescriptor;
     renderPipelineDescriptor.vertex.module = GetTestVertexShaderModule();
-
     renderPipelineDescriptor.cFragment.module = utils::CreateShaderModule(device, R"(
             @group(0) @binding(0) var sampler0 : sampler;
             @group(0) @binding(1) var texture : texture_2d<f32>;
@@ -646,6 +647,7 @@ TEST_P(VideoViewsTests, SampleUVtoRG) {
         device, kYUVAImageDataWidthInTexels, kYUVAImageDataHeightInTexels);
     renderPipelineDescriptor.cTargets[0].format = renderPass.colorFormat;
     renderPipelineDescriptor.primitive.topology = wgpu::PrimitiveTopology::TriangleList;
+    renderPipelineDescriptor.layout = utils::MakeBasicPipelineLayout(device, &bgl);
 
     wgpu::RenderPipeline renderPipeline = device.CreateRenderPipeline(&renderPipelineDescriptor);
 
@@ -655,8 +657,7 @@ TEST_P(VideoViewsTests, SampleUVtoRG) {
     {
         wgpu::RenderPassEncoder pass = encoder.BeginRenderPass(&renderPass.renderPassInfo);
         pass.SetPipeline(renderPipeline);
-        pass.SetBindGroup(0, utils::MakeBindGroup(device, renderPipeline.GetBindGroupLayout(0),
-                                                  {{0, sampler}, {1, textureView}}));
+        pass.SetBindGroup(0, utils::MakeBindGroup(device, bgl, {{0, sampler}, {1, textureView}}));
         pass.Draw(6);
         pass.End();
     }
@@ -670,7 +671,7 @@ TEST_P(VideoViewsTests, SampleUVtoRG) {
     mBackend->DestroyVideoTextureForTest(std::move(platformTexture));
 }
 
-// Renders a "checkerboard" texture into a RGB quad, then checks the the entire
+// Renders a "checkerboard" texture into a RGB quad, then checks the entire
 // contents to ensure the image has not been flipped.
 TEST_P(VideoViewsTests, SampleYUVtoRGB) {
     std::unique_ptr<VideoViewsTestBackend::PlatformTexture> platformTexture =
@@ -697,9 +698,13 @@ TEST_P(VideoViewsTests, SampleYUVtoRGB) {
     chromaViewDesc.aspect = wgpu::TextureAspect::Plane1Only;
     wgpu::TextureView chromaTextureView = platformTexture->wgpuTexture.CreateView(&chromaViewDesc);
 
+    wgpu::BindGroupLayout bgl = utils::MakeBindGroupLayout(
+        device, {{0, wgpu::ShaderStage::Fragment, wgpu::SamplerBindingType::NonFiltering},
+                 {1, wgpu::ShaderStage::Fragment, wgpu::TextureSampleType::UnfilterableFloat},
+                 {2, wgpu::ShaderStage::Fragment, wgpu::TextureSampleType::UnfilterableFloat}});
+
     utils::ComboRenderPipelineDescriptor renderPipelineDescriptor;
     renderPipelineDescriptor.vertex.module = GetTestVertexShaderModule();
-
     renderPipelineDescriptor.cFragment.module = utils::CreateShaderModule(device, R"(
             @group(0) @binding(0) var sampler0 : sampler;
             @group(0) @binding(1) var lumaTexture : texture_2d<f32>;
@@ -716,6 +721,7 @@ TEST_P(VideoViewsTests, SampleYUVtoRGB) {
     utils::BasicRenderPass renderPass = utils::CreateBasicRenderPass(
         device, kYUVAImageDataWidthInTexels, kYUVAImageDataHeightInTexels);
     renderPipelineDescriptor.cTargets[0].format = renderPass.colorFormat;
+    renderPipelineDescriptor.layout = utils::MakeBasicPipelineLayout(device, &bgl);
 
     wgpu::RenderPipeline renderPipeline = device.CreateRenderPipeline(&renderPipelineDescriptor);
 
@@ -726,7 +732,7 @@ TEST_P(VideoViewsTests, SampleYUVtoRGB) {
         wgpu::RenderPassEncoder pass = encoder.BeginRenderPass(&renderPass.renderPassInfo);
         pass.SetPipeline(renderPipeline);
         pass.SetBindGroup(
-            0, utils::MakeBindGroup(device, renderPipeline.GetBindGroupLayout(0),
+            0, utils::MakeBindGroup(device, bgl,
                                     {{0, sampler}, {1, lumaTextureView}, {2, chromaTextureView}}));
         pass.Draw(6);
         pass.End();
@@ -748,7 +754,7 @@ TEST_P(VideoViewsTests, SampleYUVtoRGB) {
     mBackend->DestroyVideoTextureForTest(std::move(platformTexture));
 }
 
-// Renders a "checkerboard" texture into a RGBA quad, then checks the the entire
+// Renders a "checkerboard" texture into a RGBA quad, then checks the entire
 // contents to ensure the image has not been flipped.
 TEST_P(VideoViewsTests, SampleYUVAtoRGBA) {
     std::unique_ptr<VideoViewsTestBackend::PlatformTexture> platformTexture =
@@ -781,9 +787,14 @@ TEST_P(VideoViewsTests, SampleYUVAtoRGBA) {
     alphaViewDesc.aspect = wgpu::TextureAspect::Plane2Only;
     wgpu::TextureView alphaTextureView = platformTexture->wgpuTexture.CreateView(&alphaViewDesc);
 
+    wgpu::BindGroupLayout bgl = utils::MakeBindGroupLayout(
+        device, {{0, wgpu::ShaderStage::Fragment, wgpu::SamplerBindingType::NonFiltering},
+                 {1, wgpu::ShaderStage::Fragment, wgpu::TextureSampleType::UnfilterableFloat},
+                 {2, wgpu::ShaderStage::Fragment, wgpu::TextureSampleType::UnfilterableFloat},
+                 {3, wgpu::ShaderStage::Fragment, wgpu::TextureSampleType::UnfilterableFloat}});
+
     utils::ComboRenderPipelineDescriptor renderPipelineDescriptor;
     renderPipelineDescriptor.vertex.module = GetTestVertexShaderModule();
-
     renderPipelineDescriptor.cFragment.module = utils::CreateShaderModule(device, R"(
             @group(0) @binding(0) var sampler0 : sampler;
             @group(0) @binding(1) var lumaTexture : texture_2d<f32>;
@@ -802,6 +813,7 @@ TEST_P(VideoViewsTests, SampleYUVAtoRGBA) {
     utils::BasicRenderPass renderPass = utils::CreateBasicRenderPass(
         device, kYUVAImageDataWidthInTexels, kYUVAImageDataHeightInTexels);
     renderPipelineDescriptor.cTargets[0].format = renderPass.colorFormat;
+    renderPipelineDescriptor.layout = utils::MakeBasicPipelineLayout(device, &bgl);
 
     wgpu::RenderPipeline renderPipeline = device.CreateRenderPipeline(&renderPipelineDescriptor);
 
@@ -811,7 +823,7 @@ TEST_P(VideoViewsTests, SampleYUVAtoRGBA) {
     {
         wgpu::RenderPassEncoder pass = encoder.BeginRenderPass(&renderPass.renderPassInfo);
         pass.SetPipeline(renderPipeline);
-        pass.SetBindGroup(0, utils::MakeBindGroup(device, renderPipeline.GetBindGroupLayout(0),
+        pass.SetBindGroup(0, utils::MakeBindGroup(device, bgl,
                                                   {{0, sampler},
                                                    {1, lumaTextureView},
                                                    {2, chromaTextureView},
@@ -837,7 +849,7 @@ TEST_P(VideoViewsTests, SampleYUVAtoRGBA) {
     mBackend->DestroyVideoTextureForTest(std::move(platformTexture));
 }
 
-// Renders a "checkerboard" texture into a RGB quad with two samplers, then checks the the
+// Renders a "checkerboard" texture into a RGB quad with two samplers, then checks the
 // entire contents to ensure the image has not been flipped.
 TEST_P(VideoViewsTests, SampleYUVtoRGBMultipleSamplers) {
     std::unique_ptr<VideoViewsTestBackend::PlatformTexture> platformTexture =
@@ -864,9 +876,14 @@ TEST_P(VideoViewsTests, SampleYUVtoRGBMultipleSamplers) {
     chromaViewDesc.aspect = wgpu::TextureAspect::Plane1Only;
     wgpu::TextureView chromaTextureView = platformTexture->wgpuTexture.CreateView(&chromaViewDesc);
 
+    wgpu::BindGroupLayout bgl = utils::MakeBindGroupLayout(
+        device, {{0, wgpu::ShaderStage::Fragment, wgpu::SamplerBindingType::NonFiltering},
+                 {1, wgpu::ShaderStage::Fragment, wgpu::SamplerBindingType::NonFiltering},
+                 {2, wgpu::ShaderStage::Fragment, wgpu::TextureSampleType::UnfilterableFloat},
+                 {3, wgpu::ShaderStage::Fragment, wgpu::TextureSampleType::UnfilterableFloat}});
+
     utils::ComboRenderPipelineDescriptor renderPipelineDescriptor;
     renderPipelineDescriptor.vertex.module = GetTestVertexShaderModule();
-
     renderPipelineDescriptor.cFragment.module = utils::CreateShaderModule(device, R"(
             @group(0) @binding(0) var sampler0 : sampler;
             @group(0) @binding(1) var sampler1 : sampler;
@@ -884,6 +901,7 @@ TEST_P(VideoViewsTests, SampleYUVtoRGBMultipleSamplers) {
     utils::BasicRenderPass renderPass = utils::CreateBasicRenderPass(
         device, kYUVAImageDataWidthInTexels, kYUVAImageDataHeightInTexels);
     renderPipelineDescriptor.cTargets[0].format = renderPass.colorFormat;
+    renderPipelineDescriptor.layout = utils::MakeBasicPipelineLayout(device, &bgl);
 
     wgpu::RenderPipeline renderPipeline = device.CreateRenderPipeline(&renderPipelineDescriptor);
 
@@ -896,7 +914,7 @@ TEST_P(VideoViewsTests, SampleYUVtoRGBMultipleSamplers) {
         pass.SetPipeline(renderPipeline);
         pass.SetBindGroup(
             0, utils::MakeBindGroup(
-                   device, renderPipeline.GetBindGroupLayout(0),
+                   device, bgl,
                    {{0, sampler0}, {1, sampler1}, {2, lumaTextureView}, {3, chromaTextureView}}));
         pass.Draw(6);
         pass.End();
@@ -918,7 +936,7 @@ TEST_P(VideoViewsTests, SampleYUVtoRGBMultipleSamplers) {
     mBackend->DestroyVideoTextureForTest(std::move(platformTexture));
 }
 
-// Renders a "checkerboard" texture into a RGBA quad with three samplers, then checks the the
+// Renders a "checkerboard" texture into a RGBA quad with three samplers, then checks the
 // entire contents to ensure the image has not been flipped.
 TEST_P(VideoViewsTests, SampleYUVAtoRGBAMultipleSamplers) {
     std::unique_ptr<VideoViewsTestBackend::PlatformTexture> platformTexture =
@@ -1271,9 +1289,11 @@ TEST_P(VideoViewsValidationTests, T2TCopyAllAspectsFails) {
     wgpu::Texture srcTexture = platformTexture1->wgpuTexture;
     wgpu::Texture dstTexture = platformTexture2->wgpuTexture;
 
-    wgpu::ImageCopyTexture copySrc = utils::CreateImageCopyTexture(srcTexture, 0, {0, 0, 0});
+    wgpu::TexelCopyTextureInfo copySrc =
+        utils::CreateTexelCopyTextureInfo(srcTexture, 0, {0, 0, 0});
 
-    wgpu::ImageCopyTexture copyDst = utils::CreateImageCopyTexture(dstTexture, 0, {0, 0, 0});
+    wgpu::TexelCopyTextureInfo copyDst =
+        utils::CreateTexelCopyTextureInfo(dstTexture, 0, {0, 0, 0});
 
     wgpu::Extent3D copySize = {1, 1, 1};
 
@@ -1300,11 +1320,11 @@ TEST_P(VideoViewsValidationTests, T2TCopyPlaneAspectFails) {
     wgpu::Texture srcTexture = platformTexture1->wgpuTexture;
     wgpu::Texture dstTexture = platformTexture2->wgpuTexture;
 
-    wgpu::ImageCopyTexture copySrc =
-        utils::CreateImageCopyTexture(srcTexture, 0, {0, 0, 0}, wgpu::TextureAspect::Plane0Only);
+    wgpu::TexelCopyTextureInfo copySrc = utils::CreateTexelCopyTextureInfo(
+        srcTexture, 0, {0, 0, 0}, wgpu::TextureAspect::Plane0Only);
 
-    wgpu::ImageCopyTexture copyDst =
-        utils::CreateImageCopyTexture(dstTexture, 0, {0, 0, 0}, wgpu::TextureAspect::Plane1Only);
+    wgpu::TexelCopyTextureInfo copyDst = utils::CreateTexelCopyTextureInfo(
+        dstTexture, 0, {0, 0, 0}, wgpu::TextureAspect::Plane1Only);
 
     wgpu::Extent3D copySize = {1, 1, 1};
 
@@ -1314,8 +1334,8 @@ TEST_P(VideoViewsValidationTests, T2TCopyPlaneAspectFails) {
         ASSERT_DEVICE_ERROR(encoder.Finish());
     }
 
-    copySrc =
-        utils::CreateImageCopyTexture(srcTexture, 0, {0, 0, 0}, wgpu::TextureAspect::Plane1Only);
+    copySrc = utils::CreateTexelCopyTextureInfo(srcTexture, 0, {0, 0, 0},
+                                                wgpu::TextureAspect::Plane1Only);
 
     {
         wgpu::CommandEncoder encoder = device.CreateCommandEncoder();
@@ -1340,9 +1360,10 @@ TEST_P(VideoViewsValidationTests, T2BCopyAllAspectsFails) {
     bufferDescriptor.usage = wgpu::BufferUsage::CopyDst;
     wgpu::Buffer dstBuffer = device.CreateBuffer(&bufferDescriptor);
 
-    wgpu::ImageCopyTexture copySrc = utils::CreateImageCopyTexture(srcTexture, 0, {0, 0, 0});
+    wgpu::TexelCopyTextureInfo copySrc =
+        utils::CreateTexelCopyTextureInfo(srcTexture, 0, {0, 0, 0});
 
-    wgpu::ImageCopyBuffer copyDst = utils::CreateImageCopyBuffer(dstBuffer, 0, 256);
+    wgpu::TexelCopyBufferInfo copyDst = utils::CreateTexelCopyBufferInfo(dstBuffer, 0, 256);
 
     wgpu::Extent3D copySize = {1, 1, 1};
 
@@ -1366,10 +1387,10 @@ TEST_P(VideoViewsValidationTests, T2BCopyPlaneAspectsFails) {
     bufferDescriptor.usage = wgpu::BufferUsage::CopyDst;
     wgpu::Buffer dstBuffer = device.CreateBuffer(&bufferDescriptor);
 
-    wgpu::ImageCopyTexture copySrc =
-        utils::CreateImageCopyTexture(srcTexture, 0, {0, 0, 0}, wgpu::TextureAspect::Plane0Only);
+    wgpu::TexelCopyTextureInfo copySrc = utils::CreateTexelCopyTextureInfo(
+        srcTexture, 0, {0, 0, 0}, wgpu::TextureAspect::Plane0Only);
 
-    wgpu::ImageCopyBuffer copyDst = utils::CreateImageCopyBuffer(dstBuffer, 0, 256);
+    wgpu::TexelCopyBufferInfo copyDst = utils::CreateTexelCopyBufferInfo(dstBuffer, 0, 256);
 
     wgpu::Extent3D copySize = {1, 1, 1};
 
@@ -1379,8 +1400,8 @@ TEST_P(VideoViewsValidationTests, T2BCopyPlaneAspectsFails) {
         ASSERT_DEVICE_ERROR(encoder.Finish());
     }
 
-    copySrc =
-        utils::CreateImageCopyTexture(srcTexture, 0, {0, 0, 0}, wgpu::TextureAspect::Plane1Only);
+    copySrc = utils::CreateTexelCopyTextureInfo(srcTexture, 0, {0, 0, 0},
+                                                wgpu::TextureAspect::Plane1Only);
 
     {
         wgpu::CommandEncoder encoder = device.CreateCommandEncoder();
@@ -1404,9 +1425,10 @@ TEST_P(VideoViewsValidationTests, B2TCopyAllAspectsFails) {
     wgpu::Buffer srcBuffer = utils::CreateBufferFromData(
         device, placeholderData.data(), placeholderData.size(), wgpu::BufferUsage::CopySrc);
 
-    wgpu::ImageCopyBuffer copySrc = utils::CreateImageCopyBuffer(srcBuffer, 0, 12, 4);
+    wgpu::TexelCopyBufferInfo copySrc = utils::CreateTexelCopyBufferInfo(srcBuffer, 0, 12, 4);
 
-    wgpu::ImageCopyTexture copyDst = utils::CreateImageCopyTexture(dstTexture, 0, {0, 0, 0});
+    wgpu::TexelCopyTextureInfo copyDst =
+        utils::CreateTexelCopyTextureInfo(dstTexture, 0, {0, 0, 0});
 
     wgpu::Extent3D copySize = {1, 1, 1};
 
@@ -1430,10 +1452,10 @@ TEST_P(VideoViewsValidationTests, B2TCopyPlaneAspectsFails) {
     wgpu::Buffer srcBuffer = utils::CreateBufferFromData(
         device, placeholderData.data(), placeholderData.size(), wgpu::BufferUsage::CopySrc);
 
-    wgpu::ImageCopyBuffer copySrc = utils::CreateImageCopyBuffer(srcBuffer, 0, 12, 4);
+    wgpu::TexelCopyBufferInfo copySrc = utils::CreateTexelCopyBufferInfo(srcBuffer, 0, 12, 4);
 
-    wgpu::ImageCopyTexture copyDst =
-        utils::CreateImageCopyTexture(dstTexture, 0, {0, 0, 0}, wgpu::TextureAspect::Plane0Only);
+    wgpu::TexelCopyTextureInfo copyDst = utils::CreateTexelCopyTextureInfo(
+        dstTexture, 0, {0, 0, 0}, wgpu::TextureAspect::Plane0Only);
 
     wgpu::Extent3D copySize = {1, 1, 1};
 
@@ -1443,8 +1465,8 @@ TEST_P(VideoViewsValidationTests, B2TCopyPlaneAspectsFails) {
         ASSERT_DEVICE_ERROR(encoder.Finish());
     }
 
-    copyDst =
-        utils::CreateImageCopyTexture(dstTexture, 0, {0, 0, 0}, wgpu::TextureAspect::Plane1Only);
+    copyDst = utils::CreateTexelCopyTextureInfo(dstTexture, 0, {0, 0, 0},
+                                                wgpu::TextureAspect::Plane1Only);
 
     {
         wgpu::CommandEncoder encoder = device.CreateCommandEncoder();
@@ -1457,7 +1479,7 @@ TEST_P(VideoViewsValidationTests, B2TCopyPlaneAspectsFails) {
 // Tests which multi-planar formats are allowed to be sampled.
 TEST_P(VideoViewsValidationTests, SamplingMultiPlanarTexture) {
     wgpu::BindGroupLayout layout = utils::MakeBindGroupLayout(
-        device, {{0, wgpu::ShaderStage::Fragment, wgpu::TextureSampleType::Float}});
+        device, {{0, wgpu::ShaderStage::Fragment, wgpu::TextureSampleType::UnfilterableFloat}});
 
     // R8BG8Biplanar420Unorm is allowed to be sampled, if plane 0 or plane 1 is selected.
     std::unique_ptr<VideoViewsTestBackend::PlatformTexture> platformTexture =
@@ -1502,18 +1524,19 @@ TEST_P(VideoViewsValidationTests, WriteTextureAllAspectsFails) {
                                             /*isCheckerboard*/ true,
                                             /*initialized*/ true);
 
-    wgpu::TextureDataLayout textureDataLayout = utils::CreateTextureDataLayout(0, 4, 4);
+    wgpu::TexelCopyBufferLayout texelCopyBufferLayout = utils::CreateTexelCopyBufferLayout(0, 4, 4);
 
-    wgpu::ImageCopyTexture imageCopyTexture =
-        utils::CreateImageCopyTexture(platformTexture->wgpuTexture, 0, {0, 0, 0});
+    wgpu::TexelCopyTextureInfo texelCopyTextureInfo =
+        utils::CreateTexelCopyTextureInfo(platformTexture->wgpuTexture, 0, {0, 0, 0});
 
     std::vector<uint8_t> placeholderData(4, 0);
     wgpu::Extent3D writeSize = {1, 1, 1};
 
     wgpu::Queue queue = device.GetQueue();
 
-    ASSERT_DEVICE_ERROR(queue.WriteTexture(&imageCopyTexture, placeholderData.data(),
-                                           placeholderData.size(), &textureDataLayout, &writeSize));
+    ASSERT_DEVICE_ERROR(queue.WriteTexture(&texelCopyTextureInfo, placeholderData.data(),
+                                           placeholderData.size(), &texelCopyBufferLayout,
+                                           &writeSize));
     mBackend->DestroyVideoTextureForTest(std::move(platformTexture));
 }
 
@@ -1524,8 +1547,9 @@ TEST_P(VideoViewsValidationTests, WriteTexturePlaneAspectsFails) {
                                             /*isCheckerboard*/ true,
                                             /*initialized*/ true);
 
-    wgpu::TextureDataLayout textureDataLayout = utils::CreateTextureDataLayout(0, 12, 4);
-    wgpu::ImageCopyTexture imageCopyTexture = utils::CreateImageCopyTexture(
+    wgpu::TexelCopyBufferLayout texelCopyBufferLayout =
+        utils::CreateTexelCopyBufferLayout(0, 12, 4);
+    wgpu::TexelCopyTextureInfo texelCopyTextureInfo = utils::CreateTexelCopyTextureInfo(
         platformTexture->wgpuTexture, 0, {0, 0, 0}, wgpu::TextureAspect::Plane0Only);
 
     std::vector<uint8_t> placeholderData(4, 0);
@@ -1533,8 +1557,9 @@ TEST_P(VideoViewsValidationTests, WriteTexturePlaneAspectsFails) {
 
     wgpu::Queue queue = device.GetQueue();
 
-    ASSERT_DEVICE_ERROR(queue.WriteTexture(&imageCopyTexture, placeholderData.data(),
-                                           placeholderData.size(), &textureDataLayout, &writeSize));
+    ASSERT_DEVICE_ERROR(queue.WriteTexture(&texelCopyTextureInfo, placeholderData.data(),
+                                           placeholderData.size(), &texelCopyBufferLayout,
+                                           &writeSize));
     mBackend->DestroyVideoTextureForTest(std::move(platformTexture));
 }
 
@@ -1546,12 +1571,18 @@ class VideoViewsRenderTargetTests : public VideoViewsValidationTests {
         DAWN_TEST_UNSUPPORTED_IF(!IsMultiPlanarFormatsSupported());
 
         DAWN_TEST_UNSUPPORTED_IF(!device.HasFeature(wgpu::FeatureName::MultiPlanarRenderTargets));
+
+        DAWN_TEST_UNSUPPORTED_IF(!utils::IsRenderableFormat(device, GetPlaneFormat(0)));
+        DAWN_TEST_UNSUPPORTED_IF(!utils::IsRenderableFormat(device, GetPlaneFormat(1)));
     }
 
     std::vector<wgpu::FeatureName> GetRequiredFeatures() override {
         std::vector<wgpu::FeatureName> requiredFeatures = VideoViewsTests::GetRequiredFeatures();
         if (SupportsFeatures({wgpu::FeatureName::MultiPlanarRenderTargets})) {
             requiredFeatures.push_back(wgpu::FeatureName::MultiPlanarRenderTargets);
+        }
+        if (SupportsFeatures({wgpu::FeatureName::TextureFormatsTier1})) {
+            requiredFeatures.push_back(wgpu::FeatureName::TextureFormatsTier1);
         }
         return requiredFeatures;
     }
@@ -1575,12 +1606,13 @@ class VideoViewsRenderTargetTests : public VideoViewsValidationTests {
         std::vector<T> planeSrcData = VideoViewsTestsBase::GetTestTextureDataWithPlaneIndex<T>(
             format, planeIndex, kTextureBytesPerRowAlignment,
             kYUVAImageDataHeightInTexels / subsampleFactor.verticalFactor, false, hasAlpha);
-        wgpu::ImageCopyTexture imageCopyTexture = utils::CreateImageCopyTexture(planeTexture);
-        wgpu::TextureDataLayout textureDataLayout =
-            utils::CreateTextureDataLayout(0, kTextureBytesPerRowAlignment);
+        wgpu::TexelCopyTextureInfo texelCopyTextureInfo =
+            utils::CreateTexelCopyTextureInfo(planeTexture);
+        wgpu::TexelCopyBufferLayout texelCopyBufferLayout =
+            utils::CreateTexelCopyBufferLayout(0, kTextureBytesPerRowAlignment);
         wgpu::Queue queue = device.GetQueue();
-        queue.WriteTexture(&imageCopyTexture, planeSrcData.data(), planeSrcData.size() * sizeof(T),
-                           &textureDataLayout, &size);
+        queue.WriteTexture(&texelCopyTextureInfo, planeSrcData.data(),
+                           planeSrcData.size() * sizeof(T), &texelCopyBufferLayout, &size);
 
         return planeTexture;
     }
@@ -1692,6 +1724,11 @@ class VideoViewsRenderTargetTests : public VideoViewsValidationTests {
                 planeTextureViews.push_back(destVideoWGPUTexture.CreateView(&planeViewDesc));
             }
 
+            wgpu::BindGroupLayout bgl = utils::MakeBindGroupLayout(
+                device,
+                {{0, wgpu::ShaderStage::Fragment, wgpu::SamplerBindingType::NonFiltering},
+                 {1, wgpu::ShaderStage::Fragment, wgpu::TextureSampleType::UnfilterableFloat}});
+
             wgpu::Sampler sampler = device.CreateSampler();
 
             wgpu::CommandEncoder encoder = device.CreateCommandEncoder();
@@ -1701,6 +1738,7 @@ class VideoViewsRenderTargetTests : public VideoViewsValidationTests {
                 renderPipelineDescriptor.cFragment.module = fsModule;
                 renderPipelineDescriptor.cFragment.targetCount = destVideoWGPUTextures.size();
                 renderPipelineDescriptor.primitive.topology = wgpu::PrimitiveTopology::TriangleList;
+                renderPipelineDescriptor.layout = utils::MakeBasicPipelineLayout(device, &bgl);
                 for (size_t i = 0; i < destVideoWGPUTextures.size(); ++i) {
                     renderPipelineDescriptor.cTargets[i].format = GetPlaneFormat(planeIndex);
                 }
@@ -1716,9 +1754,9 @@ class VideoViewsRenderTargetTests : public VideoViewsValidationTests {
                 utils::ComboRenderPassDescriptor renderPass(planeTextureViews, depthTextureView);
                 wgpu::RenderPassEncoder pass = encoder.BeginRenderPass(&renderPass);
                 pass.SetPipeline(renderPipeline);
-                pass.SetBindGroup(0, utils::MakeBindGroup(
-                                         device, renderPipeline.GetBindGroupLayout(0),
-                                         {{0, sampler}, {1, planeTextureWithData.CreateView()}}));
+                pass.SetBindGroup(
+                    0, utils::MakeBindGroup(
+                           device, bgl, {{0, sampler}, {1, planeTextureWithData.CreateView()}}));
                 pass.Draw(6);
                 pass.End();
             }
@@ -1731,6 +1769,7 @@ class VideoViewsRenderTargetTests : public VideoViewsValidationTests {
                 renderPipelineDescriptor.cFragment.module = fsModule;
                 renderPipelineDescriptor.primitive.topology = wgpu::PrimitiveTopology::TriangleList;
                 renderPipelineDescriptor.cTargets[0].format = GetPlaneFormat(planeIndex);
+                renderPipelineDescriptor.layout = utils::MakeBasicPipelineLayout(device, &bgl);
                 wgpu::RenderPipeline renderPipeline =
                     device.CreateRenderPipeline(&renderPipelineDescriptor);
                 // Another render pass for reading the planeTextureView into a texture of the
@@ -1744,8 +1783,7 @@ class VideoViewsRenderTargetTests : public VideoViewsValidationTests {
                     encoder.BeginRenderPass(&basicRenderPass.renderPassInfo);
                 secondPass.SetPipeline(renderPipeline);
                 secondPass.SetBindGroup(
-                    0, utils::MakeBindGroup(device, renderPipeline.GetBindGroupLayout(0),
-                                            {{0, sampler}, {1, planeTextureView}}));
+                    0, utils::MakeBindGroup(device, bgl, {{0, sampler}, {1, planeTextureView}}));
                 secondPass.Draw(6);
                 secondPass.End();
 
@@ -1812,12 +1850,13 @@ class VideoViewsRenderTargetTests : public VideoViewsValidationTests {
             std::vector<T> planeSrcData = VideoViewsTestsBase::GetTestTextureDataWithPlaneIndex<T>(
                 format, planeIndex, bytesPerRow,
                 kYUVAImageDataHeightInTexels / subsampleFactor.verticalFactor, false, hasAlpha);
-            wgpu::ImageCopyTexture imageCopyTexture = utils::CreateImageCopyTexture(planeTexture);
-            wgpu::TextureDataLayout textureDataLayout =
-                utils::CreateTextureDataLayout(0, bytesPerRow);
+            wgpu::TexelCopyTextureInfo texelCopyTextureInfo =
+                utils::CreateTexelCopyTextureInfo(planeTexture);
+            wgpu::TexelCopyBufferLayout texelCopyBufferLayout =
+                utils::CreateTexelCopyBufferLayout(0, bytesPerRow);
             wgpu::Queue queue = device.GetQueue();
-            queue.WriteTexture(&imageCopyTexture, planeSrcData.data(),
-                               planeSrcData.size() * sizeof(T), &textureDataLayout, &size);
+            queue.WriteTexture(&texelCopyTextureInfo, planeSrcData.data(),
+                               planeSrcData.size() * sizeof(T), &texelCopyBufferLayout, &size);
 
             return planeTexture;
         };
@@ -1859,6 +1898,11 @@ class VideoViewsRenderTargetTests : public VideoViewsValidationTests {
                                            wgpu::TextureView destTextureView,
                                            wgpu::CommandEncoder encoder,
                                            wgpu::Sampler sampler) -> wgpu::RenderPipeline {
+            wgpu::BindGroupLayout bgl = utils::MakeBindGroupLayout(
+                device,
+                {{0, wgpu::ShaderStage::Fragment, wgpu::SamplerBindingType::NonFiltering},
+                 {1, wgpu::ShaderStage::Fragment, wgpu::TextureSampleType::UnfilterableFloat}});
+
             utils::ComboRenderPipelineDescriptor renderPipelineDescriptor;
             renderPipelineDescriptor.vertex.module = GetTestVertexShaderModule();
             renderPipelineDescriptor.cFragment.module = utils::CreateShaderModule(device, R"(
@@ -1871,6 +1915,7 @@ class VideoViewsRenderTargetTests : public VideoViewsValidationTests {
                 })");
             renderPipelineDescriptor.primitive.topology = wgpu::PrimitiveTopology::TriangleList;
             renderPipelineDescriptor.cTargets[0].format = GetPlaneFormat(planeIndex);
+            renderPipelineDescriptor.layout = utils::MakeBasicPipelineLayout(device, &bgl);
             wgpu::RenderPipeline renderPipeline =
                 device.CreateRenderPipeline(&renderPipelineDescriptor);
 
@@ -2105,6 +2150,9 @@ TEST_P(VideoViewsRenderTargetTests, RenderAttachmentSizeValidation) {
 
 // Tests for rendering to a multiplanar video texture through its views.
 TEST_P(VideoViewsRenderTargetTests, RenderToMultiplanarVideoTexture) {
+    // TODO(42242119): fail on Qualcomm Adreno X1.
+    DAWN_SUPPRESS_TEST_IF(IsD3D11() && IsQualcomm());
+
     if (utils::GetMultiPlaneTextureBitDepth(GetFormat()) == 8) {
         RenderToMultiplanarVideoTextures<uint8_t>(/*numOfTextures=*/1, /*hasDepth=*/false);
     } else if (utils::GetMultiPlaneTextureBitDepth(GetFormat()) == 16) {
@@ -2115,6 +2163,9 @@ TEST_P(VideoViewsRenderTargetTests, RenderToMultiplanarVideoTexture) {
 }
 
 TEST_P(VideoViewsRenderTargetTests, RenderToMultiplanarVideoTextureWithDepth) {
+    // TODO(42242119): fail on Qualcomm Adreno X1.
+    DAWN_SUPPRESS_TEST_IF(IsD3D11() && IsQualcomm());
+
     if (utils::GetMultiPlaneTextureBitDepth(GetFormat()) == 8) {
         RenderToMultiplanarVideoTextures<uint8_t>(/*numOfTextures=*/1, /*hasDepth=*/true);
     } else if (utils::GetMultiPlaneTextureBitDepth(GetFormat()) == 16) {
@@ -2125,6 +2176,9 @@ TEST_P(VideoViewsRenderTargetTests, RenderToMultiplanarVideoTextureWithDepth) {
 }
 
 TEST_P(VideoViewsRenderTargetTests, RenderToThreeMultiplanarVideoTexture) {
+    // TODO(42242119): fail on Qualcomm Adreno X1.
+    DAWN_SUPPRESS_TEST_IF(IsD3D11() && IsQualcomm());
+
     if (utils::GetMultiPlaneTextureBitDepth(GetFormat()) == 8) {
         RenderToMultiplanarVideoTextures<uint8_t>(/*numOfTextures=*/3, /*hasDepth=*/false);
     } else if (utils::GetMultiPlaneTextureBitDepth(GetFormat()) == 16) {
@@ -2135,6 +2189,9 @@ TEST_P(VideoViewsRenderTargetTests, RenderToThreeMultiplanarVideoTexture) {
 }
 
 TEST_P(VideoViewsRenderTargetTests, RenderToThreeMultiplanarVideoTextureWithDepth) {
+    // TODO(42242119): fail on Qualcomm Adreno X1.
+    DAWN_SUPPRESS_TEST_IF(IsD3D11() && IsQualcomm());
+
     if (utils::GetMultiPlaneTextureBitDepth(GetFormat()) == 8) {
         RenderToMultiplanarVideoTextures<uint8_t>(/*numOfTextures=*/3, /*hasDepth=*/true);
     } else if (utils::GetMultiPlaneTextureBitDepth(GetFormat()) == 16) {
@@ -2146,6 +2203,9 @@ TEST_P(VideoViewsRenderTargetTests, RenderToThreeMultiplanarVideoTextureWithDept
 
 // Tests for rendering to one plane while reading from another plane.
 TEST_P(VideoViewsRenderTargetTests, RenderFromLumaToChromaPlane) {
+    // TODO(42242119): fail on Qualcomm Adreno X1.
+    DAWN_SUPPRESS_TEST_IF(IsD3D11() && IsQualcomm());
+
     if (utils::GetMultiPlaneTextureBitDepth(GetFormat()) == 8) {
         RenderFromLumaToChromaPlane<uint8_t>();
     } else if (utils::GetMultiPlaneTextureBitDepth(GetFormat()) == 16) {
@@ -2233,8 +2293,8 @@ class VideoViewsExtendedUsagesTests : public VideoViewsTestsBase {
 
                 bytesPerRow = Align(bytesPerRow, 256);
 
-                wgpu::ImageCopyTexture copyDst =
-                    utils::CreateImageCopyTexture(texture, 0, {0, 0, 0});
+                wgpu::TexelCopyTextureInfo copyDst =
+                    utils::CreateTexelCopyTextureInfo(texture, 0, {0, 0, 0});
                 copyDst.aspect = VideoViewsTestsBase::GetPlaneAspect(plane);
 
                 wgpu::Extent3D copySize{VideoViewsTestsBase::kYUVAImageDataWidthInTexels /
@@ -2260,8 +2320,8 @@ class VideoViewsExtendedUsagesTests : public VideoViewsTestsBase {
                 memcpy(buffer.GetMappedRange(), data.data(), bufferDesc.size);
                 buffer.Unmap();
 
-                wgpu::ImageCopyBuffer copySrc =
-                    utils::CreateImageCopyBuffer(buffer, 0, bytesPerRow);
+                wgpu::TexelCopyBufferInfo copySrc =
+                    utils::CreateTexelCopyBufferInfo(buffer, 0, bytesPerRow);
 
                 encoder.CopyBufferToTexture(&copySrc, &copyDst, &copySize);
             }  // for plane
@@ -2364,6 +2424,9 @@ TEST_P(VideoViewsExtendedUsagesTests, SamplingMultiPlanarYUVTexture) {
     // TODO(crbug.com/dawn/1998): Failure on Intel's Vulkan device.
     DAWN_SUPPRESS_TEST_IF(IsWindows() && IsVulkan() && IsIntel());
 
+    // TODO(crbug.com/473870505): [Capture] support depth/stencil and multi-planar textures.
+    DAWN_SUPPRESS_TEST_IF(IsCaptureReplayCheckingEnabled());
+
     auto texture = CreateMultiPlanarTexture(GetFormat(), wgpu::TextureUsage::TextureBinding,
                                             /*isCheckerboard*/ true,
                                             /*initialized*/ true);
@@ -2384,9 +2447,13 @@ TEST_P(VideoViewsExtendedUsagesTests, SamplingMultiPlanarYUVTexture) {
     chromaViewDesc.aspect = wgpu::TextureAspect::Plane1Only;
     wgpu::TextureView chromaTextureView = texture.CreateView(&chromaViewDesc);
 
+    wgpu::BindGroupLayout bgl = utils::MakeBindGroupLayout(
+        device, {{0, wgpu::ShaderStage::Fragment, wgpu::SamplerBindingType::NonFiltering},
+                 {1, wgpu::ShaderStage::Fragment, wgpu::TextureSampleType::UnfilterableFloat},
+                 {2, wgpu::ShaderStage::Fragment, wgpu::TextureSampleType::UnfilterableFloat}});
+
     utils::ComboRenderPipelineDescriptor renderPipelineDescriptor;
     renderPipelineDescriptor.vertex.module = GetTestVertexShaderModule();
-
     renderPipelineDescriptor.cFragment.module = utils::CreateShaderModule(device, R"(
             @group(0) @binding(0) var sampler0 : sampler;
             @group(0) @binding(1) var lumaTexture : texture_2d<f32>;
@@ -2404,6 +2471,7 @@ TEST_P(VideoViewsExtendedUsagesTests, SamplingMultiPlanarYUVTexture) {
         utils::CreateBasicRenderPass(device, kYUVAImageDataWidthInTexels,
                                      kYUVAImageDataHeightInTexels, wgpu::TextureFormat::RGBA8Unorm);
     renderPipelineDescriptor.cTargets[0].format = renderPass.colorFormat;
+    renderPipelineDescriptor.layout = utils::MakeBasicPipelineLayout(device, &bgl);
 
     wgpu::RenderPipeline renderPipeline = device.CreateRenderPipeline(&renderPipelineDescriptor);
 
@@ -2414,7 +2482,7 @@ TEST_P(VideoViewsExtendedUsagesTests, SamplingMultiPlanarYUVTexture) {
         wgpu::RenderPassEncoder pass = encoder.BeginRenderPass(&renderPass.renderPassInfo);
         pass.SetPipeline(renderPipeline);
         pass.SetBindGroup(
-            0, utils::MakeBindGroup(device, renderPipeline.GetBindGroupLayout(0),
+            0, utils::MakeBindGroup(device, bgl,
                                     {{0, sampler}, {1, lumaTextureView}, {2, chromaTextureView}}));
         pass.Draw(6);
         pass.End();
@@ -2437,6 +2505,9 @@ TEST_P(VideoViewsExtendedUsagesTests, SamplingMultiPlanarYUVTexture) {
 
 // Tests sampling a YUVA multi-planar texture.
 TEST_P(VideoViewsExtendedUsagesTests, SamplingMultiPlanarYUVATexture) {
+    // TODO(crbug.com/473870505): [Capture] support depth/stencil and multi-planar textures.
+    DAWN_SUPPRESS_TEST_IF(IsCaptureReplayCheckingEnabled());
+
     auto texture = CreateMultiPlanarTexture(GetFormat(), wgpu::TextureUsage::TextureBinding,
                                             /*isCheckerboard*/ true,
                                             /*initialized*/ true);
@@ -2520,6 +2591,9 @@ TEST_P(VideoViewsExtendedUsagesTests, SamplingMultiPlanarYUVATexture) {
 
 // Test copying from multi-planar format per plane to a buffer succeeds.
 TEST_P(VideoViewsExtendedUsagesTests, T2BCopyPlaneAspectsSucceeds) {
+    // TODO(crbug.com/473870505): [Capture] support depth/stencil and multi-planar textures.
+    DAWN_SUPPRESS_TEST_IF(IsCaptureReplayCheckingEnabled());
+
     switch (utils::GetMultiPlaneTextureBitDepth(GetFormat())) {
         case 8:
             RunT2BCopyPlaneAspectsTest<uint8_t>();
@@ -2545,15 +2619,15 @@ void VideoViewsExtendedUsagesTests::RunT2BCopyPlaneAspectsTest() {
     bufferDescriptor.usage = wgpu::BufferUsage::CopySrc | wgpu::BufferUsage::CopyDst;
     wgpu::Buffer dstBuffer = device.CreateBuffer(&bufferDescriptor);
 
-    wgpu::ImageCopyBuffer copyDst = utils::CreateImageCopyBuffer(dstBuffer, 0, 256);
+    wgpu::TexelCopyBufferInfo copyDst = utils::CreateTexelCopyBufferInfo(dstBuffer, 0, 256);
 
     wgpu::Extent3D copySize = {1, 1, 1};
 
     const bool hasAlpha = utils::GetMultiPlaneTextureNumPlanes(GetFormat()) > 2;
 
     // Plane0
-    wgpu::ImageCopyTexture copySrc =
-        utils::CreateImageCopyTexture(srcTexture, 0, {0, 0, 0}, wgpu::TextureAspect::Plane0Only);
+    wgpu::TexelCopyTextureInfo copySrc = utils::CreateTexelCopyTextureInfo(
+        srcTexture, 0, {0, 0, 0}, wgpu::TextureAspect::Plane0Only);
 
     {
         auto subsampleFactor =
@@ -2579,8 +2653,8 @@ void VideoViewsExtendedUsagesTests::RunT2BCopyPlaneAspectsTest() {
     }
 
     // Plane1
-    copySrc =
-        utils::CreateImageCopyTexture(srcTexture, 0, {0, 0, 0}, wgpu::TextureAspect::Plane1Only);
+    copySrc = utils::CreateTexelCopyTextureInfo(srcTexture, 0, {0, 0, 0},
+                                                wgpu::TextureAspect::Plane1Only);
     {
         auto subsampleFactor =
             utils::GetMultiPlaneTextureSubsamplingFactor(GetFormat(), kYUVAChromaPlaneIndex);
@@ -2606,8 +2680,8 @@ void VideoViewsExtendedUsagesTests::RunT2BCopyPlaneAspectsTest() {
 
     if (hasAlpha) {
         // Plane2
-        copySrc = utils::CreateImageCopyTexture(srcTexture, 0, {0, 0, 0},
-                                                wgpu::TextureAspect::Plane2Only);
+        copySrc = utils::CreateTexelCopyTextureInfo(srcTexture, 0, {0, 0, 0},
+                                                    wgpu::TextureAspect::Plane2Only);
         {
             auto subsampleFactor =
                 utils::GetMultiPlaneTextureSubsamplingFactor(GetFormat(), kYUVAAlphaPlaneIndex);
@@ -2649,10 +2723,10 @@ TEST_P(VideoViewsExtendedUsagesTests, T2BCopyAllAspectsFails) {
     bufferDescriptor.usage = wgpu::BufferUsage::CopyDst;
     wgpu::Buffer dstBuffer = device.CreateBuffer(&bufferDescriptor);
 
-    wgpu::ImageCopyTexture copySrc =
-        utils::CreateImageCopyTexture(srcTexture, 0, {0, 0, 0}, wgpu::TextureAspect::All);
+    wgpu::TexelCopyTextureInfo copySrc =
+        utils::CreateTexelCopyTextureInfo(srcTexture, 0, {0, 0, 0}, wgpu::TextureAspect::All);
 
-    wgpu::ImageCopyBuffer copyDst = utils::CreateImageCopyBuffer(dstBuffer, 0, 256);
+    wgpu::TexelCopyBufferInfo copyDst = utils::CreateTexelCopyBufferInfo(dstBuffer, 0, 256);
 
     wgpu::Extent3D copySize = {1, 1, 1};
 
@@ -2677,11 +2751,11 @@ TEST_P(VideoViewsExtendedUsagesTests, T2TCopyPlaneAspectFails) {
                                  /*isCheckerboard*/ false,
                                  /*initialized*/ true);
 
-    wgpu::ImageCopyTexture copySrc =
-        utils::CreateImageCopyTexture(srcTexture, 0, {0, 0, 0}, wgpu::TextureAspect::Plane0Only);
+    wgpu::TexelCopyTextureInfo copySrc = utils::CreateTexelCopyTextureInfo(
+        srcTexture, 0, {0, 0, 0}, wgpu::TextureAspect::Plane0Only);
 
-    wgpu::ImageCopyTexture copyDst =
-        utils::CreateImageCopyTexture(dstTexture, 0, {0, 0, 0}, wgpu::TextureAspect::Plane0Only);
+    wgpu::TexelCopyTextureInfo copyDst = utils::CreateTexelCopyTextureInfo(
+        dstTexture, 0, {0, 0, 0}, wgpu::TextureAspect::Plane0Only);
 
     wgpu::Extent3D copySize = {1, 1, 1};
 
@@ -2702,7 +2776,7 @@ DAWN_INSTANTIATE_TEST_B(VideoViewsRenderTargetTests,
 
 DAWN_INSTANTIATE_TEST_B(VideoViewsExtendedUsagesTests,
                         {D3D11Backend(), D3D12Backend(), MetalBackend(), OpenGLBackend(),
-                         OpenGLESBackend(), VulkanBackend()},
+                         OpenGLESBackend(), VulkanBackend(), WebGPUBackend()},
                         {wgpu::TextureFormat::R8BG8Biplanar420Unorm,
                          wgpu::TextureFormat::R8BG8Biplanar422Unorm,
                          wgpu::TextureFormat::R8BG8Biplanar444Unorm,

@@ -28,11 +28,11 @@
 #ifndef SRC_TINT_LANG_CORE_IR_TRANSFORM_BINDING_REMAPPER_H_
 #define SRC_TINT_LANG_CORE_IR_TRANSFORM_BINDING_REMAPPER_H_
 
-#include <string>
 #include <unordered_map>
 
 #include "src/tint/api/common/binding_point.h"
-#include "src/tint/utils/result/result.h"
+#include "src/tint/lang/core/ir/validator.h"
+#include "src/tint/utils/result.h"
 
 // Forward declarations.
 namespace tint::core::ir {
@@ -40,6 +40,16 @@ class Module;
 }
 
 namespace tint::core::ir::transform {
+
+/// The capabilities that the transform can support.
+///
+/// Note: BindingRemapper is the transform that introduces duplicate
+/// bindings, so in theory shouldn't need the capability to allow
+/// them.
+const Capabilities kBindingRemapperCapabilities{
+    Capability::kAllow8BitIntegers,
+    Capability::kAllow16BitIntegers,
+};
 
 /// BindingRemapper is a transform that remaps binding point indices and access controls.
 /// @param module the module to transform

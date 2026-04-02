@@ -25,10 +25,9 @@
 // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#include "src/tint/lang/core/ir/transform/value_to_let.h"
-
 #include "src/tint/cmd/fuzz/ir/fuzz.h"
 #include "src/tint/lang/core/ir/module.h"
+#include "src/tint/lang/core/ir/transform/value_to_let.h"
 #include "src/tint/lang/core/ir/validator.h"
 
 namespace tint::core::ir::transform {
@@ -44,19 +43,15 @@ bool CanRun(Module& module) {
     return true;
 }
 
-void ValueToLetFuzzer(Module& module, ValueToLetConfig config) {
+Result<SuccessType> ValueToLetFuzzer(Module& module,
+                                     const fuzz::ir::Context&,
+                                     ValueToLetConfig config) {
     if (!CanRun(module)) {
-        return;
+        return Failure{"Cannot run module"};
     }
 
-    if (auto res = ValueToLet(module, config); res != Success) {
-        return;
-    }
-
-    Capabilities capabilities;
-    if (auto res = Validate(module, capabilities); res != Success) {
-        TINT_ICE() << "result of ValueToLet failed IR validation\n" << res.Failure();
-    }
+    TINT_CHECK_RESULT(ValueToLet(module, config));
+    return Success;
 }
 
 }  // namespace

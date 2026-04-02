@@ -25,7 +25,6 @@
 // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#include "src/tint/lang/core/ir/disassembler.h"
 #include "src/tint/lang/wgsl/reader/program_to_ir/ir_program_test.h"
 
 namespace tint::wgsl::reader {
@@ -42,8 +41,8 @@ TEST_F(ProgramToIRVarTest, Emit_GlobalVar_NoInit) {
     auto m = Build();
     ASSERT_EQ(m, Success);
 
-    EXPECT_EQ(core::ir::Disassembler(m.Get()).Plain(), R"($B1: {  # root
-  %a:ptr<private, u32, read_write> = var
+    EXPECT_EQ(Dis(m.Get()), R"($B1: {  # root
+  %a:ptr<private, u32, read_write> = var undef
 }
 
 )");
@@ -56,8 +55,8 @@ TEST_F(ProgramToIRVarTest, Emit_GlobalVar_Init) {
     auto m = Build();
     ASSERT_EQ(m, Success);
 
-    EXPECT_EQ(core::ir::Disassembler(m.Get()).Plain(), R"($B1: {  # root
-  %a:ptr<private, u32, read_write> = var, 2u
+    EXPECT_EQ(Dis(m.Get()), R"($B1: {  # root
+  %a:ptr<private, u32, read_write> = var 2u
 }
 
 )");
@@ -69,8 +68,8 @@ TEST_F(ProgramToIRVarTest, Emit_GlobalVar_GroupBinding) {
     auto m = Build();
     ASSERT_EQ(m, Success);
 
-    EXPECT_EQ(core::ir::Disassembler(m.Get()).Plain(), R"($B1: {  # root
-  %a:ptr<storage, u32, read> = var @binding_point(2, 3)
+    EXPECT_EQ(Dis(m.Get()), R"($B1: {  # root
+  %a:ptr<storage, u32, read> = var undef @binding_point(2, 3)
 }
 
 )");
@@ -83,10 +82,10 @@ TEST_F(ProgramToIRVarTest, Emit_Var_NoInit) {
     auto m = Build();
     ASSERT_EQ(m, Success);
 
-    EXPECT_EQ(core::ir::Disassembler(m.Get()).Plain(),
+    EXPECT_EQ(Dis(m.Get()),
               R"(%test_function = @compute @workgroup_size(1u, 1u, 1u) func():void {
   $B1: {
-    %a:ptr<function, u32, read_write> = var
+    %a:ptr<function, u32, read_write> = var undef
     ret
   }
 }
@@ -101,10 +100,10 @@ TEST_F(ProgramToIRVarTest, Emit_Var_Init_Constant) {
     auto m = Build();
     ASSERT_EQ(m, Success);
 
-    EXPECT_EQ(core::ir::Disassembler(m.Get()).Plain(),
+    EXPECT_EQ(Dis(m.Get()),
               R"(%test_function = @compute @workgroup_size(1u, 1u, 1u) func():void {
   $B1: {
-    %a:ptr<function, u32, read_write> = var, 2u
+    %a:ptr<function, u32, read_write> = var 2u
     ret
   }
 }
@@ -119,13 +118,13 @@ TEST_F(ProgramToIRVarTest, Emit_Var_Init_NonConstant) {
     auto m = Build();
     ASSERT_EQ(m, Success);
 
-    EXPECT_EQ(core::ir::Disassembler(m.Get()).Plain(),
+    EXPECT_EQ(Dis(m.Get()),
               R"(%test_function = @compute @workgroup_size(1u, 1u, 1u) func():void {
   $B1: {
-    %a:ptr<function, u32, read_write> = var
+    %a:ptr<function, u32, read_write> = var undef
     %3:u32 = load %a
     %4:u32 = add %3, 2u
-    %b:ptr<function, u32, read_write> = var, %4
+    %b:ptr<function, u32, read_write> = var %4
     ret
   }
 }
@@ -139,10 +138,10 @@ TEST_F(ProgramToIRVarTest, Emit_Var_Assign_42i) {
     auto m = Build();
     ASSERT_EQ(m, Success);
 
-    EXPECT_EQ(core::ir::Disassembler(m.Get()).Plain(),
+    EXPECT_EQ(Dis(m.Get()),
               R"(%test_function = @compute @workgroup_size(1u, 1u, 1u) func():void {
   $B1: {
-    %a:ptr<function, i32, read_write> = var
+    %a:ptr<function, i32, read_write> = var undef
     store %a, 42i
     ret
   }
@@ -176,7 +175,7 @@ TEST_F(ProgramToIRVarTest, Emit_Var_Assign_ArrayOfArray_EvalOrder) {
     auto m = Build();
     ASSERT_EQ(m, Success);
 
-    EXPECT_EQ(core::ir::Disassembler(m.Get()).Plain(),
+    EXPECT_EQ(Dis(m.Get()),
               R"(%f = func(%p:i32):i32 {
   $B1: {
     ret %p
@@ -184,7 +183,7 @@ TEST_F(ProgramToIRVarTest, Emit_Var_Assign_ArrayOfArray_EvalOrder) {
 }
 %test_function = @compute @workgroup_size(1u, 1u, 1u) func():void {
   $B2: {
-    %a:ptr<function, array<array<array<i32, 5>, 5>, 5>, read_write> = var
+    %a:ptr<function, array<array<array<i32, 5>, 5>, 5>, read_write> = var undef
     %5:i32 = call %f, 1i
     %6:i32 = call %f, 2i
     %7:i32 = call %f, 3i
@@ -222,7 +221,7 @@ TEST_F(ProgramToIRVarTest, Emit_Var_Assign_ArrayOfVec_EvalOrder) {
     auto m = Build();
     ASSERT_EQ(m, Success);
 
-    EXPECT_EQ(core::ir::Disassembler(m.Get()).Plain(),
+    EXPECT_EQ(Dis(m.Get()),
               R"(%f = func(%p:i32):i32 {
   $B1: {
     ret %p
@@ -230,7 +229,7 @@ TEST_F(ProgramToIRVarTest, Emit_Var_Assign_ArrayOfVec_EvalOrder) {
 }
 %test_function = @compute @workgroup_size(1u, 1u, 1u) func():void {
   $B2: {
-    %a:ptr<function, array<vec4<f32>, 5>, read_write> = var
+    %a:ptr<function, array<vec4<f32>, 5>, read_write> = var undef
     %5:i32 = call %f, 1i
     %6:ptr<function, vec4<f32>, read_write> = access %a, %5
     %7:i32 = call %f, 2i
@@ -270,7 +269,7 @@ TEST_F(ProgramToIRVarTest, Emit_Var_Assign_ArrayOfMatrix_EvalOrder) {
     auto m = Build();
     ASSERT_EQ(m, Success);
 
-    EXPECT_EQ(core::ir::Disassembler(m.Get()).Plain(),
+    EXPECT_EQ(Dis(m.Get()),
               R"(%f = func(%p:i32):i32 {
   $B1: {
     ret %p
@@ -278,7 +277,7 @@ TEST_F(ProgramToIRVarTest, Emit_Var_Assign_ArrayOfMatrix_EvalOrder) {
 }
 %test_function = @compute @workgroup_size(1u, 1u, 1u) func():void {
   $B2: {
-    %a:ptr<function, array<mat3x4<f32>, 5>, read_write> = var
+    %a:ptr<function, array<mat3x4<f32>, 5>, read_write> = var undef
     %5:i32 = call %f, 1i
     %6:i32 = call %f, 2i
     %7:ptr<function, vec4<f32>, read_write> = access %a, %5, %6
@@ -302,10 +301,10 @@ TEST_F(ProgramToIRVarTest, Emit_Var_CompoundAssign_42i) {
     auto m = Build();
     ASSERT_EQ(m, Success);
 
-    EXPECT_EQ(core::ir::Disassembler(m.Get()).Plain(),
+    EXPECT_EQ(Dis(m.Get()),
               R"(%test_function = @compute @workgroup_size(1u, 1u, 1u) func():void {
   $B1: {
-    %a:ptr<function, i32, read_write> = var
+    %a:ptr<function, i32, read_write> = var undef
     %3:i32 = load %a
     %4:i32 = add %3, 42i
     store %a, %4
@@ -341,7 +340,7 @@ TEST_F(ProgramToIRVarTest, Emit_Var_CompoundAssign_ArrayOfArray_EvalOrder) {
     auto m = Build();
     ASSERT_EQ(m, Success);
 
-    EXPECT_EQ(core::ir::Disassembler(m.Get()).Plain(),
+    EXPECT_EQ(Dis(m.Get()),
               R"(%f = func(%p:i32):i32 {
   $B1: {
     ret %p
@@ -349,24 +348,25 @@ TEST_F(ProgramToIRVarTest, Emit_Var_CompoundAssign_ArrayOfArray_EvalOrder) {
 }
 %test_function = @compute @workgroup_size(1u, 1u, 1u) func():void {
   $B2: {
-    %a:ptr<function, array<array<array<i32, 5>, 5>, 5>, read_write> = var
+    %a:ptr<function, array<array<array<i32, 5>, 5>, 5>, read_write> = var undef
     %5:i32 = call %f, 1i
     %6:i32 = call %f, 2i
     %7:i32 = call %f, 3i
     %8:ptr<function, i32, read_write> = access %a, %5, %6, %7
-    %9:i32 = call %f, 4i
-    %10:i32 = call %f, 5i
-    %11:i32 = call %f, 6i
-    %12:ptr<function, i32, read_write> = access %a, %9, %10, %11
-    %13:i32 = load %12
-    %14:i32 = load %8
-    %15:i32 = add %14, %13
+    %9:i32 = load %8
+    %10:i32 = call %f, 4i
+    %11:i32 = call %f, 5i
+    %12:i32 = call %f, 6i
+    %13:ptr<function, i32, read_write> = access %a, %10, %11, %12
+    %14:i32 = load %13
+    %15:i32 = add %9, %14
     store %8, %15
     ret
   }
 }
 )");
 }
+}  // namespace
 
 TEST_F(ProgramToIRVarTest, Emit_Var_CompoundAssign_ArrayOfMatrix_EvalOrder) {
     Func("f", Vector{Param("p", ty.i32())}, ty.i32(), Vector{Return("p")});
@@ -393,7 +393,7 @@ TEST_F(ProgramToIRVarTest, Emit_Var_CompoundAssign_ArrayOfMatrix_EvalOrder) {
     auto m = Build();
     ASSERT_EQ(m, Success);
 
-    EXPECT_EQ(core::ir::Disassembler(m.Get()).Plain(),
+    EXPECT_EQ(Dis(m.Get()),
               R"(%f = func(%p:i32):i32 {
   $B1: {
     ret %p
@@ -401,18 +401,18 @@ TEST_F(ProgramToIRVarTest, Emit_Var_CompoundAssign_ArrayOfMatrix_EvalOrder) {
 }
 %test_function = @compute @workgroup_size(1u, 1u, 1u) func():void {
   $B2: {
-    %a:ptr<function, array<mat3x4<f32>, 5>, read_write> = var
+    %a:ptr<function, array<mat3x4<f32>, 5>, read_write> = var undef
     %5:i32 = call %f, 1i
     %6:i32 = call %f, 2i
     %7:ptr<function, vec4<f32>, read_write> = access %a, %5, %6
     %8:i32 = call %f, 3i
-    %9:i32 = call %f, 4i
-    %10:i32 = call %f, 5i
-    %11:ptr<function, vec4<f32>, read_write> = access %a, %9, %10
-    %12:i32 = call %f, 6i
-    %13:f32 = load_vector_element %11, %12
-    %14:f32 = load_vector_element %7, %8
-    %15:f32 = add %14, %13
+    %9:f32 = load_vector_element %7, %8
+    %10:i32 = call %f, 4i
+    %11:i32 = call %f, 5i
+    %12:ptr<function, vec4<f32>, read_write> = access %a, %10, %11
+    %13:i32 = call %f, 6i
+    %14:f32 = load_vector_element %12, %13
+    %15:f32 = add %9, %14
     store_vector_element %7, %8, %15
     ret
   }
@@ -420,5 +420,4 @@ TEST_F(ProgramToIRVarTest, Emit_Var_CompoundAssign_ArrayOfMatrix_EvalOrder) {
 )");
 }
 
-}  // namespace
 }  // namespace tint::wgsl::reader

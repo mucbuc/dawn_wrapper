@@ -1,28 +1,40 @@
-RWByteAddressBuffer buffer : register(u0);
 
-void foo_buffer() {
-  bool tint_continue = false;
+RWByteAddressBuffer buffer : register(u0);
+void foo() {
   {
-    for(int i = 0; (i < 4); i = (i + 1)) {
-      tint_continue = false;
-      switch(asint(buffer.Load((4u * uint(i))))) {
-        case 1: {
+    int i = int(0);
+    while(true) {
+      if ((i < int(4))) {
+      } else {
+        break;
+      }
+      bool tint_continue = false;
+      switch(asint(buffer.Load((0u + (uint(i) * 4u))))) {
+        case int(1):
+        {
           tint_continue = true;
           break;
         }
-        default: {
-          buffer.Store((4u * uint(i)), asuint(2));
+        default:
+        {
+          buffer.Store((0u + (uint(i) * 4u)), asuint(int(2)));
           break;
         }
       }
       if (tint_continue) {
+        {
+          i = asint((asuint(i) + asuint(int(1))));
+        }
         continue;
+      }
+      {
+        i = asint((asuint(i) + asuint(int(1))));
       }
     }
   }
 }
 
 void main() {
-  foo_buffer();
-  return;
+  foo();
 }
+

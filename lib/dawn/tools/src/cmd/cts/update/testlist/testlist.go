@@ -29,57 +29,46 @@ package testlist
 
 import (
 	"context"
-	"flag"
-	"os"
-	"strings"
-
 	"dawn.googlesource.com/dawn/tools/src/cmd/cts/common"
 	"dawn.googlesource.com/dawn/tools/src/fileutils"
+	"flag"
 )
 
 func init() {
 	common.Register(&cmd{})
 }
 
-type arrayFlags []string
-
-func (i *arrayFlags) String() string {
-	return strings.Join((*i), " ")
-}
-
-func (i *arrayFlags) Set(value string) error {
-	*i = append(*i, value)
-	return nil
-}
-
 type cmd struct {
 	flags struct {
-		ctsDir   string
-		nodePath string
-		output   string
+		ctsDir    string
+		nodePath  string
+		output    string
+		testQuery string
 	}
 }
 
-func (cmd) Name() string {
+func (c *cmd) Name() string {
 	return "update-testlist"
 }
 
-func (cmd) Desc() string {
+func (c *cmd) Desc() string {
 	return "updates a CTS test list file"
 }
 
 func (c *cmd) RegisterFlags(ctx context.Context, cfg common.Config) ([]string, error) {
-	flag.StringVar(&c.flags.ctsDir, "cts", common.DefaultCTSPath(), "path to the CTS")
-	flag.StringVar(&c.flags.nodePath, "node", fileutils.NodePath(), "path to node")
-	flag.StringVar(&c.flags.output, "out", common.DefaultTestListPath(), "output testlist path")
+	flag.StringVar(&c.flags.ctsDir, "cts", common.DefaultCTSPath(cfg.OsWrapper), "path to the CTS")
+	flag.StringVar(&c.flags.nodePath, "node", fileutils.NodePath(cfg.OsWrapper), "path to node")
+	flag.StringVar(&c.flags.output, "out", common.DefaultTestListPath(cfg.OsWrapper), "output testlist path")
+	flag.StringVar(&c.flags.testQuery, "test-query", "webgpu:*", "cts test query to generate test list")
+
 	return nil, nil
 }
 
 func (c *cmd) Run(ctx context.Context, cfg common.Config) error {
-	list, err := common.GenTestList(ctx, c.flags.ctsDir, c.flags.nodePath)
+	list, err := common.GenTestList(ctx, c.flags.ctsDir, c.flags.nodePath, c.flags.testQuery)
 	if err != nil {
 		return err
 	}
 
-	return os.WriteFile(c.flags.output, []byte(list), 0666)
+	return cfg.OsWrapper.WriteFile(c.flags.output, []byte(list), 0666)
 }

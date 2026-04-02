@@ -25,6 +25,8 @@
 // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+#include "dawn/native/vulkan/external_memory/MemoryServiceImplementationDmaBuf.h"
+
 #include <vector>
 
 #include "dawn/common/Assert.h"
@@ -35,7 +37,6 @@
 #include "dawn/native/vulkan/UtilsVulkan.h"
 #include "dawn/native/vulkan/VulkanError.h"
 #include "dawn/native/vulkan/external_memory/MemoryServiceImplementation.h"
-#include "dawn/native/vulkan/external_memory/MemoryServiceImplementationDmaBuf.h"
 
 namespace dawn::native::vulkan::external_memory {
 
@@ -122,7 +123,7 @@ bool SupportsDisjoint(const VulkanFunctions& fn,
     if (IsMultiPlanarVkFormat(format)) {
         VkDrmFormatModifierPropertiesEXT props;
         return (GetFormatModifierProps(fn, vkPhysicalDevice, format, modifier, &props) &&
-                (props.drmFormatModifierTilingFeatures & VK_FORMAT_FEATURE_DISJOINT_BIT));
+                ((props.drmFormatModifierTilingFeatures & VK_FORMAT_FEATURE_DISJOINT_BIT) != 0u));
     }
     return false;
 }
@@ -236,7 +237,7 @@ class ServiceImplementationDmaBuf : public ServiceImplementation {
         }
         VkExternalMemoryFeatureFlags featureFlags =
             externalImageFormatProps.externalMemoryProperties.externalMemoryFeatures;
-        return featureFlags & VK_EXTERNAL_MEMORY_FEATURE_IMPORTABLE_BIT;
+        return (featureFlags & VK_EXTERNAL_MEMORY_FEATURE_IMPORTABLE_BIT) != 0u;
     }
 
     ResultOrError<MemoryImportParams> GetMemoryImportParams(
@@ -264,7 +265,17 @@ class ServiceImplementationDmaBuf : public ServiceImplementation {
         // import's constraint.
         memoryRequirements.memoryTypeBits &= fdProperties.memoryTypeBits;
         int memoryTypeIndex = mDevice->GetResourceMemoryAllocator()->FindBestTypeIndex(
-            memoryRequirements, MemoryKind::Opaque);
+            memoryRequirements, MemoryKind::DeviceLocal);
+        // Some devices may fail to find device local memory for these FD imports (likely from
+        // camera).  When this occurs we can alternatively use host memory even though there could
+        // be performance consequences. This issue was discovered on AMD
+        // (https://www.techpowerup.com/gpu-specs/amd-mendocino.g1022).
+        // See crbug.com/422128949
+        if (memoryTypeIndex == -1) {
+            memoryTypeIndex = mDevice->GetResourceMemoryAllocator()->FindBestTypeIndex(
+                memoryRequirements, MemoryKind::HostCached);
+        }
+
         DAWN_INVALID_IF(memoryTypeIndex == -1,
                         "Unable to find an appropriate memory type for import.");
 

@@ -123,12 +123,12 @@ class TextureCorruptionTests : public DawnTestWithParams<TextureCorruptionTestsP
         wgpu::Buffer buffer = device.CreateBuffer(&descriptor);
         wgpu::Buffer resultBuffer = device.CreateBuffer(&descriptor);
 
-        wgpu::ImageCopyTexture imageCopyTexture =
-            utils::CreateImageCopyTexture(texture, mipLevel, {0, 0, depthOrArrayLayer});
-        wgpu::ImageCopyBuffer imageCopyBuffer =
-            utils::CreateImageCopyBuffer(buffer, 0, bytesPerRow);
-        wgpu::ImageCopyBuffer imageCopyResult =
-            utils::CreateImageCopyBuffer(resultBuffer, 0, bytesPerRow);
+        wgpu::TexelCopyTextureInfo texelCopyTextureInfo =
+            utils::CreateTexelCopyTextureInfo(texture, mipLevel, {0, 0, depthOrArrayLayer});
+        wgpu::TexelCopyBufferInfo texelCopyBufferInfo =
+            utils::CreateTexelCopyBufferInfo(buffer, 0, bytesPerRow);
+        wgpu::TexelCopyBufferInfo imageCopyResult =
+            utils::CreateTexelCopyBufferInfo(resultBuffer, 0, bytesPerRow);
 
         WriteType type = GetParam().mWriteType;
 
@@ -172,14 +172,14 @@ class TextureCorruptionTests : public DawnTestWithParams<TextureCorruptionTestsP
         switch (type) {
             case WriteType::B2TCopy: {
                 queue.WriteBuffer(buffer, 0, data.data(), bufferSize);
-                encoder.CopyBufferToTexture(&imageCopyBuffer, &imageCopyTexture, &copySize);
+                encoder.CopyBufferToTexture(&texelCopyBufferInfo, &texelCopyTextureInfo, &copySize);
                 break;
             }
             case WriteType::WriteTexture: {
-                wgpu::TextureDataLayout textureDataLayout =
-                    utils::CreateTextureDataLayout(0, bytesPerRow);
-                queue.WriteTexture(&imageCopyTexture, data.data(), bufferSize, &textureDataLayout,
-                                   &copySize);
+                wgpu::TexelCopyBufferLayout texelCopyBufferLayout =
+                    utils::CreateTexelCopyBufferLayout(0, bytesPerRow);
+                queue.WriteTexture(&texelCopyTextureInfo, data.data(), bufferSize,
+                                   &texelCopyBufferLayout, &copySize);
                 break;
             }
             case WriteType::RenderConstant:
@@ -190,12 +190,12 @@ class TextureCorruptionTests : public DawnTestWithParams<TextureCorruptionTestsP
                 wgpu::TextureView tempView;
                 if (type != WriteType::RenderConstant) {
                     wgpu::Texture tempTexture = Create2DTexture(copySize, format, 1, 1);
-                    wgpu::ImageCopyTexture imageCopyTempTexture =
-                        utils::CreateImageCopyTexture(tempTexture, 0, {0, 0, 0});
-                    wgpu::TextureDataLayout textureDataLayout =
-                        utils::CreateTextureDataLayout(0, bytesPerRow);
+                    wgpu::TexelCopyTextureInfo imageCopyTempTexture =
+                        utils::CreateTexelCopyTextureInfo(tempTexture, 0, {0, 0, 0});
+                    wgpu::TexelCopyBufferLayout texelCopyBufferLayout =
+                        utils::CreateTexelCopyBufferLayout(0, bytesPerRow);
                     queue.WriteTexture(&imageCopyTempTexture, data.data(), bufferSize,
-                                       &textureDataLayout, &copySize);
+                                       &texelCopyBufferLayout, &copySize);
                     tempView = tempTexture.CreateView();
                 }
 
@@ -216,7 +216,7 @@ class TextureCorruptionTests : public DawnTestWithParams<TextureCorruptionTestsP
         }
 
         // Verify the data in texture via a T2B copy and comparison
-        encoder.CopyTextureToBuffer(&imageCopyTexture, &imageCopyResult, &copySize);
+        encoder.CopyTextureToBuffer(&texelCopyTextureInfo, &imageCopyResult, &copySize);
         wgpu::CommandBuffer commands = encoder.Finish();
         queue.Submit(1, &commands);
         return EXPECT_BUFFER_U32_RANGE_EQ(data.data(), resultBuffer, 0, elementNumInTotal);
@@ -316,6 +316,10 @@ class TextureCorruptionTests : public DawnTestWithParams<TextureCorruptionTestsP
         uint32_t sampleCount = GetParam().mSampleCount;
         wgpu::Extent3D textureSize = {width, height, depthOrArrayLayerCount};
 
+        // Compat mode's max texture size is 4096.
+        // https://github.com/gpuweb/gpuweb/blob/main/proposals/compatibility-mode.md#10-lower-limits
+        DAWN_TEST_UNSUPPORTED_IF(IsCompatibilityMode() && (width > 4096 || height > 4096));
+
         // Pre-allocate textures. The incorrect write type may corrupt neighboring textures or
         // layers.
         std::vector<wgpu::Texture> textures;
@@ -394,6 +398,40 @@ DAWN_INSTANTIATE_TEST_P(TextureCorruptionTests_WidthAndHeight,
                         {kDefaultMipLevelCount},
                         {kDefaultSampleCount},
                         {kDefaultWriteType});
+
+// Test for UINT16 overflow when calling ComputeExtraArraySizeForIntelGen12 as per
+// crbug.com/497565944.
+class TextureCorruptionTests_WidthAndHeight_IntelGen12 : public TextureCorruptionTests {
+    void GetRequiredLimits(const dawn::utils::ComboLimits& supported,
+                           dawn::utils::ComboLimits& required) override {
+        required.maxTextureArrayLayers = supported.maxTextureArrayLayers;
+    }
+};
+TEST_P(TextureCorruptionTests_WidthAndHeight_IntelGen12, Tests) {
+    wgpu::Limits limits;
+    device.GetLimits(&limits);
+    DAWN_SUPPRESS_TEST_IF(limits.maxTextureArrayLayers < 2048);
+
+    uint32_t width = GetParam().mTextureWidth;
+    uint32_t height = GetParam().mTextureHeight;
+    uint32_t depthOrArrayLayerCount = GetParam().mArrayLayerCount;
+    uint32_t mipLevelCount = GetParam().mMipLevelCount;
+    uint32_t sampleCount = GetParam().mSampleCount;
+    wgpu::Extent3D textureSize = {width, height, depthOrArrayLayerCount};
+    wgpu::TextureFormat format = GetParam().mTextureFormat;
+    // This should fail due to an OOM error.
+    ASSERT_DEVICE_ERROR(wgpu::Texture texture =
+                            Create2DTexture(textureSize, format, mipLevelCount, sampleCount));
+}
+DAWN_INSTANTIATE_TEST_P(TextureCorruptionTests_WidthAndHeight_IntelGen12,
+                        {D3D12Backend({"d3d12_allocate_extra_memory_for_2d_array_color_texture"})},
+                        {wgpu::TextureFormat::R16Uint},
+                        {1u},
+                        {8192u},
+                        {1793u},
+                        {kDefaultMipLevelCount},
+                        {kDefaultSampleCount},
+                        {WriteType::WriteTexture});
 
 class TextureCorruptionTests_ArrayLayer : public TextureCorruptionTests {};
 

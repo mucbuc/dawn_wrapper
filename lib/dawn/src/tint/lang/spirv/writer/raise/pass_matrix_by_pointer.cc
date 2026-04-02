@@ -95,7 +95,7 @@ struct State {
                 // Load from the pointer to get the value.
                 auto* load = b.Load(new_param);
                 func->Block()->Prepend(load);
-                param->ReplaceAllUsesWith(load->Result(0));
+                param->ReplaceAllUsesWith(load->Result());
 
                 // Modify all of the callsites.
                 func->ForEachUseUnsorted([&](core::ir::Usage use) {
@@ -121,17 +121,19 @@ struct State {
         local_var->SetInitializer(arg);
         local_var->InsertBefore(call);
 
-        call->SetOperand(core::ir::UserCall::kArgsOperandOffset + arg_index, local_var->Result(0));
+        call->SetOperand(core::ir::UserCall::kArgsOperandOffset + arg_index, local_var->Result());
     }
 };
 
 }  // namespace
 
 Result<SuccessType> PassMatrixByPointer(core::ir::Module& ir) {
-    auto result = ValidateAndDumpIfNeeded(ir, "spirv.PassMatrixByPointer");
-    if (result != Success) {
-        return result;
-    }
+    core::ir::AssertValid(ir,
+                          core::ir::Capabilities{
+                              core::ir::Capability::kAllowDuplicateBindings,
+                              core::ir::Capability::kAllowNonCoreTypes,
+                          },
+                          "before spirv.PassMatrixByPointer");
 
     State{ir}.Process();
 

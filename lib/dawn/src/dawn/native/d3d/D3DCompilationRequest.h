@@ -31,11 +31,12 @@
 #include <d3dcompiler.h>
 
 #include <string_view>
+#include <unordered_map>
 
+#include "dawn/native/Adapter.h"
 #include "dawn/native/CacheRequest.h"
 #include "dawn/native/Serializable.h"
 #include "dawn/native/d3d/d3d_platform.h"
-
 #include "tint/tint.h"
 
 namespace dawn::native::stream {
@@ -57,39 +58,37 @@ enum class Compiler { FXC, DXC };
 
 using InterStageShaderVariablesMask = std::bitset<tint::hlsl::writer::kMaxInterStageLocations>;
 
-#define HLSL_COMPILATION_REQUEST_MEMBERS(X)                                                      \
-    X(const tint::Program*, inputProgram)                                                        \
-    X(std::string_view, entryPointName)                                                          \
-    X(SingleShaderStage, stage)                                                                  \
-    X(uint32_t, shaderModel)                                                                     \
-    X(uint32_t, compileFlags)                                                                    \
-    X(Compiler, compiler)                                                                        \
-    X(uint64_t, compilerVersion)                                                                 \
-    X(std::wstring_view, dxcShaderProfile)                                                       \
-    X(std::string_view, fxcShaderProfile)                                                        \
-    X(pD3DCompile, d3dCompile)                                                                   \
-    X(IDxcLibrary*, dxcLibrary)                                                                  \
-    X(IDxcCompiler3*, dxcCompiler)                                                               \
-    X(uint32_t, firstIndexOffsetShaderRegister)                                                  \
-    X(uint32_t, firstIndexOffsetRegisterSpace)                                                   \
-    X(tint::hlsl::writer::Options, tintOptions)                                                  \
-    X(std::optional<tint::ast::transform::SubstituteOverride::Config>, substituteOverrideConfig) \
-    X(LimitsForCompilationRequest, limits)                                                       \
-    X(bool, disableSymbolRenaming)                                                               \
-    X(bool, dumpShaders)                                                                         \
-    X(bool, useTintIR)                                                                           \
-    X(std::optional<uint32_t>, maxSubgroupSizeForFullSubgroups)
+#define HLSL_COMPILATION_REQUEST_MEMBERS(X)                                          \
+    X(ShaderModuleBase::ShaderModuleHash, shaderModuleHash)                          \
+    X(UnsafeUnserializedValue<ShaderModuleBase::ScopedUseTintProgram>, inputProgram) \
+    X(SingleShaderStage, stage)                                                      \
+    X(uint32_t, shaderModel)                                                         \
+    X(uint32_t, compileFlags)                                                        \
+    X(Compiler, compiler)                                                            \
+    X(std::wstring_view, dxcShaderProfile)                                           \
+    X(std::string_view, fxcShaderProfile)                                            \
+    X(uint32_t, firstIndexOffsetShaderRegister)                                      \
+    X(uint32_t, firstIndexOffsetRegisterSpace)                                       \
+    X(tint::hlsl::writer::Options, tintOptions)                                      \
+    X(LimitsForCompilationRequest, limits)                                           \
+    X(UnsafeUnserializedValue<LimitsForCompilationRequest>, adapterSupportedLimits)  \
+    X(uint32_t, maxSubgroupSize)                                                     \
+    X(uint32_t, minExplicitComputeSubgroupSize)                                      \
+    X(uint32_t, maxExplicitComputeSubgroupSize)                                      \
+    X(uint32_t, maxComputeWorkgroupSubgroups)                                        \
+    X(bool, disableSymbolRenaming)                                                   \
+    X(bool, dumpShaders)                                                             \
+    X(bool, dumpShadersOnFailure)
 
-#define D3D_BYTECODE_COMPILATION_REQUEST_MEMBERS(X) \
-    X(bool, hasShaderF16Feature)                    \
-    X(uint32_t, compileFlags)                       \
-    X(Compiler, compiler)                           \
-    X(uint64_t, compilerVersion)                    \
-    X(std::wstring_view, dxcShaderProfile)          \
-    X(std::string_view, fxcShaderProfile)           \
-    X(pD3DCompile, d3dCompile)                      \
-    X(IDxcLibrary*, dxcLibrary)                     \
-    X(IDxcCompiler3*, dxcCompiler)
+#define D3D_BYTECODE_COMPILATION_REQUEST_MEMBERS(X)      \
+    X(bool, hasShaderF16Feature)                         \
+    X(uint32_t, compileFlags)                            \
+    X(Compiler, compiler)                                \
+    X(std::wstring_view, dxcShaderProfile)               \
+    X(std::string_view, fxcShaderProfile)                \
+    X(UnsafeUnserializedValue<pD3DCompile>, d3dCompile)  \
+    X(UnsafeUnserializedValue<IDxcLibrary*>, dxcLibrary) \
+    X(UnsafeUnserializedValue<IDxcCompiler3*>, dxcCompiler)
 
 DAWN_SERIALIZABLE(struct, HlslCompilationRequest, HLSL_COMPILATION_REQUEST_MEMBERS){};
 #undef HLSL_COMPILATION_REQUEST_MEMBERS
@@ -102,7 +101,7 @@ DAWN_SERIALIZABLE(struct,
 #define D3D_COMPILATION_REQUEST_MEMBERS(X)     \
     X(HlslCompilationRequest, hlsl)            \
     X(D3DBytecodeCompilationRequest, bytecode) \
-    X(CacheKey::UnsafeUnkeyedValue<dawn::platform::Platform*>, tracePlatform)
+    X(UnsafeUnserializedValue<dawn::platform::Platform*>, tracePlatform)
 
 DAWN_MAKE_CACHE_REQUEST(D3DCompilationRequest, D3D_COMPILATION_REQUEST_MEMBERS);
 #undef D3D_COMPILATION_REQUEST_MEMBERS

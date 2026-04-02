@@ -56,12 +56,12 @@ class CreatePipelineAsyncEvent final : public EventManager::TrackedEvent {
   public:
     using CallbackType = decltype(std::declval<CreatePipelineAsyncCallbackInfo>().callback);
 
-    // Create an event backed by the given system event (for async pipeline creation goes through
+    // Create an event backed by the given wait list event (for async pipeline creation goes through
     // the backend).
     CreatePipelineAsyncEvent(DeviceBase* device,
                              const CreatePipelineAsyncCallbackInfo& callbackInfo,
                              Ref<PipelineType> pipeline,
-                             Ref<SystemEvent> systemEvent);
+                             Ref<WaitListEvent> event);
     // Create an event that's ready at creation (for cached results)
     CreatePipelineAsyncEvent(DeviceBase* device,
                              const CreatePipelineAsyncCallbackInfo& callbackInfo,
@@ -103,9 +103,9 @@ class CreatePipelineAsyncEvent final : public EventManager::TrackedEvent {
 };
 
 using CreateComputePipelineAsyncEvent =
-    CreatePipelineAsyncEvent<ComputePipelineBase, WGPUCreateComputePipelineAsyncCallbackInfo2>;
+    CreatePipelineAsyncEvent<ComputePipelineBase, WGPUCreateComputePipelineAsyncCallbackInfo>;
 using CreateRenderPipelineAsyncEvent =
-    CreatePipelineAsyncEvent<RenderPipelineBase, WGPUCreateRenderPipelineAsyncCallbackInfo2>;
+    CreatePipelineAsyncEvent<RenderPipelineBase, WGPUCreateRenderPipelineAsyncCallbackInfo>;
 
 }  // namespace dawn::native
 

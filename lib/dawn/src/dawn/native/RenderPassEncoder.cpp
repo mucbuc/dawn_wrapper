@@ -28,10 +28,13 @@
 #include "dawn/native/RenderPassEncoder.h"
 
 #include <math.h>
+
+#include <cstdint>
 #include <cstring>
 #include <utility>
 
 #include "dawn/common/Constants.h"
+#include "dawn/native/Adapter.h"
 #include "dawn/native/Buffer.h"
 #include "dawn/native/ChainUtils.h"
 #include "dawn/native/CommandEncoder.h"
@@ -42,6 +45,7 @@
 #include "dawn/native/QuerySet.h"
 #include "dawn/native/RenderBundle.h"
 #include "dawn/native/RenderPipeline.h"
+#include "dawn/native/ValidationUtils.h"
 
 namespace dawn::native {
 namespace {
@@ -69,8 +73,7 @@ RenderPassEncoder::RenderPassEncoder(DeviceBase* device,
                                      EncodingContext* encodingContext,
                                      RenderPassResourceUsageTracker usageTracker,
                                      Ref<AttachmentState> attachmentState,
-                                     uint32_t renderTargetWidth,
-                                     uint32_t renderTargetHeight,
+                                     const RenderAreaRect& renderArea,
                                      bool depthReadOnly,
                                      bool stencilReadOnly,
                                      EndCallback endCallback)
@@ -81,8 +84,7 @@ RenderPassEncoder::RenderPassEncoder(DeviceBase* device,
                         depthReadOnly,
                         stencilReadOnly),
       mCommandEncoder(commandEncoder),
-      mRenderTargetWidth(renderTargetWidth),
-      mRenderTargetHeight(renderTargetHeight),
+      mRenderArea(renderArea),
       mOcclusionQuerySet(descriptor->occlusionQuerySet),
       mEndCallback(std::move(endCallback)) {
     mUsageTracker = std::move(usageTracker);
@@ -100,15 +102,14 @@ Ref<RenderPassEncoder> RenderPassEncoder::Create(
     EncodingContext* encodingContext,
     RenderPassResourceUsageTracker usageTracker,
     Ref<AttachmentState> attachmentState,
-    uint32_t renderTargetWidth,
-    uint32_t renderTargetHeight,
+    const RenderAreaRect& renderArea,
     bool depthReadOnly,
     bool stencilReadOnly,
     EndCallback endCallback) {
     return AcquireRef(new RenderPassEncoder(device, descriptor, commandEncoder, encodingContext,
                                             std::move(usageTracker), std::move(attachmentState),
-                                            renderTargetWidth, renderTargetHeight, depthReadOnly,
-                                            stencilReadOnly, std::move(endCallback)));
+                                            renderArea, depthReadOnly, stencilReadOnly,
+                                            std::move(endCallback)));
 }
 
 RenderPassEncoder::RenderPassEncoder(DeviceBase* device,
@@ -132,11 +133,11 @@ RenderPassEncoder::~RenderPassEncoder() {
     mEncodingContext = nullptr;
 }
 
-void RenderPassEncoder::DestroyImpl() {
+void RenderPassEncoder::DestroyImpl(DestroyReason reason) {
     mIndirectDrawMetadata.ClearIndexedIndirectBufferValidationInfo();
     mCommandBufferState.End();
 
-    RenderEncoderBase::DestroyImpl();
+    RenderEncoderBase::DestroyImpl(reason);
     // Ensure that the pass has exited. This is done for passes only since validation requires
     // they exit before destruction while bundles do not.
     mEncodingContext->EnsurePassExited(this);
@@ -159,7 +160,7 @@ void RenderPassEncoder::TrackQueryAvailability(QuerySetBase* querySet, uint32_t 
 
 void RenderPassEncoder::APIEnd() {
     // The encoding context might create additional resources, so we need to lock the device.
-    auto deviceLock(GetDevice()->GetScopedLock());
+    auto deviceGuard = GetDevice()->GetGuard();
     End();
 }
 
@@ -167,7 +168,7 @@ void RenderPassEncoder::End() {
     DAWN_ASSERT(GetDevice()->IsLockedByCurrentThreadIfNeeded());
 
     if (mEnded && IsValidationEnabled()) {
-        GetDevice()->HandleError(DAWN_VALIDATION_ERROR("%s was already ended.", this));
+        GetDevice()->HandleEncoderError(DAWN_VALIDATION_ERROR("%s was already ended.", this));
         return;
     }
 
@@ -194,10 +195,8 @@ void RenderPassEncoder::End() {
             DAWN_TRY(mEncodingContext->ExitRenderPass(this, std::move(mUsageTracker),
                                                       mCommandEncoder.Get(),
                                                       std::move(mIndirectDrawMetadata)));
-            if (mEndCallback) {
-                mEncodingContext->ConsumedError(mEndCallback());
-            }
 
+            DAWN_TRY(mEndCallback());
             return {};
         },
         "encoding %s.End().", this);
@@ -220,6 +219,9 @@ void RenderPassEncoder::APISetBlendConstant(const Color* color) {
     mEncodingContext->TryEncode(
         this,
         [&](CommandAllocator* allocator) -> MaybeError {
+            if (IsValidationEnabled()) {
+                DAWN_TRY(ValidateColor("color", *color));
+            }
             SetBlendConstantCmd* cmd =
                 allocator->Allocate<SetBlendConstantCmd>(Command::SetBlendConstant);
             cmd->color = *color;
@@ -239,24 +241,45 @@ void RenderPassEncoder::APISetViewport(float x,
         this,
         [&](CommandAllocator* allocator) -> MaybeError {
             if (IsValidationEnabled()) {
-                DAWN_INVALID_IF((isnan(x) || isnan(y) || isnan(width) || isnan(height) ||
-                                 isnan(minDepth) || isnan(maxDepth)),
-                                "A parameter of the viewport (x: %f, y: %f, width: %f, height: %f, "
-                                "minDepth: %f, maxDepth: %f) is NaN.",
-                                x, y, width, height, minDepth, maxDepth);
+                DAWN_TRY(ValidateFloat("x", x));
+                DAWN_TRY(ValidateFloat("y", y));
+                DAWN_TRY(ValidateFloat("width", width));
+                DAWN_TRY(ValidateFloat("height", height));
+                DAWN_TRY(ValidateFloat("minDepth", minDepth));
+                DAWN_TRY(ValidateFloat("maxDepth", maxDepth));
+
+                const CombinedLimits& limits = GetDevice()->GetLimits();
+                uint32_t maxViewportSize = limits.v1.maxTextureDimension2D;
+                float maxViewportBounds = maxViewportSize * 2.0f;
 
                 DAWN_INVALID_IF(
-                    x < 0 || y < 0 || width < 0 || height < 0,
-                    "Viewport bounds (x: %f, y: %f, width: %f, height: %f) contains a negative "
-                    "value.",
-                    x, y, width, height);
+                    width < 0 || height < 0,
+                    "Viewport bounds (width: %f, height: %f) contains a negative value.", width,
+                    height);
 
                 DAWN_INVALID_IF(
-                    x + width > mRenderTargetWidth || y + height > mRenderTargetHeight,
-                    "Viewport bounds (x: %f, y: %f, width: %f, height: %f) are not contained "
-                    "in "
-                    "the render target dimensions (%u x %u).",
-                    x, y, width, height, mRenderTargetWidth, mRenderTargetHeight);
+                    width > maxViewportSize, "Viewport width (%f) exceeds the maximum (%u).%s",
+                    width, maxViewportSize,
+                    DAWN_INCREASE_LIMIT_MESSAGE(GetDevice()->GetAdapter()->GetLimits().v1,
+                                                maxTextureDimension2D, width));
+
+                DAWN_INVALID_IF(
+                    height > maxViewportSize,
+                    "Viewport size height (%f) exceeds the maximum (%u).%s", height,
+                    maxViewportSize,
+                    DAWN_INCREASE_LIMIT_MESSAGE(GetDevice()->GetAdapter()->GetLimits().v1,
+                                                maxTextureDimension2D, height));
+
+                DAWN_INVALID_IF(x < -maxViewportBounds || y < -maxViewportBounds,
+                                "Viewport offset (x: %f, y: %f) is less than the minimum "
+                                "supported bounds (%f x %f).",
+                                x, y, -maxViewportBounds, -maxViewportBounds);
+
+                DAWN_INVALID_IF(
+                    x + width > maxViewportBounds - 1 || y + height > maxViewportBounds - 1,
+                    "Viewport bounds (x: %f, y: %f, width: %f, height: %f) exceed "
+                    "the maximum supported bounds (%f x %f).",
+                    x, y, width, height, maxViewportBounds - 1, maxViewportBounds - 1);
 
                 // Check for depths being in [0, 1] and min <= max in 3 checks instead of 5.
                 DAWN_INVALID_IF(minDepth < 0 || minDepth > maxDepth || maxDepth > 1,
@@ -286,11 +309,15 @@ void RenderPassEncoder::APISetScissorRect(uint32_t x, uint32_t y, uint32_t width
         [&](CommandAllocator* allocator) -> MaybeError {
             if (IsValidationEnabled()) {
                 DAWN_INVALID_IF(
-                    width > mRenderTargetWidth || height > mRenderTargetHeight ||
-                        x > mRenderTargetWidth - width || y > mRenderTargetHeight - height,
+                    x < mRenderArea.x ||
+                        static_cast<uint64_t>(x) + static_cast<uint64_t>(width) >
+                            mRenderArea.x + mRenderArea.width ||
+                        y < mRenderArea.y ||
+                        static_cast<uint64_t>(y) + static_cast<uint64_t>(height) >
+                            mRenderArea.y + mRenderArea.height,
                     "Scissor rect (x: %u, y: %u, width: %u, height: %u) is not contained in "
-                    "the render target dimensions (%u x %u).",
-                    x, y, width, height, mRenderTargetWidth, mRenderTargetHeight);
+                    "the render area dimensions %s.",
+                    x, y, width, height, mRenderArea);
             }
 
             SetScissorRectCmd* cmd =
@@ -350,17 +377,7 @@ void RenderPassEncoder::APIExecuteBundles(uint32_t count, RenderBundleBase* cons
             for (uint32_t i = 0; i < count; ++i) {
                 bundles[i] = renderBundles[i];
 
-                const RenderPassResourceUsage& usages = bundles[i]->GetResourceUsage();
-                for (uint32_t j = 0; j < usages.buffers.size(); ++j) {
-                    mUsageTracker.BufferUsedAs(usages.buffers[j], usages.bufferSyncInfos[j].usage,
-                                               usages.bufferSyncInfos[j].shaderStages);
-                }
-
-                for (uint32_t j = 0; j < usages.textures.size(); ++j) {
-                    mUsageTracker.AddRenderBundleTextureUsage(usages.textures[j],
-                                                              usages.textureSyncInfos[j]);
-                }
-
+                mUsageTracker.MergeResourceUsages(bundles[i]->GetResourceUsage());
                 if (IsValidationEnabled()) {
                     mIndirectDrawMetadata.AddBundle(renderBundles[i]);
                 }

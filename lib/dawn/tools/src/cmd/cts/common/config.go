@@ -31,10 +31,11 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 
 	"dawn.googlesource.com/dawn/tools/src/buildbucket"
 	"dawn.googlesource.com/dawn/tools/src/cts/result"
+	"dawn.googlesource.com/dawn/tools/src/oswrapper"
+	"dawn.googlesource.com/dawn/tools/src/resultsdb"
 	"github.com/tidwall/jsonc"
 )
 
@@ -72,6 +73,8 @@ type Config struct {
 	Sheets struct {
 		ID string
 	}
+	OsWrapper oswrapper.OSWrapper
+	Querier   resultsdb.Querier
 }
 
 // TestConfig holds configuration data for a single test type.
@@ -94,8 +97,8 @@ func (g GitProject) HttpsURL() string {
 }
 
 // LoadConfig loads the JSON config file at the given path
-func LoadConfig(path string) (*Config, error) {
-	data, err := ioutil.ReadFile(path)
+func LoadConfig(path string, osWrapper oswrapper.OSWrapper) (*Config, error) {
+	data, err := osWrapper.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open '%v': %w", path, err)
 	}
@@ -107,5 +110,6 @@ func LoadConfig(path string) (*Config, error) {
 	if err := json.NewDecoder(bytes.NewReader(data)).Decode(&cfg); err != nil {
 		return nil, fmt.Errorf("failed to load config: %w", err)
 	}
+	cfg.OsWrapper = osWrapper
 	return &cfg, nil
 }

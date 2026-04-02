@@ -25,27 +25,19 @@
 // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#include "src/tint/lang/core/ir/transform/zero_init_workgroup_memory.h"
-
 #include "src/tint/cmd/fuzz/ir/fuzz.h"
+#include "src/tint/lang/core/ir/transform/zero_init_workgroup_memory.h"
 #include "src/tint/lang/core/ir/validator.h"
 
 namespace tint::core::ir::transform {
 namespace {
 
-void ZeroInitWorkgroupMemoryFuzzer(Module& module) {
-    if (auto res = ZeroInitWorkgroupMemory(module); res != Success) {
-        return;
-    }
-
-    Capabilities capabilities;
-    if (auto res = Validate(module, capabilities); res != Success) {
-        TINT_ICE() << "result of ZeroInitWorkgroupMemory failed IR validation\n" << res.Failure();
-    }
+Result<SuccessType> ZeroInitWorkgroupMemoryFuzzer(Module& ir, const fuzz::ir::Context&) {
+    return ZeroInitWorkgroupMemory(ir);
 }
 
 }  // namespace
 }  // namespace tint::core::ir::transform
 
 TINT_IR_MODULE_FUZZER(tint::core::ir::transform::ZeroInitWorkgroupMemoryFuzzer,
-                      tint::core::ir::Capabilities{});
+                      tint::core::ir::transform::kZeroInitWorkgroupMemoryCapabilities);

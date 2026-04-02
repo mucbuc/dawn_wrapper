@@ -26,18 +26,18 @@ void main() {
       v2u[i] = 1u;
       v2b[i] = true;
       {
-        i = (i + 1);
+        uint v = uint(i);
+        i = int((v + uint(1)));
       }
-      continue;
     }
   }
   int i = 0;
-  v3f[i] = 1.0f;
-  v4f[i] = 1.0f;
-  v3i[i] = 1;
-  v4i[i] = 1;
-  v3u[i] = 1u;
-  v4u[i] = 1u;
-  v3b[i] = true;
-  v4b[i] = true;
+  v3f[min(uint(i), 2u)] = 1.0f;
+  v4f[min(uint(i), 3u)] = 1.0f;
+  v3i[min(uint(i), 2u)] = 1;
+  v4i[min(uint(i), 3u)] = 1;
+  v3u[min(uint(i), 2u)] = 1u;
+  v4u[min(uint(i), 3u)] = 1u;
+  v3b[min(uint(i), 2u)] = true;
+  v4b[min(uint(i), 3u)] = true;
 }

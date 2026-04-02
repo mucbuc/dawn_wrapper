@@ -34,6 +34,8 @@
 //                       Do not modify this file directly
 ////////////////////////////////////////////////////////////////////////////////
 
+// clang-format off
+
 #include "src/tint/lang/wgsl/intrinsic/ctor_conv.h"
 
 namespace tint::wgsl::intrinsic {
@@ -76,10 +78,10 @@ const char* str(CtorConv i) {
             return "mat4x3";
         case CtorConv::kMat4x4:
             return "mat4x4";
-        case CtorConv::kPackedVec3:
-            return "packedVec3";
     }
     return "<unknown>";
 }
 
 }  // namespace tint::wgsl::intrinsic
+
+// clang-format on

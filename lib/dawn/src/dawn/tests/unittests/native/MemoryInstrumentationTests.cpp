@@ -64,6 +64,8 @@ class MemoryDumpMock : public MemoryDump {
                 (const char* name, const char* key, const char* units, uint64_t value),
                 (override));
 
+    MOCK_METHOD(void, AddOwnerGUID, (const char* name, uint64_t ownerGUID), (override));
+
     void AddString(const char* name, const char* key, const std::string& value) override {}
 
     uint64_t GetTotalSize() const { return mTotalSize; }
@@ -72,18 +74,19 @@ class MemoryDumpMock : public MemoryDump {
     uint64_t mTotalSize = 0;
 };
 
-using MemoryInstrumentationTest = DawnMockTest;
+class MemoryInstrumentationTest : public DawnMockTest {
+  public:
+    std::string GetTextureLabel(const wgpu::Texture& texture) {
+        return absl::StrFormat("device_%p/texture_%p", device.Get(), texture.Get());
+    }
+
+    std::string GetBufferLabel(const wgpu::Buffer& buffer) {
+        return absl::StrFormat("device_%p/buffer_%p", device.Get(), buffer.Get());
+    }
+};
 
 TEST_F(MemoryInstrumentationTest, DumpMemoryStatistics) {
     MemoryDumpMock memoryDumpMock;
-
-    auto textureLabel = [this](const wgpu::Texture& texture) {
-        return absl::StrFormat("device_%p/texture_%p", device.Get(), texture.Get());
-    };
-
-    auto bufferLabel = [this](const wgpu::Buffer& buffer) {
-        return absl::StrFormat("device_%p/buffer_%p", device.Get(), buffer.Get());
-    };
 
     // Create a buffer and destroy it and check that its size is not counted.
     constexpr uint64_t kBufferSize = 31;
@@ -103,7 +106,7 @@ TEST_F(MemoryInstrumentationTest, DumpMemoryStatistics) {
     EXPECT_CALL(*mDeviceMock, CreateBufferImpl).WillOnce(Return(ByMove(std::move(bufferMock))));
     wgpu::Buffer buffer = device.CreateBuffer(&kBufferDesc);
 
-    EXPECT_CALL(memoryDumpMock, AddScalar(StrEq(bufferLabel(buffer)), MemoryDump::kNameSize,
+    EXPECT_CALL(memoryDumpMock, AddScalar(StrEq(GetBufferLabel(buffer)), MemoryDump::kNameSize,
                                           MemoryDump::kUnitsBytes, kBufferAllocatedSize));
 
     // Create a mip-mapped texture and check that all mip level sizes are counted.
@@ -123,7 +126,7 @@ TEST_F(MemoryInstrumentationTest, DumpMemoryStatistics) {
     constexpr uint64_t kMipmappedTextureSize =
         (((30 * 20) + (15 * 10) + (7 * 5) + (3 * 2) + (1 * 1)) * 2) * 10;  // 15840
     EXPECT_CALL(memoryDumpMock,
-                AddScalar(StrEq(textureLabel(mipmappedTexture)), MemoryDump::kNameSize,
+                AddScalar(StrEq(GetTextureLabel(mipmappedTexture)), MemoryDump::kNameSize,
                           MemoryDump::kUnitsBytes, kMipmappedTextureSize));
 
     // Create a multi-sampled texture and check that sample count is taken into account.
@@ -139,7 +142,7 @@ TEST_F(MemoryInstrumentationTest, DumpMemoryStatistics) {
     // Expected size = width(30) * height(20) * bytes per pixel(2) * sample count(4).
     constexpr uint64_t kMultisampleTextureSize = 30 * 20 * 2 * 4;
     EXPECT_CALL(memoryDumpMock,
-                AddScalar(StrEq(textureLabel(multisampleTexture)), MemoryDump::kNameSize,
+                AddScalar(StrEq(GetTextureLabel(multisampleTexture)), MemoryDump::kNameSize,
                           MemoryDump::kUnitsBytes, kMultisampleTextureSize));
 
     // Create a compressed texture and check that counted size is correct.
@@ -155,8 +158,9 @@ TEST_F(MemoryInstrumentationTest, DumpMemoryStatistics) {
     wgpu::Texture etc2Texture = device.CreateTexture(&kETC2TextureDesc);
     // Expected size = (width / block width) * (height / block height) * bytes per block.
     constexpr uint64_t kETC2TextureSize = (32 / 4) * (32 / 4) * 8;
-    EXPECT_CALL(memoryDumpMock, AddScalar(StrEq(textureLabel(etc2Texture)), MemoryDump::kNameSize,
-                                          MemoryDump::kUnitsBytes, kETC2TextureSize));
+    EXPECT_CALL(memoryDumpMock,
+                AddScalar(StrEq(GetTextureLabel(etc2Texture)), MemoryDump::kNameSize,
+                          MemoryDump::kUnitsBytes, kETC2TextureSize));
 
     // Create a texture and destroy it and check that its info is not emitted.
     wgpu::Texture destroyedTexture = device.CreateTexture(&kMipmappedTextureDesc);
@@ -180,11 +184,11 @@ TEST_F(MemoryInstrumentationTest, DumpMemoryStatistics) {
         .WillOnce(Return(ByMove(std::move(sharedTextureMock))))
         .WillRepeatedly(DoDefault());
     wgpu::Texture sharedTexture = device.CreateTexture(&kSharedTextureDesc);
-    EXPECT_CALL(memoryDumpMock, AddScalar(StrEq(textureLabel(sharedTexture)), MemoryDump::kNameSize,
-                                          MemoryDump::kUnitsBytes, /*size=*/0));
+    EXPECT_CALL(memoryDumpMock,
+                AddScalar(StrEq(GetTextureLabel(sharedTexture)), MemoryDump::kNameSize,
+                          MemoryDump::kUnitsBytes, /*size=*/0));
 
     // Create a transient attachment (memoryless) texture and check that its size is not counted.
-    mDeviceMock->ForceEnableFeatureForTesting(Feature::TransientAttachments);
     const wgpu::TextureDescriptor kTransientAttachmentTextureDesc = {
         .usage = wgpu::TextureUsage::RenderAttachment | wgpu::TextureUsage::TransientAttachment,
         .size = {.width = 30, .height = 20},
@@ -195,7 +199,7 @@ TEST_F(MemoryInstrumentationTest, DumpMemoryStatistics) {
     wgpu::Texture transientAttachmentTexture =
         device.CreateTexture(&kTransientAttachmentTextureDesc);
     EXPECT_CALL(memoryDumpMock,
-                AddScalar(StrEq(textureLabel(transientAttachmentTexture)), MemoryDump::kNameSize,
+                AddScalar(StrEq(GetTextureLabel(transientAttachmentTexture)), MemoryDump::kNameSize,
                           MemoryDump::kUnitsBytes, /*size=*/0));
 
     DumpMemoryStatistics(device.Get(), &memoryDumpMock);
@@ -203,10 +207,112 @@ TEST_F(MemoryInstrumentationTest, DumpMemoryStatistics) {
     EXPECT_EQ(memoryDumpMock.GetTotalSize(), kBufferAllocatedSize + kMipmappedTextureSize +
                                                  kMultisampleTextureSize + kETC2TextureSize);
 
-    // Check that ComputeEstimatedMemoryUsage() matches the memory dump total size.
-    EXPECT_EQ(
-        ComputeEstimatedMemoryUsage(device.Get()),
-        kBufferAllocatedSize + kMipmappedTextureSize + kMultisampleTextureSize + kETC2TextureSize);
+    // Check that ComputeEstimatedMemoryUsageInfo() matches the memory dump total size.
+    MemoryUsageInfo memInfo = ComputeEstimatedMemoryUsageInfo(device.Get());
+    EXPECT_EQ(memInfo.totalUsage, kBufferAllocatedSize + kMipmappedTextureSize +
+                                      kMultisampleTextureSize + kETC2TextureSize);
+}
+
+// Test that DumpMemoryStatistics reports correct sizes and owner when resources have owner GUIDs.
+// Currently only textures can have owner GUIDs.
+TEST_F(MemoryInstrumentationTest, DumpMemoryStatisticsWithOwner) {
+    // DawnMemoryDumpOwnershipDescriptor is gated by DawnInternalUsages feature.
+    mDeviceMock->ForceEnableFeatureForTesting(Feature::DawnInternalUsages);
+
+    MemoryDumpMock memoryDumpMock;
+
+    // Create a mip-mapped texture, set its ownership GUID, and check that AddOwnerGUID is called
+    // during memory dumping.
+    constexpr wgpu::TextureFormat kRG8UnormTextureFormat = wgpu::TextureFormat::RG8Unorm;
+    constexpr uint64_t kMipmappedTextureOwnerGUID1 = 0xBEAFCAFE;
+    constexpr uint64_t kMipmappedTextureOwnerGUID2 = 0xDECAFF00;
+    const wgpu::TextureDescriptor kMipmappedTextureDesc = {
+        .usage = wgpu::TextureUsage::RenderAttachment,
+        .size = {.width = 30, .height = 20, .depthOrArrayLayers = 10},
+        .format = kRG8UnormTextureFormat,
+        .mipLevelCount = 5,
+        .viewFormatCount = 1,
+        .viewFormats = &kRG8UnormTextureFormat,
+    };
+    // Byte size of entire mip chain =
+    // ((level0 width * level0 height) + ... + (levelN width * levelN height)) * bpp * array layers.
+    constexpr uint64_t kMipmappedTextureSize =
+        (((30 * 20) + (15 * 10) + (7 * 5) + (3 * 2) + (1 * 1)) * 2) * 10;  // 15840
+
+    wgpu::Texture mipmappedTextureWithOwnership = device.CreateTexture(&kMipmappedTextureDesc);
+    mipmappedTextureWithOwnership.SetOwnershipForMemoryDump(kMipmappedTextureOwnerGUID1);
+
+    EXPECT_CALL(memoryDumpMock,
+                AddScalar(StrEq(GetTextureLabel(mipmappedTextureWithOwnership)),
+                          MemoryDump::kNameSize, MemoryDump::kUnitsBytes, kMipmappedTextureSize));
+    EXPECT_CALL(memoryDumpMock, AddOwnerGUID(StrEq(GetTextureLabel(mipmappedTextureWithOwnership)),
+                                             kMipmappedTextureOwnerGUID1));
+
+    // Create another mip-mapped texture, set and reset its ownership GUID, and check that
+    // AddOwnerGUID is not called.
+    wgpu::Texture mipmappedTextureWithOwnershipReset = device.CreateTexture(&kMipmappedTextureDesc);
+    // Set ownership GUID first.
+    mipmappedTextureWithOwnershipReset.SetOwnershipForMemoryDump(kMipmappedTextureOwnerGUID1);
+    // Then reset it.
+    mipmappedTextureWithOwnershipReset.SetOwnershipForMemoryDump();
+
+    EXPECT_CALL(memoryDumpMock,
+                AddScalar(StrEq(GetTextureLabel(mipmappedTextureWithOwnershipReset)),
+                          MemoryDump::kNameSize, MemoryDump::kUnitsBytes, kMipmappedTextureSize));
+
+    // Create another mip-mapped texture, set its ownership GUID twice, and check that
+    // AddOwnerGUID is called with the second GUID.
+    wgpu::Texture mipmappedTextureWithOwnershipSetTwice =
+        device.CreateTexture(&kMipmappedTextureDesc);
+    // Set ownership GUID twice.
+    mipmappedTextureWithOwnershipSetTwice.SetOwnershipForMemoryDump(kMipmappedTextureOwnerGUID1);
+    mipmappedTextureWithOwnershipSetTwice.SetOwnershipForMemoryDump(kMipmappedTextureOwnerGUID2);
+
+    EXPECT_CALL(memoryDumpMock,
+                AddScalar(StrEq(GetTextureLabel(mipmappedTextureWithOwnershipSetTwice)),
+                          MemoryDump::kNameSize, MemoryDump::kUnitsBytes, kMipmappedTextureSize));
+    // AddOwnerGUID should be called with the second GUID.
+    EXPECT_CALL(memoryDumpMock,
+                AddOwnerGUID(StrEq(GetTextureLabel(mipmappedTextureWithOwnershipSetTwice)),
+                             kMipmappedTextureOwnerGUID2));
+
+    // Create a shared resource memory texture with ownership GUID and check that AddOwnerGUID
+    // is called during memory dumping.
+    constexpr wgpu::TextureFormat kRGBA8UnormTextureFormat = wgpu::TextureFormat::RGBA8Unorm;
+    constexpr uint64_t kSharedTextureOwnerGUID = 0x12345678;
+    const wgpu::TextureDescriptor kSharedTextureWithOwnershipDesc = {
+        .usage = wgpu::TextureUsage::TextureBinding,
+        .size = {.width = 30, .height = 20},
+        .format = kRGBA8UnormTextureFormat,
+        .viewFormatCount = 1,
+        .viewFormats = &kRGBA8UnormTextureFormat,
+    };
+    Ref<TextureMock> sharedTextureWithOwnershipMock = AcquireRef(
+        new NiceMock<TextureMock>(mDeviceMock, FromCppAPI(&kSharedTextureWithOwnershipDesc)));
+    sharedTextureWithOwnershipMock->SetSharedResourceMemoryContentsForTesting(
+        AcquireRef(new SharedResourceMemoryContents(nullptr)));
+    EXPECT_CALL(*mDeviceMock, CreateTextureImpl)
+        .WillOnce(Return(ByMove(std::move(sharedTextureWithOwnershipMock))))
+        .WillRepeatedly(DoDefault());
+    wgpu::Texture sharedTextureWithOwnership =
+        device.CreateTexture(&kSharedTextureWithOwnershipDesc);
+    sharedTextureWithOwnership.SetOwnershipForMemoryDump(kSharedTextureOwnerGUID);
+    EXPECT_CALL(memoryDumpMock,
+                AddScalar(StrEq(GetTextureLabel(sharedTextureWithOwnership)), MemoryDump::kNameSize,
+                          MemoryDump::kUnitsBytes, /*size=*/0));
+    EXPECT_CALL(memoryDumpMock, AddOwnerGUID(StrEq(GetTextureLabel(sharedTextureWithOwnership)),
+                                             kSharedTextureOwnerGUID));
+
+    DumpMemoryStatistics(device.Get(), &memoryDumpMock);
+
+    // Note that although mipmappedTextureWithOwnership and mipmappedTextureWithOwnershipSetTwice
+    // have ownership GUIDs, their size are also counted here together with
+    // mipmappedTextureWithOwnershipReset.
+    EXPECT_EQ(memoryDumpMock.GetTotalSize(), kMipmappedTextureSize * 3);
+
+    // Check that ComputeEstimatedMemoryUsageInfo() matches the memory dump total size.
+    MemoryUsageInfo memInfo = ComputeEstimatedMemoryUsageInfo(device.Get());
+    EXPECT_EQ(memInfo.totalUsage, kMipmappedTextureSize * 3);
 }
 
 TEST_F(MemoryInstrumentationTest, ReduceMemoryUsage) {
@@ -227,10 +333,12 @@ TEST_F(MemoryInstrumentationTest, ReduceMemoryUsage) {
     mDeviceMock->GetInstance()->APIProcessEvents();
 
     // DynamicUploader buffers will still be alive.
-    EXPECT_GT(ComputeEstimatedMemoryUsage(device.Get()), uint64_t(0));
+    MemoryUsageInfo memInfo = ComputeEstimatedMemoryUsageInfo(device.Get());
+    EXPECT_GT(memInfo.totalUsage, uint64_t(0));
     ReduceMemoryUsage(device.Get());
     // But not any more.
-    EXPECT_EQ(ComputeEstimatedMemoryUsage(device.Get()), uint64_t(0));
+    memInfo = ComputeEstimatedMemoryUsageInfo(device.Get());
+    EXPECT_EQ(memInfo.totalUsage, uint64_t(0));
 
     // Check that DynamicUploader buffer is recreated again.
     uniformBuffer = device.CreateBuffer(&kBufferDesc);
@@ -243,7 +351,92 @@ TEST_F(MemoryInstrumentationTest, ReduceMemoryUsage) {
 
     mDeviceMock->GetInstance()->APIProcessEvents();
 
-    EXPECT_GT(ComputeEstimatedMemoryUsage(device.Get()), uint64_t(0));
+    memInfo = ComputeEstimatedMemoryUsageInfo(device.Get());
+    EXPECT_GT(memInfo.totalUsage, uint64_t(0));
+}
+
+// Test the detailed memory usage reported by ComputeEstimatedMemoryUsageInfo()
+TEST_F(MemoryInstrumentationTest, ComputeEstimatedMemoryUsageInDetails) {
+    // Create a buffer
+    constexpr uint64_t kBufferSize = 32;
+    constexpr wgpu::BufferDescriptor kBufferDesc = {
+        .usage = wgpu::BufferUsage::Uniform | wgpu::BufferUsage::CopyDst,
+        .size = kBufferSize,
+    };
+    wgpu::Buffer uniformBuffer = device.CreateBuffer(&kBufferDesc);
+    EXPECT_TRUE(uniformBuffer);
+
+    // Create a mip-mapped texture.
+    constexpr wgpu::TextureFormat kRG8UnormTextureFormat = wgpu::TextureFormat::RG8Unorm;
+    const wgpu::TextureDescriptor kMipmappedTextureDesc = {
+        .usage = wgpu::TextureUsage::RenderAttachment,
+        .size = {.width = 30, .height = 20, .depthOrArrayLayers = 10},
+        .format = kRG8UnormTextureFormat,
+        .mipLevelCount = 5,
+        .viewFormatCount = 1,
+        .viewFormats = &kRG8UnormTextureFormat,
+    };
+    wgpu::Texture mipmappedTexture = device.CreateTexture(&kMipmappedTextureDesc);
+
+    // Byte size of entire mip chain =
+    // ((level0 width * level0 height) + ... + (levelN width * levelN height)) * bpp * array layers.
+    constexpr uint64_t kMipmappedTextureSize =
+        (((30 * 20) + (15 * 10) + (7 * 5) + (3 * 2) + (1 * 1)) * 2) * 10;  // 15840
+
+    // Create multi-sampled textures.
+    const wgpu::TextureDescriptor kMultisampleTextureDesc1 = {
+        .usage = wgpu::TextureUsage::RenderAttachment,
+        .size = {.width = 30, .height = 20},
+        .format = kRG8UnormTextureFormat,
+        .sampleCount = 4,
+        .viewFormatCount = 1,
+        .viewFormats = &kRG8UnormTextureFormat,
+    };
+    wgpu::Texture multisampleTexture1 = device.CreateTexture(&kMultisampleTextureDesc1);
+    // Expected size = width(30) * height(20) * bytes per pixel(2) * sample count(4).
+    constexpr uint64_t kMultisampleTextureSize1 = 30 * 20 * 2 * 4;
+
+    wgpu::TextureDescriptor kMultisampleTextureDesc2 = kMultisampleTextureDesc1;
+    kMultisampleTextureDesc2.size = {.width = 60, .height = 40};
+    wgpu::Texture multisampleTexture2 = device.CreateTexture(&kMultisampleTextureDesc2);
+    // Expected size = width(60) * height(40) * bytes per pixel(2) * sample count(4).
+    constexpr uint64_t kMultisampleTextureSize2 = 60 * 40 * 2 * 4;
+
+    // Create a depth texture.
+    const wgpu::TextureDescriptor kDepthTextureDesc = {
+        .usage = wgpu::TextureUsage::RenderAttachment,
+        .size = {.width = 30, .height = 20},
+        .format = wgpu::TextureFormat::Depth32Float,
+        .sampleCount = 1,
+    };
+    wgpu::Texture depthTexture = device.CreateTexture(&kDepthTextureDesc);
+    // Expected size = width(30) * height(20) * bytes per pixel(4).
+    constexpr uint64_t kDepthTextureSize = 30 * 20 * 4;
+
+    // Create a stencil texture.
+    const wgpu::TextureDescriptor kStencilTextureDesc = {
+        .usage = wgpu::TextureUsage::RenderAttachment,
+        .size = {.width = 30, .height = 20},
+        .format = wgpu::TextureFormat::Stencil8,
+        .sampleCount = 1,
+    };
+    wgpu::Texture stencilTexture = device.CreateTexture(&kStencilTextureDesc);
+    // Expected size = width(30) * height(20) * bytes per pixel(1).
+    constexpr uint64_t kStencilTextureSize = 30 * 20 * 1;
+
+    MemoryUsageInfo memInfo = ComputeEstimatedMemoryUsageInfo(device.Get());
+
+    EXPECT_EQ(memInfo.totalUsage, kBufferSize + kMipmappedTextureSize + kMultisampleTextureSize1 +
+                                      kMultisampleTextureSize2 + kDepthTextureSize +
+                                      kStencilTextureSize);
+    EXPECT_EQ(memInfo.buffersUsage, kBufferSize);
+    EXPECT_EQ(memInfo.texturesUsage, kMipmappedTextureSize + kMultisampleTextureSize1 +
+                                         kMultisampleTextureSize2 + kDepthTextureSize +
+                                         kStencilTextureSize);
+    EXPECT_EQ(memInfo.depthStencilTexturesUsage, kDepthTextureSize + kStencilTextureSize);
+    EXPECT_EQ(memInfo.msaaTexturesUsage, kMultisampleTextureSize1 + kMultisampleTextureSize2);
+    EXPECT_EQ(memInfo.msaaTexturesCount, 2u);
+    EXPECT_EQ(memInfo.largestMsaaTextureUsage, kMultisampleTextureSize2);
 }
 
 }  // namespace

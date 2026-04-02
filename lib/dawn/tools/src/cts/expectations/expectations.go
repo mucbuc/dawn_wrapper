@@ -34,11 +34,16 @@ package expectations
 import (
 	"fmt"
 	"io"
-	"os"
+
+	"reflect"
 	"sort"
 	"strings"
 
+	"dawn.googlesource.com/dawn/tools/src/container"
+	"dawn.googlesource.com/dawn/tools/src/cts/query"
 	"dawn.googlesource.com/dawn/tools/src/cts/result"
+	"dawn.googlesource.com/dawn/tools/src/oswrapper"
+	"dawn.googlesource.com/dawn/tools/src/reducedglob"
 )
 
 // Content holds the full content of an expectations file.
@@ -55,22 +60,33 @@ type Chunk struct {
 	Expectations Expectations // Expectations for the chunk
 }
 
+// ExpectationType is a Type + enum for whether an Expectation's Query contains globs or not.
+type ExpectationType int
+
+const (
+	UNDETERMINED ExpectationType = iota
+	EXACT
+	GLOB
+)
+
 // Expectation holds a single expectation line
 type Expectation struct {
-	Line    int         // The 1-based line number of the expectation
-	Bug     string      // The associated bug URL for this expectation
-	Tags    result.Tags // Tags used to filter the expectation
-	Query   string      // The CTS query
-	Status  []string    // The expected result status
-	Comment string      // Optional comment at end of line
+	Line            int                      // The 1-based line number of the expectation
+	Bug             string                   // The associated bug URL for this expectation
+	Tags            result.Tags              // Tags used to filter the expectation
+	Query           string                   // The CTS query
+	Status          []string                 // The expected result status
+	Comment         string                   // Optional comment at end of line
+	expectationType ExpectationType          // Cached value of whether |Query| is an exact match or not
+	globMatcher     *reducedglob.ReducedGlob // Cached matcher for the case where expectationType == GLOB
 }
 
 // Expectations are a list of Expectation
 type Expectations []Expectation
 
 // Load loads the expectation file at 'path', returning a Content.
-func Load(path string) (Content, error) {
-	content, err := os.ReadFile(path)
+func Load(path string, fsReader oswrapper.FilesystemReader) (Content, error) {
+	content, err := fsReader.ReadFile(path)
 	if err != nil {
 		return Content{}, err
 	}
@@ -82,8 +98,8 @@ func Load(path string) (Content, error) {
 }
 
 // Save saves the Content file to 'path'.
-func (c Content) Save(path string) error {
-	f, err := os.Create(path)
+func (c *Content) Save(path string, fsWriter oswrapper.FilesystemWriter) error {
+	f, err := fsWriter.Create(path)
 	if err != nil {
 		return err
 	}
@@ -93,7 +109,7 @@ func (c Content) Save(path string) error {
 }
 
 // Clone makes a deep-copy of the Content.
-func (c Content) Clone() Content {
+func (c *Content) Clone() Content {
 	chunks := make([]Chunk, len(c.Chunks))
 	for i, c := range c.Chunks {
 		chunks[i] = c.Clone()
@@ -102,12 +118,12 @@ func (c Content) Clone() Content {
 }
 
 // Empty returns true if the Content has no chunks.
-func (c Content) Empty() bool {
+func (c *Content) Empty() bool {
 	return len(c.Chunks) == 0
 }
 
 // Write writes the Content, in textual form, to the writer w.
-func (c Content) Write(w io.Writer) error {
+func (c *Content) Write(w io.Writer) error {
 	for i, chunk := range c.Chunks {
 		if i > 0 {
 			if _, err := fmt.Fprintln(w); err != nil {
@@ -129,7 +145,7 @@ func (c Content) Write(w io.Writer) error {
 }
 
 // String returns the Content as a string.
-func (c Content) String() string {
+func (c *Content) String() string {
 	sb := strings.Builder{}
 	c.Write(&sb)
 	return sb.String()
@@ -142,6 +158,55 @@ func (c *Content) Format() {
 	}
 }
 
+// RemoveExpectationsForUnknownTests modifies the Content in place so that all
+// contained Expectations apply to tests in the given testlist.
+func (c *Content) RemoveExpectationsForUnknownTests(testlist *[]query.Query) error {
+	// Converting into a set allows us to much more efficiently check if a
+	// non-wildcard expectation is for a valid test.
+	knownTestNames := container.NewSet[string]()
+	for _, testQuery := range *testlist {
+		knownTestNames.Add(testQuery.ExpectationFileString())
+	}
+
+	prunedChunkSlice := make([]Chunk, 0)
+	for _, chunk := range c.Chunks {
+		prunedChunk := chunk.Clone()
+		// If we don't have any expectations already, just add the chunk back
+		// immediately to avoid removing comments, especially the header.
+		if prunedChunk.IsCommentOnly() {
+			prunedChunkSlice = append(prunedChunkSlice, prunedChunk)
+			continue
+		}
+
+		prunedChunk.Expectations = make(Expectations, 0)
+		for _, expectation := range chunk.Expectations {
+			// We don't actually parse the query string into a Query since wildcards
+			// are treated differently between expectations and CTS queries.
+			if expectation.IsGlobExpectation() {
+				for testName := range knownTestNames {
+					if expectation.AppliesToTest(testName) {
+						prunedChunk.Expectations = append(prunedChunk.Expectations, expectation)
+						break
+					}
+				}
+			} else {
+				// We could technically use AppliesToTest() here like we do for glob
+				// expectations, but Contains() will be faster due to use of a set.
+				if knownTestNames.Contains(expectation.Query) {
+					prunedChunk.Expectations = append(prunedChunk.Expectations, expectation)
+				}
+			}
+		}
+
+		if len(prunedChunk.Expectations) > 0 {
+			prunedChunkSlice = append(prunedChunkSlice, prunedChunk)
+		}
+	}
+
+	c.Chunks = prunedChunkSlice
+	return nil
+}
+
 // IsCommentOnly returns true if the Chunk contains comments and no expectations.
 func (c Chunk) IsCommentOnly() bool {
 	return len(c.Comments) > 0 && len(c.Expectations) == 0
@@ -150,9 +215,7 @@ func (c Chunk) IsCommentOnly() bool {
 // Clone returns a deep-copy of the Chunk
 func (c Chunk) Clone() Chunk {
 	comments := make([]string, len(c.Comments))
-	for i, c := range c.Comments {
-		comments[i] = c
-	}
+	copy(comments, c.Comments)
 	expectations := make([]Expectation, len(c.Expectations))
 	for i, e := range c.Expectations {
 		expectations[i] = e.Clone()
@@ -160,9 +223,76 @@ func (c Chunk) Clone() Chunk {
 	return Chunk{comments, expectations}
 }
 
+func (c Chunk) ContainedWithinList(chunkList *[]Chunk) bool {
+	for _, otherChunk := range *chunkList {
+		if reflect.DeepEqual(c, otherChunk) {
+			return true
+		}
+	}
+	return false
+}
+
+// IsGlobExpectation returns whether the Expectation is a glob expectation or
+// not. Glob-iness is cached after the first call.
+func (e *Expectation) IsGlobExpectation() bool {
+	if e.expectationType != UNDETERMINED {
+		return e.expectationType == GLOB
+	}
+
+	// Count the total number of escaped and unescaped wildcard characters. If
+	// they do not match, then that means we have at least one glob, which means
+	// this is a glob expectation.
+	numEscapedWildcards := strings.Count(e.Query, reducedglob.ESCAPED_WILDCARD)
+	numNonEscapedWildcards := strings.Count(e.Query, reducedglob.UNESCAPED_WILDCARD)
+	if numEscapedWildcards == numNonEscapedWildcards {
+		e.expectationType = EXACT
+		return false
+	}
+	e.expectationType = GLOB
+	return true
+}
+
+// ensureGlobMatcherIsSet creates and caches a reducedglob.ReducedGlob for the
+// Expectation's Query field. Should only be called in cases where
+// IsGlobExpectation() returns true.
+func (e *Expectation) ensureGlobMatcherIsSet() {
+	if e.globMatcher != nil {
+		return
+	}
+	if e.expectationType != GLOB {
+		panic("ensureGlobMatcherIsSet should only be ever be called when the for glob expectations")
+	}
+	e.globMatcher = reducedglob.NewReducedGlob(e.Query)
+}
+
+// AppliesToResult returns whether the Expectation applies to the test + config
+// represented by the Result.
+func (e *Expectation) AppliesToResult(r result.Result) bool {
+	// Tags apply as long as the Expectation's tags are a subset of the Result's
+	// tags.
+	tagsApply := r.Tags.ContainsAll(e.Tags)
+	queryApplies := e.AppliesToTest(r.Query.ExpectationFileString())
+
+	return tagsApply && queryApplies
+}
+
+// AppliesToTest returns whether the Expectation applies to the test |name|.
+// This does NOT take into account the tags contained within the Expectation,
+// only whether the name matches.
+func (e *Expectation) AppliesToTest(name string) bool {
+	// The query is a glob expectation, we need to perform a more complex
+	// comparison. Otherwise, we can just check for an exact match.
+	if e.IsGlobExpectation() {
+		e.ensureGlobMatcherIsSet()
+		return e.globMatcher.Matchcase(name)
+	} else {
+		return e.Query == name
+	}
+}
+
 // AsExpectationFileString returns the human-readable form of the expectation
 // that matches the syntax of the expectation files.
-func (e Expectation) AsExpectationFileString() string {
+func (e *Expectation) AsExpectationFileString() string {
 	parts := []string{}
 	if e.Bug != "" {
 		parts = append(parts, e.Bug)
@@ -179,7 +309,7 @@ func (e Expectation) AsExpectationFileString() string {
 }
 
 // Clone makes a deep-copy of the Expectation.
-func (e Expectation) Clone() Expectation {
+func (e *Expectation) Clone() Expectation {
 	out := Expectation{
 		Line:    e.Line,
 		Bug:     e.Bug,
@@ -202,7 +332,7 @@ func (e Expectation) Clone() Expectation {
 //	 0 if a and b are identical
 //
 // Note: Only comparing bug, tags, and query (in that order).
-func (e Expectation) Compare(b Expectation) int {
+func (e *Expectation) Compare(b Expectation) int {
 	switch strings.Compare(e.Bug, b.Bug) {
 	case -1:
 		return -1
@@ -226,7 +356,7 @@ func (e Expectation) Compare(b Expectation) int {
 
 // ComparePrioritizeQuery is the same as Compare, but compares in the following
 // order: query, tags, bug.
-func (e Expectation) ComparePrioritizeQuery(other Expectation) int {
+func (e *Expectation) ComparePrioritizeQuery(other Expectation) int {
 	switch strings.Compare(e.Query, other.Query) {
 	case -1:
 		return -1

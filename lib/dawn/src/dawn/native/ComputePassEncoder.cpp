@@ -27,7 +27,12 @@
 
 #include "dawn/native/ComputePassEncoder.h"
 
+#include <algorithm>
+#include <limits>
+
 #include "dawn/common/Range.h"
+#include "dawn/common/Strings.h"
+#include "dawn/native/Adapter.h"
 #include "dawn/native/BindGroup.h"
 #include "dawn/native/BindGroupLayout.h"
 #include "dawn/native/Buffer.h"
@@ -54,46 +59,62 @@ ResultOrError<ComputePipelineBase*> GetOrCreateIndirectDispatchValidationPipelin
         return store->dispatchIndirectValidationPipeline.Get();
     }
 
+    // TODO(https://crbug.com/dawn/488346117): Use immediates instead of uniform.
     // TODO(https://crbug.com/dawn/1108): Propagate validation feedback from this
     // shader in various failure modes.
     // Type 'bool' cannot be used in address space 'uniform' as it is non-host-shareable.
     Ref<ShaderModuleBase> shaderModule;
-    DAWN_TRY_ASSIGN(shaderModule, utils::CreateShaderModule(device, R"(
-                struct UniformParams {
-                    maxComputeWorkgroupsPerDimension: u32,
-                    clientOffsetInU32: u32,
-                    enableValidation: u32,
-                    duplicateNumWorkgroups: u32,
+    DAWN_TRY_ASSIGN(shaderModule, utils::CreateShaderModule(device, DAWN_MULTILINE(
+        struct UniformParams {
+            maxComputeWorkgroupsPerDimension: u32,
+            clientOffsetInU32: u32,
+            enableValidation: u32,
+            duplicateNumWorkgroups: u32,
+            linearIndexing: u32,
+            overflowValue: u32,
+        }
+
+        struct IndirectParams {
+            data: array<u32>
+        }
+
+        struct ValidatedParams {
+            data: array<u32>
+        }
+
+        @group(0) @binding(0) var<uniform> uniformParams: UniformParams;
+        @group(0) @binding(1) var<storage, read_write> clientParams: IndirectParams;
+        @group(0) @binding(2) var<storage, read_write> validatedParams: ValidatedParams;
+
+        @compute @workgroup_size(1, 1, 1)
+        fn main() {
+            var workgroups = vec3u(clientParams.data[uniformParams.clientOffsetInU32 + 0],
+                                   clientParams.data[uniformParams.clientOffsetInU32 + 1],
+                                   clientParams.data[uniformParams.clientOffsetInU32 + 2]);
+            if (uniformParams.enableValidation > 0u) {
+                var invalid = false;
+                if (max(workgroups.x, max(workgroups.y, workgroups.z)) > uniformParams.maxComputeWorkgroupsPerDimension) {
+                    invalid = true;
+                } else if (uniformParams.linearIndexing > 0u) {
+                    invalid |= workgroups.x > (uniformParams.overflowValue / workgroups.y);
+                    let xy = workgroups.x * workgroups.y;
+                    invalid |= xy > (uniformParams.overflowValue / workgroups.z);
                 }
 
-                struct IndirectParams {
-                    data: array<u32>
+                if (invalid) {
+                    workgroups = vec3u(0);
                 }
-
-                struct ValidatedParams {
-                    data: array<u32>
-                }
-
-                @group(0) @binding(0) var<uniform> uniformParams: UniformParams;
-                @group(0) @binding(1) var<storage, read_write> clientParams: IndirectParams;
-                @group(0) @binding(2) var<storage, read_write> validatedParams: ValidatedParams;
-
-                @compute @workgroup_size(1, 1, 1)
-                fn main() {
-                    for (var i = 0u; i < 3u; i = i + 1u) {
-                        var numWorkgroups = clientParams.data[uniformParams.clientOffsetInU32 + i];
-                        if (uniformParams.enableValidation > 0u &&
-                            numWorkgroups > uniformParams.maxComputeWorkgroupsPerDimension) {
-                            numWorkgroups = 0u;
-                        }
-                        validatedParams.data[i] = numWorkgroups;
-
-                        if (uniformParams.duplicateNumWorkgroups > 0u) {
-                             validatedParams.data[i + 3u] = numWorkgroups;
-                        }
-                    }
-                }
-            )"));
+            }
+            validatedParams.data[0] = workgroups.x;
+            validatedParams.data[1] = workgroups.y;
+            validatedParams.data[2] = workgroups.z;
+            if (uniformParams.duplicateNumWorkgroups > 0u) {
+                validatedParams.data[3] = workgroups.x;
+                validatedParams.data[4] = workgroups.y;
+                validatedParams.data[5] = workgroups.z;
+            }
+        }
+    )));
 
     Ref<BindGroupLayoutBase> bindGroupLayout;
     DAWN_TRY_ASSIGN(bindGroupLayout,
@@ -160,7 +181,7 @@ Ref<ComputePassEncoder> ComputePassEncoder::MakeError(DeviceBase* device,
         new ComputePassEncoder(device, commandEncoder, encodingContext, ObjectBase::kError, label));
 }
 
-void ComputePassEncoder::DestroyImpl() {
+void ComputePassEncoder::DestroyImpl(DestroyReason reason) {
     mCommandBufferState.End();
 
     // Ensure that the pass has exited. This is done for passes only since validation requires
@@ -174,7 +195,7 @@ ObjectType ComputePassEncoder::GetType() const {
 
 void ComputePassEncoder::APIEnd() {
     if (mEnded && IsValidationEnabled()) {
-        GetDevice()->HandleError(DAWN_VALIDATION_ERROR("%s was already ended.", this));
+        GetDevice()->HandleEncoderError(DAWN_VALIDATION_ERROR("%s was already ended.", this));
         return;
     }
 
@@ -212,31 +233,64 @@ void ComputePassEncoder::APIDispatchWorkgroups(uint32_t workgroupCountX,
 
                 DAWN_TRY(mCommandBufferState.ValidateCanDispatch());
 
-                uint32_t workgroupsPerDimension =
+                uint32_t maxComputeWorkgroupsPerDimension =
                     GetDevice()->GetLimits().v1.maxComputeWorkgroupsPerDimension;
 
-                DAWN_INVALID_IF(workgroupCountX > workgroupsPerDimension,
-                                "Dispatch workgroup count X (%u) exceeds max compute "
-                                "workgroups per dimension (%u).",
-                                workgroupCountX, workgroupsPerDimension);
+                DAWN_INVALID_IF(
+                    workgroupCountX > maxComputeWorkgroupsPerDimension,
+                    "Dispatch workgroup count X (%u) exceeds max compute "
+                    "workgroups per dimension (%u).%s",
+                    workgroupCountX, maxComputeWorkgroupsPerDimension,
+                    DAWN_INCREASE_LIMIT_MESSAGE(GetDevice()->GetAdapter()->GetLimits().v1,
+                                                maxComputeWorkgroupsPerDimension, workgroupCountX));
 
-                DAWN_INVALID_IF(workgroupCountY > workgroupsPerDimension,
-                                "Dispatch workgroup count Y (%u) exceeds max compute "
-                                "workgroups per dimension (%u).",
-                                workgroupCountY, workgroupsPerDimension);
+                DAWN_INVALID_IF(
+                    workgroupCountY > maxComputeWorkgroupsPerDimension,
+                    "Dispatch workgroup count Y (%u) exceeds max compute "
+                    "workgroups per dimension (%u).%s",
+                    workgroupCountY, maxComputeWorkgroupsPerDimension,
+                    DAWN_INCREASE_LIMIT_MESSAGE(GetDevice()->GetAdapter()->GetLimits().v1,
+                                                maxComputeWorkgroupsPerDimension, workgroupCountY));
 
-                DAWN_INVALID_IF(workgroupCountZ > workgroupsPerDimension,
-                                "Dispatch workgroup count Z (%u) exceeds max compute "
-                                "workgroups per dimension (%u).",
-                                workgroupCountZ, workgroupsPerDimension);
+                DAWN_INVALID_IF(
+                    workgroupCountZ > maxComputeWorkgroupsPerDimension,
+                    "Dispatch workgroup count Z (%u) exceeds max compute "
+                    "workgroups per dimension (%u).%s",
+                    workgroupCountZ, maxComputeWorkgroupsPerDimension,
+                    DAWN_INCREASE_LIMIT_MESSAGE(GetDevice()->GetAdapter()->GetLimits().v1,
+                                                maxComputeWorkgroupsPerDimension, workgroupCountZ));
 
-                if (GetDevice()->IsCompatibilityMode()) {
+                auto pipeline = mCommandBufferState.GetComputePipeline();
+                if (pipeline->UsesLinearIndexing()) {
+                    // Validate without assumptions on the range of the various uint32_t limits, as
+                    // they may be increased from default values.
+                    const auto wgSize = pipeline->GetWorkgroupSize();
+                    const uint64_t wgInvocations =
+                        pipeline->UsesGlobalInvocationIndex()
+                            ? wgSize.width * wgSize.height * wgSize.depthOrArrayLayers
+                            : 1u;
+                    const uint64_t factorWGAndX = wgInvocations * workgroupCountX;
+                    const uint64_t factorYAndZ =
+                        static_cast<uint64_t>(workgroupCountY) * workgroupCountZ;
+                    bool overflow = factorWGAndX > std::numeric_limits<uint32_t>::max();
+                    overflow |= factorYAndZ > std::numeric_limits<uint32_t>::max();
+                    overflow |= factorWGAndX * factorYAndZ > std::numeric_limits<uint32_t>::max();
+                    DAWN_INVALID_IF(
+                        overflow,
+                        "Dispatch using linear_indexing built-in value would "
+                        "exceed unsigned 32-bit range. (num WGs = [%u, %u, %u], wg size "
+                        "= [%u, %u, %u])",
+                        workgroupCountX, workgroupCountY, workgroupCountZ, wgSize.width,
+                        wgSize.height, wgSize.depthOrArrayLayers);
+                }
+
+                if (!GetDevice()->HasFlexibleTextureViews()) {
                     DAWN_TRY(mCommandBufferState.ValidateNoDifferentTextureViewsOnSameTexture());
                 }
             }
 
             // Record the synchronization scope for Dispatch, which is just the current
-            // bindgroups.
+            // bindgroups and resource table.
             AddDispatchSyncScope();
 
             DispatchCmd* dispatch = allocator->Allocate<DispatchCmd>(Command::Dispatch);
@@ -257,13 +311,22 @@ ComputePassEncoder::TransformIndirectDispatchBuffer(Ref<BufferBase> indirectBuff
     // This function creates new resources, need to lock the Device.
     // TODO(crbug.com/dawn/1618): In future, all temp resources should be created at Command Submit
     // time, so the locking would be removed from here at that point.
-    auto deviceLock(GetDevice()->GetScopedLock());
+    auto deviceGuard = GetDevice()->GetGuard();
 
     const bool shouldDuplicateNumWorkgroups =
         device->ShouldDuplicateNumWorkgroupsForDispatchIndirect(
             mCommandBufferState.GetComputePipeline());
     if (!IsValidationEnabled() && !shouldDuplicateNumWorkgroups) {
         return std::make_pair(indirectBuffer, indirectOffset);
+    }
+    const bool usesLinearIndexing = mCommandBufferState.GetComputePipeline()->UsesLinearIndexing();
+    const bool usesGlobalIndex =
+        mCommandBufferState.GetComputePipeline()->UsesGlobalInvocationIndex();
+    const auto wgSize = mCommandBufferState.GetComputePipeline()->GetWorkgroupSize();
+    const uint32_t wgInvocations = wgSize.width * wgSize.height * wgSize.depthOrArrayLayers;
+    uint32_t overflowValue = std::numeric_limits<uint32_t>::max();
+    if (usesGlobalIndex) {
+        overflowValue /= wgInvocations;
     }
 
     // Save the previous command buffer state so it can be restored after the
@@ -297,6 +360,8 @@ ComputePassEncoder::TransformIndirectDispatchBuffer(Ref<BufferBase> indirectBuff
         uint32_t clientOffsetInU32;
         uint32_t enableValidation;
         uint32_t duplicateNumWorkgroups;
+        uint32_t linearIndexing;
+        uint32_t overflowValue;
     };
 
     // Create a uniform buffer to hold parameters for the shader.
@@ -308,6 +373,8 @@ ComputePassEncoder::TransformIndirectDispatchBuffer(Ref<BufferBase> indirectBuff
         params.clientOffsetInU32 = clientOffsetFromAlignedBoundary / sizeof(uint32_t);
         params.enableValidation = static_cast<uint32_t>(IsValidationEnabled());
         params.duplicateNumWorkgroups = static_cast<uint32_t>(shouldDuplicateNumWorkgroups);
+        params.linearIndexing = static_cast<uint32_t>(usesLinearIndexing);
+        params.overflowValue = overflowValue;
 
         DAWN_TRY_ASSIGN(uniformBuffer,
                         utils::CreateBufferFromData(device, wgpu::BufferUsage::Uniform, {params}));
@@ -364,47 +431,51 @@ void ComputePassEncoder::APIDispatchWorkgroupsIndirect(BufferBase* indirectBuffe
                     "size (%u).",
                     indirectOffset, kDispatchIndirectSize, indirectBuffer->GetSize());
 
-                if (GetDevice()->IsCompatibilityMode()) {
+                if (!GetDevice()->HasFlexibleTextureViews()) {
                     DAWN_TRY(mCommandBufferState.ValidateNoDifferentTextureViewsOnSameTexture());
                 }
             }
 
             SyncScopeUsageTracker scope;
             mUsageTracker.AddReferencedBuffer(indirectBuffer);
-
             Ref<BufferBase> indirectBufferRef = indirectBuffer;
 
-            // Get applied indirect buffer with necessary changes on the original indirect
-            // buffer. For example,
-            // - Validate each indirect dispatch with a single dispatch to copy the indirect
-            //   buffer params into a scratch buffer if they're valid, and otherwise zero them
-            //   out.
-            // - Duplicate all the indirect dispatch parameters to support @num_workgroups on
-            //   D3D12.
-            // - Directly return the original indirect dispatch buffer if we don't need any
-            //   transformations on it.
-            // We could consider moving the validation earlier in the pass after the last
-            // last point the indirect buffer was used with writable usage, as well as batch
-            // validation for multiple dispatches into one, but inserting commands at
-            // arbitrary points in the past is not possible right now.
-            DAWN_TRY_ASSIGN(std::tie(indirectBufferRef, indirectOffset),
-                            TransformIndirectDispatchBuffer(indirectBufferRef, indirectOffset));
+            if (NeedsIndirectGPUValidation()) {
+                // Get applied indirect buffer with necessary changes on the original indirect
+                // buffer. For example,
+                // - Validate each indirect dispatch with a single dispatch to copy the indirect
+                //   buffer params into a scratch buffer if they're valid, and otherwise zero them
+                //   out.
+                // - Duplicate all the indirect dispatch parameters to support @num_workgroups on
+                //   D3D12.
+                // - Directly return the original indirect dispatch buffer if we don't need any
+                //   transformations on it.
+                // We could consider moving the validation earlier in the pass after the last
+                // last point the indirect buffer was used with writable usage, as well as batch
+                // validation for multiple dispatches into one, but inserting commands at
+                // arbitrary points in the past is not possible right now.
+                DAWN_TRY_ASSIGN(std::tie(indirectBufferRef, indirectOffset),
+                                TransformIndirectDispatchBuffer(indirectBufferRef, indirectOffset));
 
-            // If we have created a new scratch dispatch indirect buffer in
-            // TransformIndirectDispatchBuffer(), we need to track it in mUsageTracker.
-            if (indirectBufferRef.Get() != indirectBuffer) {
-                // |indirectBufferRef| was replaced with a scratch buffer, so we just need to track
-                // it for backend resource tracking and not for frontend validation.
-                scope.BufferUsedAs(indirectBufferRef.Get(),
-                                   kIndirectBufferForBackendResourceTracking);
-                mUsageTracker.AddReferencedBuffer(indirectBufferRef.Get());
+                // If we have created a new scratch dispatch indirect buffer in
+                // TransformIndirectDispatchBuffer(), we need to track it in mUsageTracker.
+                if (indirectBufferRef.Get() != indirectBuffer) {
+                    // |indirectBufferRef| was replaced with a scratch buffer, so we just need to
+                    // track it for backend resource tracking and not for frontend validation.
+                    scope.BufferUsedAs(indirectBufferRef.Get(),
+                                       kIndirectBufferForBackendResourceTracking);
+                    mUsageTracker.AddReferencedBuffer(indirectBufferRef.Get());
 
-                // Then we can just track indirectBuffer for frontend validation and ignore its
-                // indirect buffer usage in backend resource tracking.
-                scope.BufferUsedAs(indirectBuffer, kIndirectBufferForFrontendValidation);
+                    // Then we can just track indirectBuffer for frontend validation and ignore its
+                    // indirect buffer usage in backend resource tracking.
+                    scope.BufferUsedAs(indirectBuffer, kIndirectBufferForFrontendValidation);
+                } else {
+                    scope.BufferUsedAs(
+                        indirectBuffer,
+                        wgpu::BufferUsage::Indirect | kIndirectBufferForBackendResourceTracking);
+                }
             } else {
-                scope.BufferUsedAs(indirectBuffer, wgpu::BufferUsage::Indirect |
-                                                       kIndirectBufferForBackendResourceTracking);
+                scope.BufferUsedAs(indirectBuffer, wgpu::BufferUsage::Indirect);
             }
 
             AddDispatchSyncScope(std::move(scope));
@@ -437,6 +508,22 @@ void ComputePassEncoder::APISetPipeline(ComputePipelineBase* pipeline) {
         "encoding %s.SetPipeline(%s).", this, pipeline);
 }
 
+void ComputePassEncoder::APISetResourceTable(ResourceTableBase* table) {
+    mEncodingContext->TryEncode(
+        this,
+        [&](CommandAllocator* allocator) -> MaybeError {
+            DAWN_TRY(ProgrammableEncoder::SetResourceTable(table, allocator));
+            mCommandBufferState.SetResourceTable(table);
+            if (table) {
+                // Add table for submit validation. Note that we add the currently used table to the
+                // usage tracker in AddDispatchSyncScope for command processing.
+                mUsageTracker.AddReferencedResourceTable(table);
+            }
+            return {};
+        },
+        "encoding %s.SetResourceTable(%s).", this, table);
+}
+
 void ComputePassEncoder::APISetBindGroup(uint32_t groupIndexIn,
                                          BindGroupBase* group,
                                          uint32_t dynamicOffsetCount,
@@ -467,6 +554,32 @@ void ComputePassEncoder::APISetBindGroup(uint32_t groupIndexIn,
         dynamicOffsetCount);
 }
 
+void ComputePassEncoder::APISetImmediates(uint32_t offset, const void* data, size_t size) {
+    mEncodingContext->TryEncode(
+        this,
+        [&](CommandAllocator* allocator) -> MaybeError {
+            if (IsValidationEnabled()) {
+                DAWN_TRY(ValidateSetImmediates(offset, size));
+            }
+
+            // Skip SetImmediates when uploading constants are empty.
+            if (size == 0) {
+                return {};
+            }
+
+            SetImmediatesCmd* cmd = allocator->Allocate<SetImmediatesCmd>(Command::SetImmediates);
+            cmd->offset = offset;
+            cmd->size = uint32_t(size);
+            uint8_t* immediateDatas = allocator->AllocateData<uint8_t>(cmd->size);
+            memcpy(immediateDatas, data, size);
+
+            mCommandBufferState.SetImmediateData(offset, uint32_t(size));
+
+            return {};
+        },
+        "encoding %s.SetImmediates(%u, %u, ...).", this, offset, size);
+}
+
 void ComputePassEncoder::APIWriteTimestamp(QuerySetBase* querySet, uint32_t queryIndex) {
     mEncodingContext->TryEncode(
         this,
@@ -491,8 +604,11 @@ void ComputePassEncoder::APIWriteTimestamp(QuerySetBase* querySet, uint32_t quer
 
 void ComputePassEncoder::AddDispatchSyncScope(SyncScopeUsageTracker scope) {
     PipelineLayoutBase* layout = mCommandBufferState.GetPipelineLayout();
-    for (BindGroupIndex i : IterateBitSet(layout->GetBindGroupLayoutsMask())) {
+    for (BindGroupIndex i : layout->GetBindGroupLayoutsMask()) {
         scope.AddBindGroup(mCommandBufferState.GetBindGroup(i));
+    }
+    if (auto* table = mCommandBufferState.GetResourceTable()) {
+        scope.AddResourceTableUsage(table);
     }
     mUsageTracker.AddDispatch(scope.AcquireSyncScopeUsage());
 }
@@ -509,7 +625,8 @@ void ComputePassEncoder::RestoreCommandBufferState(CommandBufferStateTracker sta
             if (offsets.empty()) {
                 APISetBindGroup(static_cast<uint32_t>(i), bg);
             } else {
-                APISetBindGroup(static_cast<uint32_t>(i), bg, offsets.size(), offsets.data());
+                APISetBindGroup(static_cast<uint32_t>(i), bg, static_cast<uint32_t>(offsets.size()),
+                                offsets.data());
             }
         }
     }

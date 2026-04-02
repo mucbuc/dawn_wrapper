@@ -25,12 +25,13 @@
 // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+#include "src/tint/lang/wgsl/writer/raise/raise.h"
+
 #include <utility>
 
 #include "src/tint/lang/core/ir/transform/helper_test.h"
 #include "src/tint/lang/core/ir/validator.h"
 #include "src/tint/lang/core/type/struct.h"
-#include "src/tint/lang/wgsl/writer/raise/raise.h"
 
 namespace tint::wgsl::writer::raise {
 namespace {
@@ -40,13 +41,16 @@ using namespace tint::core::number_suffixes;  // NOLINT
 
 class WgslWriter_RaiseTest : public core::ir::transform::TransformTest {
   public:
-    WgslWriter_RaiseTest() { capabilities.Add(core::ir::Capability::kAllowRefTypes); }
+    WgslWriter_RaiseTest() {
+        capabilities.Add(core::ir::Capability::kAllowRefTypes);
+        capabilities.Add(core::ir::Capability::kAllowPhonyInstructions);
+    }
 };
 
 TEST_F(WgslWriter_RaiseTest, BuiltinConversion) {
     auto* f = b.Function("f", ty.void_());
     b.Append(f->Block(), [&] {  //
-        b.Call(ty.i32(), core::BuiltinFn::kMax, i32(1), i32(2));
+        b.Max(i32(1), i32(2));
         b.Return(f);
     });
 
@@ -64,7 +68,7 @@ TEST_F(WgslWriter_RaiseTest, BuiltinConversion) {
 %f = func():void {
   $B1: {
     %2:i32 = wgsl.max 1i, 2i
-    %3:i32 = let %2
+    undef = phony %2
     ret
   }
 }
@@ -88,7 +92,7 @@ TEST_F(WgslWriter_RaiseTest, WorkgroupBarrier) {
 
     auto* src = R"(
 $B1: {  # root
-  %W:ptr<workgroup, i32, read_write> = var
+  %W:ptr<workgroup, i32, read_write> = var undef
 }
 
 %f = func():i32 {
@@ -104,7 +108,7 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %W:ref<workgroup, i32, read_write> = var
+  %W:ref<workgroup, i32, read_write> = var undef
 }
 
 %f = func():i32 {
@@ -135,7 +139,7 @@ TEST_F(WgslWriter_RaiseTest, WorkgroupBarrier_NoMatch) {
 
     auto* src = R"(
 $B1: {  # root
-  %W:ptr<workgroup, i32, read_write> = var
+  %W:ptr<workgroup, i32, read_write> = var undef
 }
 
 %f = func():i32 {
@@ -152,7 +156,7 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %W:ref<workgroup, i32, read_write> = var
+  %W:ref<workgroup, i32, read_write> = var undef
 }
 
 %f = func():i32 {
@@ -163,6 +167,58 @@ $B1: {  # root
     %5:i32 = let %4
     %6:void = wgsl.workgroupBarrier
     ret %5
+  }
+}
+)";
+
+    Run(Raise);
+
+    EXPECT_EQ(expect, str());
+}
+
+TEST_F(WgslWriter_RaiseTest, BuiltinShadowedByUserFunction) {
+    auto* user_min = b.Function("min", ty.u32());
+    auto* x = b.FunctionParam<u32>("x");
+    auto* y = b.FunctionParam<u32>("y");
+    user_min->SetParams({x, y});
+    b.Append(user_min->Block(), [&] {  //
+        b.Return(user_min, b.Add(x, y));
+    });
+
+    auto* f = b.Function("f", ty.void_());
+    b.Append(f->Block(), [&] {  //
+        b.Min(1_u, 2_u);
+        b.Return(f);
+    });
+
+    auto* src = R"(
+%min = func(%x:u32, %y:u32):u32 {
+  $B1: {
+    %4:u32 = add %x, %y
+    ret %4
+  }
+}
+%f = func():void {
+  $B2: {
+    %6:u32 = min 1u, 2u
+    ret
+  }
+}
+)";
+    EXPECT_EQ(src, str());
+
+    auto* expect = R"(
+%min_1 = func(%x:u32, %y:u32):u32 {
+  $B1: {
+    %4:u32 = add %x, %y
+    ret %4
+  }
+}
+%f = func():void {
+  $B2: {
+    %6:u32 = wgsl.min 1u, 2u
+    undef = phony %6
+    ret
   }
 }
 )";

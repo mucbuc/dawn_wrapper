@@ -30,6 +30,13 @@ if (${DAWN_ENABLE_TSAN})
   add_link_options(-stdlib=libc++)
 endif ()
 
+# Don't warn about C++20 only constructs, since Dawn requires C++20
+if (("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang") OR
+    ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "AppleClang") OR
+    ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU"))
+    add_compile_options(-Wno-c++20-compat)
+endif()
+
 ################################################################################
 # common_compile_options - sets compiler and linker options common for dawn
 ################################################################################
@@ -38,12 +45,16 @@ function(common_compile_options target)
     target_compile_options(${target}
       PRIVATE
         "-fno-exceptions"
-        "-fno-rtti"
 
+        "-Wno-assume"
         "-Wno-deprecated-builtins"
         "-Wno-unknown-warning-option"
         "-Wno-switch-default"
+        "-Wno-nrvo"
     )
+    if (NOT DAWN_ENABLE_RTTI)
+      target_compile_options(${target} PRIVATE "-fno-rtti")
+    endif()
     if (${DAWN_WERROR})
       target_compile_options(${target}
         PRIVATE "-Werror")
@@ -52,7 +63,26 @@ function(common_compile_options target)
 
   if (MSVC)
     target_compile_options(${target}
-      PUBLIC "/utf-8")
+      PUBLIC
+        "/utf-8"
+        "/Zc:preprocessor" # Ask for standard-conformant preprocessor.
+    )
+  endif ()
+
+  # Abseil headers can cause warnings when included that will cause failures
+  # with -Werror.
+  # Needs to be PUBLIC to propagate to targets that depend indirectly on abseil
+  # via this target.
+  if (NOT MSVC)
+    get_target_property(deps ${target} LINK_LIBRARIES)
+    if (deps MATCHES "absl")
+      target_compile_options(${target} PUBLIC
+              "-Wno-gcc-compat"
+              "-Wno-unreachable-code-break"
+              "-Wno-nullability-extension"
+              "-Wno-shadow"
+      )
+    endif ()
   endif ()
 
   if (COMPILER_IS_LIKE_GNU)
@@ -67,9 +97,20 @@ function(common_compile_options target)
       list(APPEND SANITIZER_OPTIONS "-fsanitize=thread")
     endif ()
     if (${DAWN_ENABLE_UBSAN})
-      list(APPEND SANITIZER_OPTIONS
-        "-fsanitize=undefined"
-        "-fsanitize=float-divide-by-zero")
+      list(APPEND SANITIZER_OPTIONS "-fsanitize=undefined")
+      # Extra non-default sanitizers. See //build/config/sanitizers/BUILD.gn for GN config.
+      # - float-divide-by-zero (see https://dawn-review.googlesource.com/125380) is not used in
+      #   GN, as //build assumes IEEE754. We could replace this with static_asserts on is_iec559,
+      #   but it still might be useful. This should eventually removed in CMake or added in GN.
+      list(APPEND SANITIZER_OPTIONS "-fsanitize=float-divide-by-zero")
+      # - vptr is enabled in GN by default. Older versions of Clang seem to be buggy though, so gate
+      #   this on a known-good Clang. We always explicitly enable or disable it because different
+      #   versions of Clang differ on whether it's enabled by default with UBSan.
+      if (COMPILER_IS_CLANG AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 19.1.7)
+        list(APPEND SANITIZER_OPTIONS "-fsanitize=vptr")
+      else()
+        list(APPEND SANITIZER_OPTIONS "-fno-sanitize=vptr")
+      endif()
     endif ()
     if (SANITIZER_OPTIONS)
       target_compile_options(${target}
@@ -99,3 +140,4 @@ function(common_compile_options target)
     endif ()
   endif ()
 endfunction()
+

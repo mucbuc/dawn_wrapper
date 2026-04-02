@@ -1,11 +1,12 @@
 SKIP: INVALID
 
-<dawn>/src/tint/lang/glsl/writer/printer/printer.cc:733 internal compiler error: TINT_UNREACHABLE invalid texel format for read-write
-********************************************************************
-*  The tint shader compiler has encountered an unexpected error.   *
-*                                                                  *
-*  Please help us fix this issue by submitting a bug report at     *
-*  crbug.com/tint with the source program that triggered the bug.  *
-********************************************************************
+unsupported read-write storage texture format
+unsupported read-write storage texture format
+//
+// fragment_main
+//
+//
+// compute_main
+//
 
-tint executable returned error: signal: trace/BPT trap
+tint executable returned error: exit status 1

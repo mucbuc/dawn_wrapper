@@ -166,7 +166,8 @@ TEST_F(WireArgumentTests, CStringArgument) {
     EXPECT_CALL(api,
                 DeviceCreateRenderPipeline(
                     apiDevice, MatchesLambda([](const WGPURenderPipelineDescriptor* desc) -> bool {
-                        return std::string_view(desc->vertex.entryPoint.data) == "main";
+                        return std::string_view(desc->vertex.entryPoint.data,
+                                                desc->vertex.entryPoint.length) == "main";
                     })))
         .WillOnce(Return(apiPlaceholderPipeline));
 
@@ -277,6 +278,7 @@ TEST_F(WireArgumentTests, ObjectsAsPointerArgument) {
         api, QueueSubmit(apiQueue, 2, MatchesLambda([=](const WGPUCommandBuffer* cmdBufs) -> bool {
                              return cmdBufs[0] == apiCmdBufs[0] && cmdBufs[1] == apiCmdBufs[1];
                          })));
+    EXPECT_CALL(api, OnQueueOnSubmittedWorkDone(apiQueue, _));
 
     FlushClient();
 }
@@ -298,9 +300,9 @@ TEST_F(WireArgumentTests, StructureOfValuesArgument) {
                          apiDevice, MatchesLambda([](const WGPUSamplerDescriptor* desc) -> bool {
                              return desc->nextInChain == nullptr &&
                                     desc->magFilter == WGPUFilterMode_Linear &&
-                                    desc->minFilter == WGPUFilterMode_Nearest &&
+                                    desc->minFilter == WGPUFilterMode_Undefined &&
                                     desc->mipmapFilter == WGPUMipmapFilterMode_Linear &&
-                                    desc->addressModeU == WGPUAddressMode_ClampToEdge &&
+                                    desc->addressModeU == WGPUAddressMode_Undefined &&
                                     desc->addressModeV == WGPUAddressMode_Repeat &&
                                     desc->addressModeW == WGPUAddressMode_MirrorRepeat &&
                                     desc->compare == WGPUCompareFunction_Never &&
@@ -342,27 +344,22 @@ TEST_F(WireArgumentTests, StructureOfObjectArrayArgument) {
 TEST_F(WireArgumentTests, StructureOfStructureArrayArgument) {
     static constexpr int NUM_BINDINGS = 3;
     wgpu::BindGroupLayoutEntry entries[NUM_BINDINGS]{
-        {nullptr,
-         0,
-         wgpu::ShaderStage::Vertex,
-         {},
-         {nullptr, wgpu::SamplerBindingType::Filtering},
-         {},
-         {}},
-        {nullptr,
-         1,
-         wgpu::ShaderStage::Vertex,
-         {},
-         {},
-         {nullptr, wgpu::TextureSampleType::Float, wgpu::TextureViewDimension::e2D, false},
-         {}},
-        {nullptr,
-         2,
-         wgpu::ShaderStage::Vertex | wgpu::ShaderStage::Fragment,
-         {nullptr, wgpu::BufferBindingType::Uniform, false, 0},
-         {},
-         {},
-         {}},
+        {
+            .binding = 0,
+            .visibility = wgpu::ShaderStage::Vertex,
+            .sampler = {nullptr, wgpu::SamplerBindingType::Filtering},
+        },
+        {
+            .binding = 1,
+            .visibility = wgpu::ShaderStage::Vertex,
+            .texture = {nullptr, wgpu::TextureSampleType::Float, wgpu::TextureViewDimension::e2D,
+                        false},
+        },
+        {
+            .binding = 2,
+            .visibility = wgpu::ShaderStage::Vertex | wgpu::ShaderStage::Fragment,
+            .buffer = {nullptr, wgpu::BufferBindingType::Uniform, false, 0},
+        },
     };
     wgpu::BindGroupLayoutDescriptor bglDescriptor = {};
     bglDescriptor.entryCount = NUM_BINDINGS;

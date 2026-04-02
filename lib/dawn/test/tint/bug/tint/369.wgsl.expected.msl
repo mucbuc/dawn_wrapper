@@ -1,7 +1,6 @@
 #include <metal_stdlib>
-
 using namespace metal;
-struct S {
-  float2x2 m;
-};
 
+[[max_total_threads_per_threadgroup(1)]]
+kernel void v() {
+}

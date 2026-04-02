@@ -27,8 +27,6 @@
 
 #include "src/tint/lang/core/ir/transform/remove_terminator_args.h"
 
-#include <utility>
-
 #include "src/tint/lang/core/ir/builder.h"
 #include "src/tint/lang/core/ir/module.h"
 #include "src/tint/lang/core/ir/validator.h"
@@ -75,6 +73,7 @@ struct State {
             // Remove arguments from all terminators that we found.
             for (auto* terminator : terminators_to_clear) {
                 if (auto* breakif = terminator->As<BreakIf>()) {
+                    breakif->SetNumNextIterValues(0);
                     // We retain the condition operand on break_if instructions.
                     breakif->SetOperands(Vector{breakif->Condition()});
                 } else {
@@ -150,7 +149,7 @@ struct State {
             // Replace the original result with a load from the variable that we created above.
             auto* load = b.Load(var);
             load->InsertBefore(block->Front());
-            param->ReplaceAllUsesWith(load->Result(0));
+            param->ReplaceAllUsesWith(load->Result());
         }
 
         // Remove the arguments from the branches and the parameters from the block.
@@ -164,11 +163,8 @@ struct State {
 }  // namespace
 
 Result<SuccessType> RemoveTerminatorArgs(Module& ir) {
-    auto result =
-        ValidateAndDumpIfNeeded(ir, "core.RemoveTerminatorArgs", kRemoveTerminatorArgsCapabilities);
-    if (result != Success) {
-        return result;
-    }
+    core::ir::AssertValid(ir, kRemoveTerminatorArgsCapabilities,
+                          "before core.RemoveTerminatorArgs");
 
     State{ir}.Process();
 

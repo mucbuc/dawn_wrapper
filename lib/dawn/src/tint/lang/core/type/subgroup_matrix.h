@@ -30,7 +30,7 @@
 
 #include <string>
 
-#include "src/tint/lang/core/subgroup_matrix_kind.h"
+#include "src/tint/lang/core/enums.h"
 #include "src/tint/lang/core/type/clone_context.h"
 #include "src/tint/lang/core/type/type.h"
 
@@ -42,9 +42,9 @@ class SubgroupMatrix : public Castable<SubgroupMatrix, Type> {
     /// Constructor
     /// @param kind the kind of the matrix
     /// @param subtype the inner type of the matrix
-    /// @param rows the number of rows in the matrix
     /// @param columns the number of columns in the matrix
-    SubgroupMatrix(SubgroupMatrixKind kind, const Type* subtype, uint32_t rows, uint32_t columns);
+    /// @param rows the number of rows in the matrix
+    SubgroupMatrix(SubgroupMatrixKind kind, const Type* subtype, uint32_t columns, uint32_t rows);
 
     /// Destructor
     ~SubgroupMatrix() override;
@@ -57,10 +57,17 @@ class SubgroupMatrix : public Castable<SubgroupMatrix, Type> {
     SubgroupMatrixKind Kind() const { return kind_; }
     /// @returns the type of the matrix
     const type::Type* Type() const { return subtype_; }
-    /// @returns the number of rows in the matrix
-    uint32_t Rows() const { return rows_; }
     /// @returns the number of columns in the matrix
     uint32_t Columns() const { return columns_; }
+    /// @returns the number of rows in the matrix
+    uint32_t Rows() const { return rows_; }
+
+    /// @copydoc Type::Elements
+    TypeAndCount Elements(const type::Type* type_if_invalid = nullptr,
+                          uint32_t count_if_invalid = 0) const override;
+
+    /// @copydoc Type::Element
+    const type::Type* Element(uint32_t) const override { return subtype_; }
 
     /// @returns the alignment in bytes of the type. This may include tail
     /// padding.
@@ -77,8 +84,8 @@ class SubgroupMatrix : public Castable<SubgroupMatrix, Type> {
   private:
     const SubgroupMatrixKind kind_;
     const type::Type* const subtype_;
-    const uint32_t rows_;
     const uint32_t columns_;
+    const uint32_t rows_;
 };
 
 }  // namespace tint::core::type

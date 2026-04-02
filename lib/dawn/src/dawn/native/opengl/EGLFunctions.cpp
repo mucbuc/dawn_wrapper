@@ -90,6 +90,13 @@ static constexpr std::array<ExtensionInfo, kExtensionCount> kExtensionInfos{{
     {EGLExt::ImageNativeBuffer, "EGL_ANDROID_image_native_buffer", NeverPromoted, ExtType::Display},
     {EGLExt::GetNativeClientBuffer, "EGL_ANDROID_get_native_client_buffer", NeverPromoted,
      ExtType::Display},
+
+    {EGLExt::ANGLECreateContextBackwardsCompatible, "EGL_ANGLE_create_context_backwards_compatible",
+     NeverPromoted, ExtType::Display},
+    {EGLExt::ANGLECreateContextExtensionsEnabled, "EGL_ANGLE_create_context_extensions_enabled",
+     NeverPromoted, ExtType::Display},
+    {EGLExt::ANGLEContextVirtualization, "EGL_ANGLE_context_virtualization", NeverPromoted,
+     ExtType::Display},
     //
 }};
 
@@ -232,7 +239,7 @@ MaybeError EGLFunctions::LoadDisplayProcs(EGLDisplay display) {
         GET_PROC_WITH_NAME(ClientWaitSyncKHR, "eglClientWaitSyncKHR");
         GET_PROC_WITH_NAME(CreateSyncKHR, "eglCreateSyncKHR");
         GET_PROC_WITH_NAME(DestroySyncKHR, "eglDestroySyncKHR");
-        GET_PROC_WITH_NAME(ClientWaitSyncKHR, "eglClientWaitSyncKHR");
+        GET_PROC_WITH_NAME(GetSyncAttribKHR, "eglGetSyncAttribKHR");
     }
 
     if (HasExt(EGLExt::ReusableSync)) {

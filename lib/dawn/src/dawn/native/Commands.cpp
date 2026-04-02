@@ -34,6 +34,7 @@
 #include "dawn/native/QuerySet.h"
 #include "dawn/native/RenderBundle.h"
 #include "dawn/native/RenderPipeline.h"
+#include "dawn/native/ResourceTable.h"
 #include "dawn/native/Texture.h"
 
 namespace dawn::native {
@@ -216,6 +217,14 @@ void FreeCommands(CommandIterator* commands) {
                 cmd->~SetBindGroupCmd();
                 break;
             }
+            case Command::SetImmediates: {
+                SetImmediatesCmd* cmd = commands->NextCommand<SetImmediatesCmd>();
+                if (cmd->size > 0) {
+                    commands->NextData<uint8_t>(cmd->size);
+                }
+                cmd->~SetImmediatesCmd();
+                break;
+            }
             case Command::SetIndexBuffer: {
                 SetIndexBufferCmd* cmd = commands->NextCommand<SetIndexBufferCmd>();
                 cmd->~SetIndexBufferCmd();
@@ -224,6 +233,11 @@ void FreeCommands(CommandIterator* commands) {
             case Command::SetVertexBuffer: {
                 SetVertexBufferCmd* cmd = commands->NextCommand<SetVertexBufferCmd>();
                 cmd->~SetVertexBufferCmd();
+                break;
+            }
+            case Command::SetResourceTable: {
+                SetResourceTableCmd* cmd = commands->NextCommand<SetResourceTableCmd>();
+                cmd->~SetResourceTableCmd();
                 break;
             }
             case Command::WriteBuffer: {
@@ -384,6 +398,14 @@ void SkipCommand(CommandIterator* commands, Command type) {
             break;
         }
 
+        case Command::SetImmediates: {
+            SetImmediatesCmd* cmd = commands->NextCommand<SetImmediatesCmd>();
+            if (cmd->size > 0) {
+                commands->NextData<uint8_t>(cmd->size);
+            }
+            break;
+        }
+
         case Command::SetIndexBuffer:
             commands->NextCommand<SetIndexBufferCmd>();
             break;
@@ -393,9 +415,18 @@ void SkipCommand(CommandIterator* commands, Command type) {
             break;
         }
 
-        case Command::WriteBuffer:
-            commands->NextCommand<WriteBufferCmd>();
+        case Command::SetResourceTable: {
+            commands->NextCommand<SetResourceTableCmd>();
             break;
+        }
+
+        case Command::WriteBuffer: {
+            auto cmd = commands->NextCommand<WriteBufferCmd>();
+            if (cmd->size > 0) {
+                commands->NextData<uint8_t>(cmd->size);
+            }
+            break;
+        }
 
         case Command::WriteTimestamp: {
             commands->NextCommand<WriteTimestampCmd>();
@@ -406,7 +437,7 @@ void SkipCommand(CommandIterator* commands, Command type) {
 
 const char* AddNullTerminatedString(CommandAllocator* allocator, StringView s, uint32_t* length) {
     std::string_view view = s;
-    *length = view.length();
+    *length = static_cast<uint32_t>(view.length());
 
     // Include extra null-terminator character. The string_view may not be null-terminated. It also
     // may already have a null-terminator inside of it, in which case adding the null-terminator is
@@ -436,6 +467,10 @@ RenderPassStorageAttachmentInfo::~RenderPassStorageAttachmentInfo() = default;
 RenderPassDepthStencilAttachmentInfo::RenderPassDepthStencilAttachmentInfo() = default;
 RenderPassDepthStencilAttachmentInfo::~RenderPassDepthStencilAttachmentInfo() = default;
 
+bool ResolveRect::HasValue() const {
+    return updateWidth != 0 && updateHeight != 0;
+}
+
 BeginRenderPassCmd::BeginRenderPassCmd() = default;
 BeginRenderPassCmd::~BeginRenderPassCmd() = default;
 
@@ -446,6 +481,10 @@ TextureCopy::TextureCopy() = default;
 TextureCopy::TextureCopy(const TextureCopy&) = default;
 TextureCopy& TextureCopy::operator=(const TextureCopy&) = default;
 TextureCopy::~TextureCopy() = default;
+
+const TexelBlockInfo& GetBlockInfo(const TextureCopy& t) {
+    return t.texture->GetFormat().GetAspectInfo(t.aspect).block;
+}
 
 CopyBufferToBufferCmd::CopyBufferToBufferCmd() = default;
 CopyBufferToBufferCmd::~CopyBufferToBufferCmd() = default;
@@ -483,11 +522,17 @@ SetRenderPipelineCmd::~SetRenderPipelineCmd() = default;
 SetBindGroupCmd::SetBindGroupCmd() = default;
 SetBindGroupCmd::~SetBindGroupCmd() = default;
 
+SetImmediatesCmd::SetImmediatesCmd() = default;
+SetImmediatesCmd::~SetImmediatesCmd() = default;
+
 SetIndexBufferCmd::SetIndexBufferCmd() = default;
 SetIndexBufferCmd::~SetIndexBufferCmd() = default;
 
 SetVertexBufferCmd::SetVertexBufferCmd() = default;
 SetVertexBufferCmd::~SetVertexBufferCmd() = default;
+
+SetResourceTableCmd::SetResourceTableCmd() = default;
+SetResourceTableCmd::~SetResourceTableCmd() = default;
 
 WriteBufferCmd::WriteBufferCmd() = default;
 WriteBufferCmd::~WriteBufferCmd() = default;

@@ -25,26 +25,21 @@
 // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#include "src/tint/lang/wgsl/writer/raise/value_to_let.h"
-
 #include "src/tint/cmd/fuzz/ir/fuzz.h"
 #include "src/tint/lang/core/ir/validator.h"
+#include "src/tint/lang/wgsl/writer/raise/value_to_let.h"
 
 namespace tint::wgsl::writer::raise {
 namespace {
 
-void ValueToLetFuzzer(core::ir::Module& module) {
-    if (auto res = ValueToLet(module); res != Success) {
-        return;
-    }
-
-    core::ir::Capabilities capabilities;
-    if (auto res = Validate(module, capabilities); res != Success) {
-        TINT_ICE() << "result of ValueToLet failed IR validation\n" << res.Failure();
-    }
+Result<SuccessType> ValueToLetFuzzer(core::ir::Module& ir, const fuzz::ir::Context&) {
+    return ValueToLet(ir);
 }
 
 }  // namespace
 }  // namespace tint::wgsl::writer::raise
 
-TINT_IR_MODULE_FUZZER(tint::wgsl::writer::raise::ValueToLetFuzzer, tint::core::ir::Capabilities{});
+TINT_IR_MODULE_FUZZER(tint::wgsl::writer::raise::ValueToLetFuzzer,
+                      tint::core::ir::Capabilities{},
+                      tint::core::ir::Capabilities{
+                          tint::core::ir::Capability::kAllowPhonyInstructions});

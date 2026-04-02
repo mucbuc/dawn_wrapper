@@ -29,6 +29,8 @@
 #define SRC_DAWN_NATIVE_OPENGL_DISPLAYEGL_H_
 
 #include <memory>
+#include <span>
+#include <string>
 
 #include "absl/types/span.h"  // TODO(343500108): Use std::span when we have C++20.
 #include "dawn/common/DynamicLib.h"
@@ -37,18 +39,20 @@
 #include "dawn/common/RefCounted.h"
 #include "dawn/common/egl_platform.h"
 #include "dawn/native/opengl/EGLFunctions.h"
+#include "partition_alloc/pointers/raw_ref.h"
 
 namespace dawn::native::opengl {
 
-static constexpr EGLConfig kNoConfig = 0;
+inline constexpr EGLConfig kNoConfig = 0;
 
 // Represents a connection to an EGL driver, with its EGLDisplay, its functions and other metadata
 // global to EGL.
 class DisplayEGL : public RefCounted {
   public:
-    static ResultOrError<Ref<DisplayEGL>> CreateFromDynamicLoading(wgpu::BackendType backend,
-                                                                   const char* libName);
-
+    static ResultOrError<Ref<DisplayEGL>> CreateFromDynamicLoading(
+        wgpu::BackendType backend,
+        const char* libName,
+        std::span<const std::string> searchPaths);
     static ResultOrError<Ref<DisplayEGL>> CreateFromProcAndDisplay(wgpu::BackendType backend,
                                                                    EGLGetProcProc getProc,
                                                                    EGLDisplay display);
@@ -57,7 +61,7 @@ class DisplayEGL : public RefCounted {
     ~DisplayEGL() override;
 
     // A convenience ref to avoid having to call an accessor function every time we need to use EGL
-    const EGLFunctions& egl;
+    const raw_ref<const EGLFunctions> egl;
     EGLDisplay GetDisplay() const;
     EGLint GetAPIEnum() const;
     EGLint GetAPIBit() const;
@@ -70,7 +74,8 @@ class DisplayEGL : public RefCounted {
                            wgpu::TextureFormat depthStencil = wgpu::TextureFormat::Undefined) const;
 
   private:
-    MaybeError InitializeWithDynamicLoading(const char* libName);
+    MaybeError InitializeWithDynamicLoading(const char* libName,
+                                            std::span<const std::string> searchPaths);
     MaybeError InitializeWithProcAndDisplay(EGLGetProcProc getProc, EGLDisplay display);
 
     DynamicLib mLib;

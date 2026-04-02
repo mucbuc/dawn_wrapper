@@ -32,7 +32,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -40,13 +39,17 @@ import (
 	"time"
 
 	"dawn.googlesource.com/dawn/tools/src/cmd/run-cts/common"
+	"dawn.googlesource.com/dawn/tools/src/oswrapper"
 )
 
+// TODO(crbug.com/416755658): Add unittest coverage when there is a way to fake
+// the node process.
 // runTestCasesWithCmdline() calls the CTS command-line test runner to run each
 // test case in a separate process. This reduces possibility of state leakage
 // between tests.
 // Up to c.flags.numRunners tests will be run concurrently.
-func (c *cmd) runTestCasesWithCmdline(ctx context.Context, testCases []common.TestCase, results chan<- common.Result) {
+func (c *cmd) runTestCasesWithCmdline(
+	ctx context.Context, testCases []common.TestCase, results chan<- common.Result, fsReaderWriter oswrapper.FilesystemReaderWriter) {
 	// Create a chan of test indices.
 	// This will be read by the test runner goroutines.
 	testCaseIndices := make(chan int, 256)
@@ -64,7 +67,7 @@ func (c *cmd) runTestCasesWithCmdline(ctx context.Context, testCases []common.Te
 		go func() {
 			defer wg.Done()
 			for idx := range testCaseIndices {
-				res := c.runTestCaseWithCmdline(ctx, testCases[idx])
+				res := c.runTestCaseWithCmdline(ctx, testCases[idx], fsReaderWriter)
 				res.Index = idx
 				results <- res
 				if err := ctx.Err(); err != nil {
@@ -76,9 +79,11 @@ func (c *cmd) runTestCasesWithCmdline(ctx context.Context, testCases []common.Te
 	wg.Wait()
 }
 
+// TODO(crbug.com/416755658): Add unittest coverage when exec is handled via
+// dependency injection.
 // runTestCaseWithCmdline() runs a single CTS test case with the command line tool,
 // returning the test result.
-func (c *cmd) runTestCaseWithCmdline(ctx context.Context, testCase common.TestCase) common.Result {
+func (c *cmd) runTestCaseWithCmdline(ctx context.Context, testCase common.TestCase, fsReaderWriter oswrapper.FilesystemReaderWriter) common.Result {
 	ctx, cancel := context.WithTimeout(ctx, common.TestCaseTimeout)
 	defer cancel()
 
@@ -90,7 +95,7 @@ func (c *cmd) runTestCaseWithCmdline(ctx context.Context, testCase common.TestCa
 		// start at 1, so just inject a placeholder argument.
 		"placeholder-arg",
 		// Actual arguments begin here
-		"--gpu-provider", filepath.Join(c.flags.bin, "cts.js"),
+		"--gpu-provider", filepath.Join(c.flags.bin, "cts.cjs"),
 		"--verbose", // always required to emit test pass results
 		"--quiet",
 	}
@@ -108,6 +113,12 @@ func (c *cmd) runTestCaseWithCmdline(ctx context.Context, testCase common.TestCa
 	}
 	if c.flags.compatibilityMode {
 		args = append(args, "--compat")
+	}
+	if c.flags.enforceDefaultLimits {
+		args = append(args, "--enforce-default-limits")
+	}
+	if c.flags.blockAllFeatures {
+		args = append(args, "--block-all-features")
 	}
 	for _, f := range c.flags.dawn {
 		args = append(args, "--gpu-provider-flag", f)
@@ -145,8 +156,8 @@ func (c *cmd) runTestCaseWithCmdline(ctx context.Context, testCase common.TestCa
 				footerStart += headerStart
 				path := msg[headerStart+len(header) : footerStart]
 				res.Message = msg[:headerStart] + msg[footerStart+len(footer):] // Strip out the coverage from the message
-				coverage, covErr := c.coverage.Env.Import(path)
-				os.Remove(path)
+				coverage, covErr := c.coverage.Env.Import(path, fsReaderWriter)
+				fsReaderWriter.Remove(path)
 				if covErr == nil {
 					res.Coverage = coverage
 				} else {

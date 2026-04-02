@@ -30,20 +30,17 @@
 
 #include <array>
 #include <optional>
-#include <utility>
 
 #include "src/tint/lang/core/io_attributes.h"
 #include "src/tint/lang/core/ir/constant.h"
 #include "src/tint/lang/core/ir/function_param.h"
 #include "src/tint/lang/core/ir/value.h"
 #include "src/tint/lang/core/type/type.h"
-#include "src/tint/utils/containers/const_propagating_ptr.h"
 #include "src/tint/utils/ice/ice.h"
 
 // Forward declarations
 namespace tint::core::ir {
 class Block;
-class FunctionTerminator;
 }  // namespace tint::core::ir
 
 namespace tint::core::ir {
@@ -67,10 +64,12 @@ class Function : public Castable<Function, Value> {
     Function();
 
     /// Constructor
+    /// @param type the type of the function itself
     /// @param rt the function return type
     /// @param stage the function stage
     /// @param wg_size the workgroup_size
-    Function(const core::type::Type* rt,
+    Function(const core::type::Type* type,
+             const core::type::Type* rt,
              PipelineStage stage = PipelineStage::kUndefined,
              std::optional<std::array<Value*, 3>> wg_size = {});
     ~Function() override;
@@ -84,6 +83,18 @@ class Function : public Castable<Function, Value> {
 
     /// @returns the function pipeline stage
     PipelineStage Stage() const { return pipeline_stage_; }
+
+    /// @returns true if the function is an entry point
+    bool IsEntryPoint() const { return pipeline_stage_ != PipelineStage::kUndefined; }
+
+    /// @returns true if the function is a compute stage entry point
+    bool IsCompute() const { return pipeline_stage_ == PipelineStage::kCompute; }
+
+    /// @returns true if the function is a fragment stage entry point
+    bool IsFragment() const { return pipeline_stage_ == PipelineStage::kFragment; }
+
+    /// @returns true if the function is a vertex stage entry point
+    bool IsVertex() const { return pipeline_stage_ == PipelineStage::kVertex; }
 
     /// Sets the workgroup size
     /// @param x the x size
@@ -121,6 +132,29 @@ class Function : public Castable<Function, Value> {
         }};
     }
 
+    /// Sets the subgroup size
+    /// @param size the new subgroup size
+    void SetSubgroupSize(Value* size) { subgroup_size_ = size; }
+
+    /// @returns the subgroup size information
+    std::optional<Value*> SubgroupSize() const { return subgroup_size_; }
+
+    /// @returns the subgroup size information as `uint32_t` values. Note, this requires the value
+    /// to be constant.
+    std::optional<uint32_t> SubgroupSizeAsConst() const {
+        if (!subgroup_size_.has_value()) {
+            return std::nullopt;
+        }
+
+        auto* value = subgroup_size_.value()->As<core::ir::Constant>();
+        TINT_ASSERT(value);
+
+        return value->Value()->ValueAs<uint32_t>();
+    }
+
+    /// Clears the subgroup size.
+    void ClearSubgroupSize() { subgroup_size_ = {}; }
+
     /// @param type the return type for the function
     void SetReturnType(const core::type::Type* type) { return_.type = type; }
 
@@ -133,7 +167,7 @@ class Function : public Castable<Function, Value> {
     /// @returns the return IO attributes
     const IOAttributes& ReturnAttributes() const { return return_.attributes; }
 
-    /// Sets the return attributes
+    /// Sets the return builtin attribute
     /// @param builtin the builtin to set
     void SetReturnBuiltin(BuiltinValue builtin) {
         TINT_ASSERT(!return_.attributes.builtin.has_value());
@@ -141,6 +175,13 @@ class Function : public Castable<Function, Value> {
     }
     /// @returns the return builtin attribute
     std::optional<BuiltinValue> ReturnBuiltin() const { return return_.attributes.builtin; }
+
+    /// Sets the return depth mode attribute
+    /// @param depth_mode the depth mode to set
+    void SetReturnDepthMode(BuiltinDepthMode depth_mode) {
+        TINT_ASSERT(!return_.attributes.depth_mode.has_value());
+        return_.attributes.depth_mode = depth_mode;
+    }
 
     /// Sets the return location.
     /// @param loc the optional location to set
@@ -204,6 +245,7 @@ class Function : public Castable<Function, Value> {
   private:
     PipelineStage pipeline_stage_ = PipelineStage::kUndefined;
     std::optional<std::array<Value*, 3>> workgroup_size_;
+    std::optional<Value*> subgroup_size_;
 
     struct {
         const core::type::Type* type = nullptr;
@@ -211,7 +253,7 @@ class Function : public Castable<Function, Value> {
     } return_;
 
     Vector<FunctionParam*, 1> params_;
-    ConstPropagatingPtr<ir::Block> block_;
+    ir::Block* block_ = nullptr;
 };
 
 /// @param value the enum value
@@ -221,7 +263,8 @@ std::string_view ToString(Function::PipelineStage value);
 /// @param out the stream to write to
 /// @param value the Function::PipelineStage
 /// @returns @p out so calls can be chained
-template <typename STREAM, typename = traits::EnableIfIsOStream<STREAM>>
+template <typename STREAM>
+    requires(traits::IsOStream<STREAM>)
 auto& operator<<(STREAM& out, Function::PipelineStage value) {
     return out << ToString(value);
 }

@@ -29,11 +29,11 @@
 #define SRC_DAWN_NATIVE_D3D12_QUEUED3D12_H_
 
 #include <array>
-#include <bitset>
 #include <memory>
 
 #include "dawn/common/MutexProtected.h"
 #include "dawn/common/SerialQueue.h"
+#include "dawn/common/ityp_bitset.h"
 #include "dawn/native/SystemEvent.h"
 #include "dawn/native/d3d/QueueD3D.h"
 #include "dawn/native/d3d12/CommandRecordingContext.h"
@@ -54,7 +54,8 @@ class Queue final : public d3d::Queue {
     ID3D12CommandQueue* GetCommandQueue() const;
     ResultOrError<Ref<d3d::SharedFence>> GetOrCreateSharedFence() override;
     ID3D12SharingContract* GetSharingContract() const;
-    MaybeError SubmitPendingCommands() override;
+
+    const Ref<SharedFence>& GetSharedFence() const { return mSharedFence; }
 
   private:
     using d3d::Queue::Queue;
@@ -62,12 +63,13 @@ class Queue final : public d3d::Queue {
 
     MaybeError Initialize();
 
-    void DestroyImpl() override;
+    void DestroyImpl(DestroyReason reason) override;
+    MaybeError SubmitPendingCommandsImpl() override;
     MaybeError SubmitImpl(uint32_t commandCount, CommandBufferBase* const* commands) override;
     bool HasPendingCommands() const override;
     ResultOrError<ExecutionSerial> CheckAndUpdateCompletedSerials() override;
     void ForceEventualFlushOfCommands() override;
-    MaybeError WaitForIdleForDestruction() override;
+    MaybeError WaitForIdleForDestructionImpl() override;
 
     void SetEventOnCompletion(ExecutionSerial serial, HANDLE event) override;
 
@@ -97,7 +99,7 @@ class Queue final : public d3d::Queue {
     };
 
     std::array<AllocatorAndList, kMaxCommandAllocators> mCommandAllocators;
-    std::bitset<kMaxCommandAllocators> mFreeAllocators;
+    ityp::bitset<uint32_t, kMaxCommandAllocators> mFreeAllocators;
     uint32_t mLastAllocatorUsed = kNoCommandAllocator;
     SerialQueue<ExecutionSerial, uint32_t> mInFlightCommandAllocators;
 };

@@ -29,9 +29,12 @@
 #define SRC_TINT_LANG_WGSL_INSPECTOR_RESOURCE_BINDING_H_
 
 #include <cstdint>
+#include <optional>
 #include <string>
 
-#include "src/tint/lang/core/texel_format.h"
+#include "src/tint/lang/core/enums.h"
+#include "src/tint/lang/core/type/sampled_texture.h"
+#include "src/tint/lang/core/type/sampler.h"
 #include "src/tint/lang/core/type/texture_dimension.h"
 #include "src/tint/lang/core/type/type.h"
 
@@ -59,15 +62,51 @@ struct ResourceBinding {
 
     /// Component type of the texture's data. Same as the Sampled Type parameter
     /// in SPIR-V OpTypeImage.
-    enum class SampledKind : uint8_t { kFloat, kUInt, kSInt, kUnknown };
+    enum class SampledKind : uint8_t {
+        // Note, the `Float` type is here for things like the `input_attachment` resources.
+        // Multisampled textures will also use it, but they could also use `Unfilterable` and be
+        // correct per the spec.
+        kFloat,
+        kUInt,
+        kSInt,
+        kFilterable,
+        kUnfilterable,
+        kUnknownFilterable,
+    };
+
+    enum class SamplerType : uint8_t {
+        kComparison,
+        kFiltering,
+        kNonFiltering,
+        kUnknownFiltering,
+    };
 
     /// Enumerator of texel image formats
     enum class TexelFormat : uint8_t {
+        kR8Snorm,
+        kR8Uint,
+        kR8Sint,
+        kRg8Unorm,
+        kRg8Snorm,
+        kRg8Uint,
+        kRg8Sint,
+        kR16Unorm,
+        kR16Snorm,
+        kR16Uint,
+        kR16Sint,
+        kR16Float,
+        kRg16Unorm,
+        kRg16Snorm,
+        kRg16Uint,
+        kRg16Sint,
+        kRg16Float,
         kBgra8Unorm,
         kRgba8Unorm,
         kRgba8Snorm,
         kRgba8Uint,
         kRgba8Sint,
+        kRgba16Unorm,
+        kRgba16Snorm,
         kRgba16Uint,
         kRgba16Sint,
         kRgba16Float,
@@ -81,16 +120,17 @@ struct ResourceBinding {
         kRgba32Sint,
         kRgba32Float,
         kR8Unorm,
+        kRgb10A2Uint,
+        kRgb10A2Unorm,
+        kRg11B10Ufloat,
         kNone,
     };
 
-    /// kXXX maps to entries returned by GetXXXResourceBindings call.
     enum class ResourceType {
         kUniformBuffer,
         kStorageBuffer,
         kReadOnlyStorageBuffer,
         kSampler,
-        kComparisonSampler,
         kSampledTexture,
         kMultisampledTexture,
         kWriteOnlyStorageTexture,
@@ -99,6 +139,8 @@ struct ResourceBinding {
         kDepthTexture,
         kDepthMultisampledTexture,
         kExternalTexture,
+        kReadOnlyTexelBuffer,
+        kReadWriteTexelBuffer,
         kInputAttachment,
     };
 
@@ -109,9 +151,11 @@ struct ResourceBinding {
     /// Identifier to identify this binding within the bind group
     uint32_t binding;
     /// Input attachment index. Only available for input attachments.
-    uint32_t input_attachmnt_index;
+    uint32_t input_attachment_index;
     /// Size for this binding, in bytes, if defined.
     uint64_t size;
+    /// The array_size, if the binding is in a binding_array
+    std::optional<uint32_t> array_size;
     /// Size for this binding without trailing structure padding, in bytes, if
     /// defined.
     uint64_t size_no_padding;
@@ -119,6 +163,8 @@ struct ResourceBinding {
     TextureDimension dim;
     /// Kind of data being sampled, if defined.
     SampledKind sampled_kind;
+    /// Sampler information, if defined
+    SamplerType sampler_type;
     /// Format of data, if defined.
     TexelFormat image_format;
     /// Variable name of the binding.
@@ -132,10 +178,20 @@ struct ResourceBinding {
 ResourceBinding::TextureDimension TypeTextureDimensionToResourceBindingTextureDimension(
     const core::type::TextureDimension& type_dim);
 
+/// Infer ResourceBinding::SampledKind for a given core::type::SampledTexture
+/// @param tex the texture
+/// @returns the publicly visible equivalent
+ResourceBinding::SampledKind ToFilterableSampledKind(const core::type::SampledTexture* tex);
+
 /// Infer ResourceBinding::SampledKind for a given core::type::Type
 /// @param base_type internal type to infer from
 /// @returns the publicly visible equivalent
 ResourceBinding::SampledKind BaseTypeToSampledKind(const core::type::Type* base_type);
+
+/// Infers the ResourceBinding::SamplerType for a given sampler
+/// @param sampler the sampler
+/// @returns the publicly visible equivalent
+ResourceBinding::SamplerType SamplerToSamplerType(const core::type::Sampler* sampler);
 
 /// Convert from internal core::TexelFormat to public
 /// ResourceBinding::TexelFormat

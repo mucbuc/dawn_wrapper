@@ -29,6 +29,7 @@
 
 import("//build_overrides/build.gni")
 
+import("../../scripts/dawn_features.gni")
 import("../../scripts/dawn_overrides_with_defaults.gni")
 import("../../scripts/tint_overrides_with_defaults.gni")
 
@@ -97,6 +98,12 @@ config("tint_public_config") {
     defines += [ "TINT_BUILD_HLSL_WRITER=0" ]
   }
 
+  if (tint_build_null_writer) {
+    defines += [ "TINT_BUILD_NULL_WRITER=1" ]
+  } else {
+    defines += [ "TINT_BUILD_NULL_WRITER=0" ]
+  }
+
   if (tint_build_glsl_writer) {
     defines += [ "TINT_BUILD_GLSL_WRITER=1" ]
   } else {
@@ -109,22 +116,10 @@ config("tint_public_config") {
     defines += [ "TINT_BUILD_GLSL_VALIDATOR=0" ]
   }
 
-  if (tint_build_syntax_tree_writer) {
-    defines += [ "TINT_BUILD_SYNTAX_TREE_WRITER=1" ]
-  } else {
-    defines += [ "TINT_BUILD_SYNTAX_TREE_WRITER=0" ]
-  }
-
   if (tint_build_ir_binary) {
     defines += [ "TINT_BUILD_IR_BINARY=1" ]
   } else {
     defines += [ "TINT_BUILD_IR_BINARY=0" ]
-  }
-
-  if (tint_build_ir_fuzzer) {
-    defines += [ "TINT_BUILD_IR_FUZZER=1" ]
-  } else {
-    defines += [ "TINT_BUILD_IR_FUZZER=0" ]
   }
 
   if (tint_build_is_win) {
@@ -145,10 +140,33 @@ config("tint_public_config") {
     defines += [ "TINT_BUILD_IS_LINUX=0" ]
   }
 
+  if (tint_build_fuzzer_vulkan_support) {
+    defines += [ "TINT_BUILD_FUZZER_VULKAN_SUPPORT=1" ]
+  } else {
+    defines += [ "TINT_BUILD_FUZZER_VULKAN_SUPPORT=0" ]
+  }
+
+  if (tint_enable_ir_dumping) {
+    defines += [ "TINT_ENABLE_IR_DUMPING=1" ]
+  } else {
+    defines += [ "TINT_ENABLE_IR_DUMPING=0" ]
+  }
+
+  if (tint_enable_ir_validation_asserts || use_libfuzzer) {
+    defines += [ "TINT_ENABLE_IR_VALIDATION_ASSERTS=1" ]
+  } else {
+    defines += [ "TINT_ENABLE_IR_VALIDATION_ASSERTS=0" ]
+  }
+
   include_dirs = [
     "${tint_root_dir}/",
     "${tint_root_dir}/include/",
   ]
+
+  if (!is_clang && is_win) {
+    # MSVC needs a flag to enable a standard-compliant preprocessor.
+    cflags = [ "/Zc:preprocessor" ]
+  }
 }
 
 config("tint_config") {
@@ -272,17 +290,6 @@ if (tint_build_benchmarks) {
   }
 }
 
-group("abseil") {
-  # When building within Chromium or ANGLE we need to include "//third_party/abseil-cpp:absl" while
-  # it's beneficial to be more specific with standalone Dawn, especially when it comes to
-  # including it as a dependency in other projects (such as Skia).
-  if (build_with_chromium || build_with_angle) {
-    public_deps = [ "$dawn_abseil_dir:absl" ]
-  } else {
-    public_deps = [ "${dawn_root}/third_party/gn/abseil-cpp:strings" ]
-  }
-}
-
 source_set("winsock") {
   libs = [ "ws2_32.lib" ]
 }
@@ -295,42 +302,9 @@ source_set("dxc-include") {
 }
 
 source_set("dxcompiler-for-fuzzer") {
-  if (defined(use_libfuzzer) && use_libfuzzer &&
+  if (dawn_use_built_dxc && defined(use_fuzzing_engine) && use_fuzzing_engine &&
       (is_win || is_linux || is_mac) && target_cpu != "x86") {
     public_deps = [ "${dawn_dxc_dir}/../gn/dxc:dxcompiler" ]
-  }
-}
-
-###############################################################################
-# Fuzzers
-###############################################################################
-if (tint_has_fuzzers) {
-  action("tint_generate_wgsl_corpus") {
-    script = "${tint_src_dir}/cmd/fuzz/wgsl/generate_wgsl_corpus.py"
-    sources = [ "${script}" ]
-    args = [
-      "--stamp=" + rebase_path(fuzzer_corpus_wgsl_stamp, root_build_dir),
-      rebase_path("${tint_root_dir}/test", root_build_dir),
-      rebase_path(fuzzer_corpus_wgsl_dir, root_build_dir),
-    ]
-    outputs = [ fuzzer_corpus_wgsl_stamp ]
-  }
-
-  if (tint_build_ir_fuzzer) {
-    if (tint_build_cmds && tint_build_wgsl_reader && tint_build_ir_binary) {
-      action("tint_generate_ir_corpus") {
-        script = "${tint_src_dir}/cmd/fuzz/ir/generate_ir_corpus.py"
-        sources = [ "${script}" ]
-        deps = [ "${tint_src_dir}/cmd/fuzz/ir/as" ]
-        args = [
-          "--stamp=" + rebase_path(fuzzer_corpus_ir_stamp, root_build_dir),
-          rebase_path("${root_build_dir}/ir_fuzz_as", root_build_dir),
-          rebase_path("${tint_root_dir}/test", root_build_dir),
-          rebase_path(fuzzer_corpus_ir_dir, root_build_dir),
-        ]
-        outputs = [ fuzzer_corpus_ir_stamp ]
-      }
-    }
   }
 }
 
@@ -346,14 +320,13 @@ group("cmds") {
   if (tint_build_cmds) {
     deps += [
       "${tint_src_dir}/cmd/info",
-      "${tint_src_dir}/cmd/remote_compile",
       "${tint_src_dir}/cmd/tint",
     ]
   }
   if (tint_build_tintd) {
     deps += [ "${tint_src_dir}/cmd/tintd" ]
   }
-  if (tint_build_ir_fuzzer && tint_build_ir_binary) {
+  if (tint_build_ir_binary) {
     if (tint_build_wgsl_reader) {
       deps += [ "${tint_src_dir}/cmd/fuzz/ir/as" ]
     }
@@ -365,36 +338,49 @@ group("cmds") {
 
 group("fuzzers") {
   testonly = true
-  deps = []
-  if (tint_has_fuzzers) {
-    deps += [ "${tint_src_dir}/cmd/fuzz/wgsl" ]
+  data_deps = []
+  if (tint_build_wgsl_reader) {
+    data_deps += [ "${tint_src_dir}/cmd/fuzz/wgsl" ]
   }
+  if (tint_build_ir_binary) {
+    data_deps += [ "${tint_src_dir}/cmd/fuzz/ir" ]
+  }
+}
 
-  if (tint_build_ir_fuzzer && (!is_asan || build_with_chromium)) {
-    deps += [ "${tint_src_dir}/cmd/fuzz/ir" ]
+group("fuzzer_corpus_tools") {
+  testonly = true
+  data_deps = [ ":fuzzers" ]
+  if (tint_build_ir_binary) {
+    data_deps += [ "${tint_src_dir}/cmd/fuzz/ir/as" ]
   }
+}
+
+group("fuzzer_corpus_tests") {
+  testonly = true
+  data_deps = [
+    ":fuzzer_corpus_tools",
+    "${dawn_root}/tools:go_tools",
+  ]
+  data = [
+    "${dawn_root}/scripts/run_tint_fuzzer_corpus_tests.py",
+    "${dawn_root}/test/tint/",
+    "${dawn_root}/tools/python/",
+  ]
 }
 
 group("tests") {
   testonly = true
   deps = []
   if (tint_build_unittests) {
-    deps += [ "${tint_src_dir}/cmd/test:test_cmd" ]
+    deps += [ "${tint_src_dir}/cmd/test:tint_unittests" ]
   }
 }
 
 group("benchmarks") {
   testonly = true
-  deps = []
+  data_deps = []
   if (tint_build_benchmarks && tint_build_wgsl_reader) {
-    deps += [ "${tint_src_dir}/cmd/bench:bench_cmd" ]
+    data_deps += [ "${tint_src_dir}/cmd/bench:bench_cmd" ]
   }
-}
-
-###############################################################################
-# Aliases
-###############################################################################
-group("tint_unittests") {
-  testonly = true
-  public_deps = [ ":tests" ]
+  data = [ "${dawn_root}/scripts/run_tint_benchmark_test.py" ]
 }

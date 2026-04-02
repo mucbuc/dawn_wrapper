@@ -25,24 +25,18 @@
 // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#include "src/tint/lang/core/ir/transform/substitute_overrides.h"
-
 #include "src/tint/cmd/fuzz/ir/fuzz.h"
 #include "src/tint/lang/core/ir/module.h"
+#include "src/tint/lang/core/ir/transform/substitute_overrides.h"
 #include "src/tint/lang/core/ir/validator.h"
 
 namespace tint::core::ir::transform {
 namespace {
 
-void SubstituteOverridesFuzzer(Module& module, SubstituteOverridesConfig config) {
-    if (auto res = SubstituteOverrides(module, config); res != Success) {
-        return;
-    }
-
-    Capabilities capabilities;
-    if (auto res = Validate(module, capabilities); res != Success) {
-        TINT_ICE() << "result of SubstituteOverrides failed IR validation\n" << res.Failure();
-    }
+Result<SuccessType> SubstituteOverridesFuzzer(Module& ir,
+                                              const fuzz::ir::Context&,
+                                              const SubstituteOverridesConfig& cfg) {
+    return SubstituteOverrides(ir, cfg);
 }
 
 }  // namespace

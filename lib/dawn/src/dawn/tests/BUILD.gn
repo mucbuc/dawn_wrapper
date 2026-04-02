@@ -26,6 +26,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import("../../../scripts/dawn_overrides_with_defaults.gni")
+import("../../../scripts/tint_overrides_with_defaults.gni")
 
 import("//testing/test.gni")
 import("${dawn_root}/generator/dawn_generator.gni")
@@ -84,6 +85,12 @@ if (!build_with_chromium) {
       "${googletest_dir}/googlemock/include",
       "${googletest_dir}/googletest/include",
     ]
+    if (dawn_standalone && is_clang) {
+      cflags = [
+        # gmock emits deprecated-copy-dtor warnings when using ::testing::Combine
+        "-Wno-deprecated-copy-dtor",
+      ]
+    }
   }
 
   static_library("gmock") {
@@ -98,6 +105,12 @@ if (!build_with_chromium) {
       ":gmock",
       ":gtest",
     ]
+  }
+
+  static_library("gmock_main") {
+    testonly = true
+    sources = [ "${googletest_dir}/googlemock/src/gmock_main.cc" ]
+    public_deps = [ ":gmock_and_gtest" ]
   }
 } else {
   # When we are in Chromium we reuse its targets, and also add some deps that
@@ -142,12 +155,10 @@ if (build_with_chromium) {
 # Copy target for DXC
 ###############################################################################
 
-# When building with chromium under Windows, we need to copy the DXC from
-# Windows SDK into build folder, in order to ensure a DXC of version 1.6 is
-# available when running end-to-end tests in Chromium. Note that currently DXC
-# only provided for x86 and x64 in Windows SDK 20348.
-if (!dawn_use_built_dxc && build_with_chromium && is_win &&
-    (target_cpu == "x64" || target_cpu == "x86")) {
+# Chromium archive scripts are not able to determine whether dawn_built_dxc
+# is defined. Hence, we need to copy the DXC DLLs from the Windows SDK so the
+# scripts always have something to pick up.
+if (!dawn_use_built_dxc && build_with_chromium && is_win) {
   # The windows_sdk_path is acquired in visual_studio_version.gni.
   import("//build/config/win/visual_studio_version.gni")
 
@@ -162,7 +173,6 @@ if (!dawn_use_built_dxc && build_with_chromium && is_win &&
   # end-to-end test in Chromium.
   copy("copy_dxc_binary") {
     sources = [
-      "$windows_sdk_path/bin/$windows_sdk_version/$target_cpu/dxc.exe",
       "$windows_sdk_path/bin/$windows_sdk_version/$target_cpu/dxcompiler.dll",
       "$windows_sdk_path/bin/$windows_sdk_version/$target_cpu/dxil.dll",
     ]
@@ -196,15 +206,13 @@ template("dawn_test") {
 
     # Running Dawn tests within Chromium in Windows may require DXC, copy DXC
     # binary from Windows SDK.
-    if (build_with_chromium && is_win &&
-        (target_cpu == "x64" || target_cpu == "x86")) {
+    if (build_with_chromium && is_win) {
       if (dawn_use_built_dxc) {
         if (!defined(deps)) {
           deps = []
         }
         deps += [
           "$dawn_root/third_party/gn/dxc:copy_dxil_dll",
-          "$dawn_root/third_party/gn/dxc:dxc",
           "$dawn_root/third_party/gn/dxc:dxcompiler",
         ]
       } else {
@@ -236,10 +244,10 @@ source_set("native_mocks_sources") {
 
   deps = [
     ":gmock_and_gtest",
+    ":test_infra_sources",
     "${dawn_root}/src/dawn:proc",
     "${dawn_root}/src/dawn/native:sources",
     "${dawn_root}/src/dawn/native:static",
-    "${dawn_root}/src/dawn/utils",
   ]
 
   # Add internal dawn native config for internal unittests.
@@ -286,14 +294,19 @@ dawn_test("dawn_unittests") {
     ":native_mocks_sources",
     ":partition_alloc_support",
     ":platform_mocks_sources",
+    ":test_infra_sources",
     "${dawn_root}/include/dawn:cpp_headers",
     "${dawn_root}/src/dawn:proc",
     "${dawn_root}/src/dawn/common",
     "${dawn_root}/src/dawn/native:sources",
     "${dawn_root}/src/dawn/native:static",
     "${dawn_root}/src/dawn/partition_alloc:raw_ptr",
-    "${dawn_root}/src/dawn/utils",
-    "${dawn_root}/src/dawn/wire",
+    "${dawn_root}/src/dawn/utils:system_utils",
+    "${dawn_root}/src/dawn/utils:test_utils",
+    "${dawn_root}/src/dawn/utils:wgpu_utils",
+    "${dawn_root}/src/dawn/wire:sources",
+    "${dawn_root}/src/dawn/wire:static",
+    "${dawn_root}/src/utils/chromium_test_compat",
   ]
 
   # Add internal dawn native config for internal unittests.
@@ -314,13 +327,9 @@ dawn_test("dawn_unittests") {
     "${dawn_root}/src/dawn/wire/server/ServerMemoryTransferService_mock.h",
     "DawnNativeTest.cpp",
     "DawnNativeTest.h",
-    "MockCallback.h",
-    "ParamGenerator.h",
-    "StringViewMatchers.h",
-    "ToggleParser.cpp",
-    "ToggleParser.h",
+    "unittests/AlgebraTests.cpp",
     "unittests/AsyncTaskTests.cpp",
-    "unittests/BitSetIteratorTests.cpp",
+    "unittests/BitSetRangeIteratorTests.cpp",
     "unittests/BuddyAllocatorTests.cpp",
     "unittests/BuddyMemoryAllocatorTests.cpp",
     "unittests/ChainUtilsTests.cpp",
@@ -339,7 +348,9 @@ dawn_test("dawn_unittests") {
     "unittests/ITypArrayTests.cpp",
     "unittests/ITypBitsetTests.cpp",
     "unittests/ITypSpanTests.cpp",
+    "unittests/ITypStackVecTests.cpp",
     "unittests/ITypVectorTests.cpp",
+    "unittests/LRUCacheTests.cpp",
     "unittests/LinkedListTests.cpp",
     "unittests/MathTests.cpp",
     "unittests/MutexProtectedTests.cpp",
@@ -356,7 +367,9 @@ dawn_test("dawn_unittests") {
     "unittests/RingBufferAllocatorTests.cpp",
     "unittests/SerialMapTests.cpp",
     "unittests/SerialQueueTests.cpp",
+    "unittests/Sha3Tests.cpp",
     "unittests/SlabAllocatorTests.cpp",
+    "unittests/StringsTests.cpp",
     "unittests/SubresourceStorageTests.cpp",
     "unittests/SystemUtilsTests.cpp",
     "unittests/ToBackendTests.cpp",
@@ -364,14 +377,18 @@ dawn_test("dawn_unittests") {
     "unittests/TypedIntegerTests.cpp",
     "unittests/UnicodeTests.cpp",
     "unittests/WeakRefTests.cpp",
+    "unittests/WorkerTaskPoolTests.cpp",
     "unittests/native/AllowedErrorTests.cpp",
     "unittests/native/BlobTests.cpp",
+    "unittests/native/BufferBaseTests.cpp",
     "unittests/native/CacheRequestTests.cpp",
     "unittests/native/CommandBufferEncodingTests.cpp",
     "unittests/native/CreatePipelineAsyncEventTests.cpp",
     "unittests/native/DestroyObjectTests.cpp",
     "unittests/native/DeviceAsyncTaskTests.cpp",
     "unittests/native/DeviceCreationTests.cpp",
+    "unittests/native/ErrorMonadTests.cpp",
+    "unittests/native/ImmediateConstantsTrackerTests.cpp",
     "unittests/native/LimitsTests.cpp",
     "unittests/native/MemoryInstrumentationTests.cpp",
     "unittests/native/ObjectContentHasherTests.cpp",
@@ -411,10 +428,12 @@ dawn_test("dawn_unittests") {
     "unittests/validation/RenderBundleValidationTests.cpp",
     "unittests/validation/RenderPassDescriptorValidationTests.cpp",
     "unittests/validation/RenderPipelineValidationTests.cpp",
+    "unittests/validation/ResourceTableValidationTests.cpp",
     "unittests/validation/ResourceUsageTrackingTests.cpp",
     "unittests/validation/SamplerValidationTests.cpp",
     "unittests/validation/ShaderModuleValidationTests.cpp",
     "unittests/validation/StorageTextureValidationTests.cpp",
+    "unittests/validation/TexelBufferValidationTests.cpp",
     "unittests/validation/TextureSubresourceTests.cpp",
     "unittests/validation/TextureValidationTests.cpp",
     "unittests/validation/TextureViewValidationTests.cpp",
@@ -432,6 +451,7 @@ dawn_test("dawn_unittests") {
     "unittests/wire/WireArgumentTests.cpp",
     "unittests/wire/WireBasicTests.cpp",
     "unittests/wire/WireBufferMappingTests.cpp",
+    "unittests/wire/WireConfusionDeathTests.cpp",
     "unittests/wire/WireCreatePipelineAsyncTests.cpp",
     "unittests/wire/WireDeviceLifetimeTests.cpp",
     "unittests/wire/WireDisconnectTests.cpp",
@@ -448,6 +468,7 @@ dawn_test("dawn_unittests") {
     "unittests/wire/WireOptionalTests.cpp",
     "unittests/wire/WireQueueTests.cpp",
     "unittests/wire/WireShaderModuleTests.cpp",
+    "unittests/wire/WireSpecificCommandTests.cpp",
     "unittests/wire/WireTest.cpp",
     "unittests/wire/WireTest.h",
   ]
@@ -467,8 +488,13 @@ dawn_test("dawn_unittests") {
     sources += [ "unittests/d3d12/CopySplitTests.cpp" ]
   }
 
-  if (dawn_enable_vulkan) {
-    sources += [ "unittests/validation/YCbCrInfoValidationTests.cpp" ]
+  sources += [
+    "unittests/validation/YCbCrValidationTests.cpp",
+    "unittests/vulkan/MemoryTypeSelectorTests.cpp",
+  ]
+
+  if (tint_build_spv_reader) {
+    deps += [ "${dawn_spirv_tools_dir}:spvtools_opt" ]
   }
 
   # When building inside Chromium, use their gtest main function because it is
@@ -511,10 +537,19 @@ source_set("test_infra_sources") {
     "${dawn_root}/src/dawn/common",
     "${dawn_root}/src/dawn/native:sources",
     "${dawn_root}/src/dawn/native:static",
-    "${dawn_root}/src/dawn/utils",
-    "${dawn_root}/src/dawn/wire",
+    "${dawn_root}/src/dawn/utils:system_utils",
+    "${dawn_root}/src/dawn/utils:test_utils",
+    "${dawn_root}/src/dawn/utils:wgpu_utils",
   ]
 
+  public = [
+    "AdapterTestConfig.h",
+    "DawnTest.h",
+    "MockCallback.h",
+    "ParamGenerator.h",
+    "StringViewMatchers.h",
+    "ToggleParser.h",
+  ]
   public_deps = [
     ":gmock_and_gtest",
     "${dawn_root}/src/dawn/partition_alloc:raw_ptr",
@@ -524,16 +559,14 @@ source_set("test_infra_sources") {
     public_deps += [ "${dawn_root}/src/dawn/glfw" ]
   }
 
+  if (dawn_enable_webgpu_on_webgpu) {
+    public_deps += [ "${dawn_root}/src/dawn/replay" ]
+  }
+
   sources = [
     "AdapterTestConfig.cpp",
-    "AdapterTestConfig.h",
     "DawnTest.cpp",
-    "DawnTest.h",
-    "MockCallback.h",
-    "ParamGenerator.h",
-    "StringViewMatchers.h",
     "ToggleParser.cpp",
-    "ToggleParser.h",
   ]
 }
 
@@ -572,8 +605,10 @@ source_set("end2end_tests_sources") {
     "${dawn_root}/src/dawn/native:headers",
     "${dawn_root}/src/dawn/partition_alloc:raw_ptr",
     "${dawn_root}/src/dawn/platform",
-    "${dawn_root}/src/dawn/utils",
-    "${dawn_root}/src/dawn/wire",
+    "${dawn_root}/src/dawn/utils:system_utils",
+    "${dawn_root}/src/dawn/utils:test_utils",
+    "${dawn_root}/src/dawn/utils:wgpu_utils",
+    "${dawn_root}/src/dawn/wire:headers",
   ]
 
   sources = [
@@ -581,11 +616,15 @@ source_set("end2end_tests_sources") {
     "end2end/AdapterEnumerationTests.cpp",
     "end2end/AdapterFormatCapabilitiesVkTests.cpp",
     "end2end/AdapterPropertiesD3DTests.cpp",
+    "end2end/AdapterPropertiesDrmTests.cpp",
     "end2end/AdapterPropertiesVkTests.cpp",
+    "end2end/ArchTierLimitsExhaustive.cpp",
     "end2end/BasicTests.cpp",
     "end2end/BindGroupTests.cpp",
+    "end2end/BindingArrayTests.cpp",
     "end2end/BufferHostMappedPointerTests.cpp",
     "end2end/BufferHostMappedPointerTests.h",
+    "end2end/BufferRobustnessTests.cpp",
     "end2end/BufferTests.cpp",
     "end2end/BufferZeroInitTests.cpp",
     "end2end/ClipDistancesTests.cpp",
@@ -602,6 +641,7 @@ source_set("end2end_tests_sources") {
     "end2end/CopyExternalTextureForBrowserTests.cpp",
     "end2end/CopyTests.cpp",
     "end2end/CopyTextureForBrowserTests.cpp",
+    "end2end/CreateDestroyTests.cpp",
     "end2end/CreatePipelineAsyncTests.cpp",
     "end2end/CullingTests.cpp",
     "end2end/DebugMarkerTests.cpp",
@@ -614,6 +654,7 @@ source_set("end2end_tests_sources") {
     "end2end/DeviceInitializationTests.cpp",
     "end2end/DeviceLifetimeTests.cpp",
     "end2end/DeviceLostTests.cpp",
+    "end2end/DiscardBasicTests.cpp",
     "end2end/DrawIndexedIndirectTests.cpp",
     "end2end/DrawIndexedTests.cpp",
     "end2end/DrawIndirectTests.cpp",
@@ -628,6 +669,8 @@ source_set("end2end_tests_sources") {
     "end2end/FramebufferFetchTests.cpp",
     "end2end/GpuMemorySynchronizationTests.cpp",
     "end2end/HistogramTests.cpp",
+    "end2end/ImmediateDataBufferLengthTests.cpp",
+    "end2end/ImmediateDataTests.cpp",
     "end2end/IndexFormatTests.cpp",
     "end2end/InfiniteLoopTests.cpp",
     "end2end/MaxLimitTests.cpp",
@@ -635,16 +678,20 @@ source_set("end2end_tests_sources") {
     "end2end/MemoryHeapPropertiesTests.cpp",
     "end2end/MultiDrawIndexedIndirectTests.cpp",
     "end2end/MultiDrawIndirectTests.cpp",
+    "end2end/MultisampledInterpolationTests.cpp",
     "end2end/MultisampledRenderingTests.cpp",
     "end2end/MultisampledSamplingTests.cpp",
     "end2end/MultithreadTests.cpp",
     "end2end/NonzeroBufferCreationTests.cpp",
     "end2end/NonzeroTextureCreationTests.cpp",
     "end2end/OpArrayLengthTests.cpp",
+    "end2end/PackUnpack4x8NormTests.cpp",
     "end2end/Packed4x8IntegerDotProductTests.cpp",
     "end2end/PipelineCachingTests.cpp",
     "end2end/PipelineLayoutTests.cpp",
     "end2end/PixelLocalStorageTests.cpp",
+    "end2end/PolyfillBuiltinSimpleTests.cpp",
+    "end2end/PrimitiveIndexTests.cpp",
     "end2end/PrimitiveStateTests.cpp",
     "end2end/PrimitiveTopologyTests.cpp",
     "end2end/QueryTests.cpp",
@@ -656,20 +703,29 @@ source_set("end2end_tests_sources") {
     "end2end/RenderPassLoadOpTests.cpp",
     "end2end/RenderPassTests.cpp",
     "end2end/RequiredBufferSizeInCopyTests.cpp",
+    "end2end/ResourceTableTests.cpp",
     "end2end/SamplerFilterAnisotropicTests.cpp",
     "end2end/SamplerTests.cpp",
     "end2end/ScissorTests.cpp",
+    "end2end/SelectNonShortCircuiting.cpp",
     "end2end/ShaderAtomicTests.cpp",
     "end2end/ShaderBuiltinPartialConstArgsErrorTests.cpp",
     "end2end/ShaderF16Tests.cpp",
+    "end2end/ShaderModuleCachingTests.cpp",
+    "end2end/ShaderPrintTests.cpp",
     "end2end/ShaderTests.cpp",
     "end2end/ShaderValidationTests.cpp",
     "end2end/StorageTextureTests.cpp",
+    "end2end/SubgroupMatrixTests.cpp",
     "end2end/SubgroupsTests.cpp",
     "end2end/SubresourceRenderAttachmentTests.cpp",
+    "end2end/SupportedFeatureArch.cpp",
+    "end2end/TexelBufferTests.cpp",
     "end2end/Texture3DTests.cpp",
+    "end2end/TextureComponentSwizzleTests.cpp",
     "end2end/TextureCorruptionTests.cpp",
     "end2end/TextureFormatTests.cpp",
+    "end2end/TextureFormatsTier1Tests.cpp",
     "end2end/TextureShaderBuiltinTests.cpp",
     "end2end/TextureSubresourceTests.cpp",
     "end2end/TextureViewTests.cpp",
@@ -680,6 +736,10 @@ source_set("end2end_tests_sources") {
     "end2end/ViewportOrientationTests.cpp",
     "end2end/ViewportTests.cpp",
   ]
+
+  if (!is_debug) {
+    sources += [ "end2end/RuntimeTimeoutCompute.cpp" ]
+  }
 
   libs = []
 
@@ -727,7 +787,11 @@ source_set("end2end_tests_sources") {
   }
 
   if (dawn_enable_vulkan) {
-    sources += [ "end2end/YCbCrInfoTests.cpp" ]
+    sources += [ "end2end/AllocatorMemoryInstrumentationTests.cpp" ]
+  }
+
+  if (dawn_enable_webgpu_on_webgpu) {
+    sources += [ "end2end/CaptureAndReplayTests.cpp" ]
   }
 
   if (dawn_enable_d3d11 || dawn_enable_d3d12 ||
@@ -740,6 +804,10 @@ source_set("end2end_tests_sources") {
 
   if (dawn_enable_vulkan && is_chromeos) {
     sources += [ "end2end/VideoViewsTests_gbm.cpp" ]
+  }
+
+  if (dawn_enable_opengles) {
+    sources += [ "end2end/GLExplicitExtensionsTests.cpp" ]
   }
 }
 
@@ -757,16 +825,21 @@ source_set("white_box_tests_sources") {
     # Statically linked and with sources because the end2end white_box tests use Dawn internals.
     "${dawn_root}/src/dawn/native:sources",
     "${dawn_root}/src/dawn/native:static",
-    "${dawn_root}/src/dawn/utils",
-    "${dawn_root}/src/dawn/wire",
+    "${dawn_root}/src/dawn/utils:system_utils",
+    "${dawn_root}/src/dawn/utils:test_utils",
+    "${dawn_root}/src/dawn/utils:wgpu_utils",
+    "${dawn_root}/src/dawn/wire:sources",
+    "${dawn_root}/src/dawn/wire:static",
   ]
 
   sources = [
+    "white_box/ImmediateConstantOffsetTests.cpp",
     "white_box/ShaderModuleTests.cpp",
     "white_box/SharedBufferMemoryTests.cpp",
     "white_box/SharedBufferMemoryTests.h",
     "white_box/SharedTextureMemoryTests.cpp",
     "white_box/SharedTextureMemoryTests.h",
+    "white_box/WaitListEventTests.cpp",
   ]
   libs = []
 
@@ -774,10 +847,14 @@ source_set("white_box_tests_sources") {
     sources += [ "white_box/SharedTextureMemoryTests_apple.mm" ]
   }
 
-  if (is_win) {
+  if (dawn_enable_d3d11) {
+    sources += [ "white_box/SharedTextureMemoryTests_win.cpp" ]
+  }
+
+  if (dawn_enable_d3d12) {
     sources += [
       "white_box/SharedBufferMemoryTests_win.cpp",
-      "white_box/SharedTextureMemoryTests_win.cpp",
+      "white_box/SharedTextureMemoryTests_win_d3d12.cpp",
     ]
   }
 
@@ -801,7 +878,10 @@ source_set("white_box_tests_sources") {
     }
 
     if (is_android) {
-      sources += [ "white_box/SharedTextureMemoryTests_android.cpp" ]
+      sources += [
+        "white_box/SharedTextureMemoryTests_android.cpp",
+        "white_box/SharedTextureMemoryYCbCrAndroidTests.cpp",
+      ]
     }
 
     if (dawn_enable_error_injection) {
@@ -818,7 +898,11 @@ source_set("white_box_tests_sources") {
   ]
 
   if (dawn_enable_d3d11) {
-    sources += [ "white_box/D3D11BufferTests.cpp" ]
+    sources += [
+      "white_box/D3D11BufferTests.cpp",
+      "white_box/D3D11MultithreadTests.cpp",
+      "white_box/D3D11ShaderCachingTests.cpp",
+    ]
   }
 
   if (dawn_enable_d3d12) {
@@ -849,9 +933,11 @@ source_set("white_box_tests_sources") {
   }
 
   if (dawn_enable_opengles) {
-    sources += [ "white_box/EGLImageWrappingTests.cpp" ]
-    sources += [ "white_box/GLTextureWrappingTests.cpp" ]
-    include_dirs = [ "//third_party/khronos" ]
+    sources += [
+      "white_box/EGLImageWrappingTests.cpp",
+      "white_box/GLTextureWrappingTests.cpp",
+    ]
+    include_dirs = [ "//third_party/EGL-Registry" ]
   }
 }
 
@@ -860,6 +946,7 @@ dawn_test("dawn_end2end_tests") {
     ":end2end_tests_sources",
     ":test_infra_sources",
     ":white_box_tests_sources",
+    "${dawn_root}/src/utils/chromium_test_compat",
   ]
 
   sources = []
@@ -890,12 +977,15 @@ dawn_test("dawn_perf_tests") {
     "${dawn_root}/src/dawn/common",
     "${dawn_root}/src/dawn/partition_alloc:raw_ptr",
     "${dawn_root}/src/dawn/platform",
-    "${dawn_root}/src/dawn/utils",
-    "${dawn_root}/src/dawn/wire",
+    "${dawn_root}/src/dawn/utils:system_utils",
+    "${dawn_root}/src/dawn/utils:test_utils",
+    "${dawn_root}/src/dawn/utils:wgpu_utils",
+    "${dawn_root}/src/utils/chromium_test_compat",
   ]
 
   sources = [
     "perf_tests/BufferUploadPerf.cpp",
+    "perf_tests/ConcurrentExecutionTest.cpp",
     "perf_tests/DawnPerfTest.cpp",
     "perf_tests/DawnPerfTest.h",
     "perf_tests/DawnPerfTestPlatform.cpp",
@@ -906,6 +996,7 @@ dawn_test("dawn_perf_tests") {
     "perf_tests/SubresourceTrackingPerf.cpp",
     "perf_tests/UniformBufferUpdatePerf.cpp",
     "perf_tests/VulkanZeroInitializeWorkgroupMemoryPerf.cpp",
+    "perf_tests/WorkgroupAtomicPerf.cpp",
   ]
 
   libs = []

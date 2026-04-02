@@ -1,11 +1,16 @@
-SKIP: FAILED
+SKIP: INVALID
 
-..\..\src\tint\lang\glsl\writer\printer\printer.cc:955 internal compiler error: TINT_UNREACHABLE PixelLocal not supported
-********************************************************************
-*  The tint shader compiler has encountered an unexpected error.   *
-*                                                                  *
-*  Please help us fix this issue by submitting a bug report at     *
-*  crbug.com/tint with the source program that triggered the bug.  *
-********************************************************************
+pixel_local address space is not supported by the GLSL backend
+pixel_local address space is not supported by the GLSL backend
+pixel_local address space is not supported by the GLSL backend
+//
+// f
+//
+//
+// f2
+//
+//
+// f3
+//
 
-tint executable returned error: exit status 0xc000001d
+tint executable returned error: exit status 1

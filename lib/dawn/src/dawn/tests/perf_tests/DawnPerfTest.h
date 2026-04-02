@@ -136,18 +136,25 @@ class DawnPerfTestWithParams : public DawnTestWithParams<Params>, public DawnPer
     DawnPerfTestWithParams(unsigned int iterationsPerStep, unsigned int maxStepsInFlight)
         : DawnTestWithParams<Params>(),
           DawnPerfTestBase(this, iterationsPerStep, maxStepsInFlight) {}
-    void SetUp() override {
+    ~DawnPerfTestWithParams() override = default;
+
+    // Since this function might fail but has no way to signal that it failed
+    // so it should not be called directly or overridden. Unforutnately there is
+    // no way to enforce that without a huge refactor. Marking it as `final`
+    // at least means derived classes can't incorrectly override it.
+    void SetUp() final {
         DawnTestWithParams<Params>::SetUp();
 
-        wgpu::AdapterInfo info;
-        this->GetAdapter().GetInfo(&info);
-        DAWN_TEST_UNSUPPORTED_IF(info.adapterType == wgpu::AdapterType::CPU);
+        DAWN_TEST_UNSUPPORTED_IF(this->IsCPU());
 
         if (mSupportsTimestampQuery) {
             InitializeGPUTimer();
         }
+
+        SetUpPerfTest();
     }
-    ~DawnPerfTestWithParams() override = default;
+
+    virtual void SetUpPerfTest() {}
 
     std::vector<wgpu::FeatureName> GetRequiredFeatures() override {
         std::vector<wgpu::FeatureName> requiredFeatures = {wgpu::FeatureName::TimestampQuery};
@@ -169,8 +176,8 @@ class DawnPerfTestWithParams : public DawnTestWithParams<Params>, public DawnPer
         ResolveTimestamps(encoder);
     }
 
-    wgpu::ComputePassTimestampWrites GetComputePassTimestampWrites() const {
-        wgpu::ComputePassTimestampWrites timestampWrites;
+    wgpu::PassTimestampWrites GetPassTimestampWrites() const {
+        wgpu::PassTimestampWrites timestampWrites;
         timestampWrites.querySet = mTimestampQuerySet;
         timestampWrites.beginningOfPassWriteIndex = 0;
         timestampWrites.endOfPassWriteIndex = 1;

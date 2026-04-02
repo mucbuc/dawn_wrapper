@@ -28,6 +28,11 @@ struct MemoryHeapInfo {
 
 `wgpu::MemoryHeapInfo::size` is the size that should be allocated out of this heap. Allocating more than this may result in poor performance or may deterministically run out of memory.
 
+## DRM properties
+
+`wgpu::FeatureName:AdapterPropertiesDRM`, currently only available on Vulkan (but could be added on OpenGL / ES), allows querying Linux DRM information about the adapter.
+
+`wgpu::AdapterPropertiesDRM` may be chained on `wgpu::AdapterInfo` in a call to `wgpu::Adapter::GetInfo` or `wgpu::Device::GetAdapterInfo` in order to query DRM information on the adapter.
 
 ## D3D
 
@@ -52,5 +57,18 @@ Adds `wgpu::AdapterPropertiesVk` which is a struct describing the Vulkan adapter
 ```
 struct AdapterPropertiesVk {
     uint32_t driverVersion;  // The Vulkan driver version
+};
+```
+
+## WebGPU
+
+`wgpu::FeatureName::AdapterPropertiesWGPU` allows querying inner backend information of the WebGPUBackend from the adapter.
+
+`wgpu::AdapterPropertiesWGPU` may be chained on `wgpu::AdapterInfo` in a call to `wgpu::Adapter::GetInfo` or `wgpu::Device::GetAdapterInfo` in order to query WebGPU backend information on the adapter.
+
+Adds `wgpu::AdapterPropertiesWGPU` which is a struct describing the WebGPU adapter.
+```
+struct AdapterPropertiesWGPU {
+    wgpu::BackendType backendType;  // The inner backend type
 };
 ```

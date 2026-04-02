@@ -41,7 +41,7 @@
 #include "dawn/native/EventManager.h"
 #include "dawn/native/Instance.h"
 #include "dawn/native/RenderPipeline.h"
-#include "dawn/native/SystemEvent.h"
+#include "dawn/native/WaitListEvent.h"
 #include "dawn/native/dawn_platform_autogen.h"
 #include "dawn/native/utils/WGPUHelpers.h"
 #include "dawn/native/wgpu_structs_autogen.h"
@@ -54,18 +54,17 @@ namespace dawn::native {
 template <>
 const char* CreatePipelineAsyncEvent<
     ComputePipelineBase,
-    WGPUCreateComputePipelineAsyncCallbackInfo2>::kDawnHistogramMetricsSuccess =
+    WGPUCreateComputePipelineAsyncCallbackInfo>::kDawnHistogramMetricsSuccess =
     "CreateComputePipelineSuccess";
 template <>
 const char*
     CreatePipelineAsyncEvent<ComputePipelineBase,
-                             WGPUCreateComputePipelineAsyncCallbackInfo2>::kDawnHistogramMetricsUS =
+                             WGPUCreateComputePipelineAsyncCallbackInfo>::kDawnHistogramMetricsUS =
         "CreateComputePipelineUS";
 template <>
-void CreatePipelineAsyncEvent<ComputePipelineBase, WGPUCreateComputePipelineAsyncCallbackInfo2>::
+void CreatePipelineAsyncEvent<ComputePipelineBase, WGPUCreateComputePipelineAsyncCallbackInfo>::
     AddOrGetCachedPipeline() {
     DeviceBase* device = mPipeline->GetDevice();
-    auto deviceLock(device->GetScopedLock());
     if (device->GetState() == DeviceBase::State::Alive) {
         mPipeline = device->AddOrGetCachedComputePipeline(std::move(mPipeline));
     }
@@ -74,18 +73,17 @@ void CreatePipelineAsyncEvent<ComputePipelineBase, WGPUCreateComputePipelineAsyn
 template <>
 const char* CreatePipelineAsyncEvent<
     RenderPipelineBase,
-    WGPUCreateRenderPipelineAsyncCallbackInfo2>::kDawnHistogramMetricsSuccess =
+    WGPUCreateRenderPipelineAsyncCallbackInfo>::kDawnHistogramMetricsSuccess =
     "CreateRenderPipelineSuccess";
 template <>
 const char*
     CreatePipelineAsyncEvent<RenderPipelineBase,
-                             WGPUCreateRenderPipelineAsyncCallbackInfo2>::kDawnHistogramMetricsUS =
+                             WGPUCreateRenderPipelineAsyncCallbackInfo>::kDawnHistogramMetricsUS =
         "CreateRenderPipelineUS";
 template <>
-void CreatePipelineAsyncEvent<RenderPipelineBase, WGPUCreateRenderPipelineAsyncCallbackInfo2>::
-    AddOrGetCachedPipeline() {
+void CreatePipelineAsyncEvent<RenderPipelineBase,
+                              WGPUCreateRenderPipelineAsyncCallbackInfo>::AddOrGetCachedPipeline() {
     DeviceBase* device = mPipeline->GetDevice();
-    auto deviceLock(device->GetScopedLock());
     if (device->GetState() == DeviceBase::State::Alive) {
         mPipeline = device->AddOrGetCachedRenderPipeline(std::move(mPipeline));
     }
@@ -96,8 +94,8 @@ CreatePipelineAsyncEvent<PipelineType, CreatePipelineAsyncCallbackInfo>::CreateP
     DeviceBase* device,
     const CreatePipelineAsyncCallbackInfo& callbackInfo,
     Ref<PipelineType> pipeline,
-    Ref<SystemEvent> systemEvent)
-    : TrackedEvent(static_cast<wgpu::CallbackMode>(callbackInfo.mode), std::move(systemEvent)),
+    Ref<WaitListEvent> event)
+    : TrackedEvent(static_cast<wgpu::CallbackMode>(callbackInfo.mode), std::move(event)),
       mCallback(callbackInfo.callback),
       mUserdata1(callbackInfo.userdata1),
       mUserdata2(callbackInfo.userdata2),
@@ -138,7 +136,8 @@ template <typename PipelineType, typename CreatePipelineAsyncCallbackInfo>
 void CreatePipelineAsyncEvent<PipelineType, CreatePipelineAsyncCallbackInfo>::InitializeImpl(
     bool isAsync) {
     DeviceBase* device = mPipeline->GetDevice();
-    const char* eventLabel = utils::GetLabelForTrace(mPipeline->GetLabel());
+    const std::string& label = mPipeline->GetLabel();
+    const char* eventLabel = utils::GetLabelForTrace(label);
     if (isAsync) {
         TRACE_EVENT_FLOW_END1(device->GetPlatform(), General,
                               "CreatePipelineAsyncEvent::InitializeAsync", this, "label",
@@ -171,12 +170,13 @@ void CreatePipelineAsyncEvent<PipelineType, CreatePipelineAsyncCallbackInfo>::In
 template <typename PipelineType, typename CreatePipelineAsyncCallbackInfo>
 void CreatePipelineAsyncEvent<PipelineType, CreatePipelineAsyncCallbackInfo>::InitializeAsync() {
     DeviceBase* device = mPipeline->GetDevice();
-    const char* eventLabel = utils::GetLabelForTrace(mPipeline->GetLabel());
+    const std::string& label = mPipeline->GetLabel();
+    const char* eventLabel = utils::GetLabelForTrace(label);
     TRACE_EVENT_FLOW_BEGIN1(device->GetPlatform(), General,
                             "CreatePipelineAsyncEvent::InitializeAsync", this, "label", eventLabel);
 
     auto asyncTask = [event = Ref<CreatePipelineAsyncEvent>(this)] { event->InitializeImpl(true); };
-    device->GetAsyncTaskManager()->PostTask(std::move(asyncTask));
+    device->GetAsyncTaskManager()->PostTask<AsyncTask>(std::move(asyncTask));
 }
 
 template <typename PipelineType, typename CreatePipelineAsyncCallbackInfo>
@@ -187,55 +187,60 @@ void CreatePipelineAsyncEvent<PipelineType, CreatePipelineAsyncCallbackInfo>::Co
 
     if (completionType == EventCompletionType::Shutdown) {
         if (mCallback) {
-            mCallback(WGPUCreatePipelineAsyncStatus_InstanceDropped, nullptr,
+            mCallback(WGPUCreatePipelineAsyncStatus_CallbackCancelled, nullptr,
                       ToOutputStringView("Instance dropped"), userdata1, userdata2);
         }
         return;
     }
 
-    DeviceBase* device = mPipeline->GetDevice();
-    // TODO(dawn:2353): Device losts later than this check could potentially lead to racing
-    // condition.
-    if (device->IsLost()) {
-        // Invalid async creation should "succeed" if the device is already lost.
-        if (!mPipeline->IsError()) {
-            mPipeline = PipelineType::MakeError(device, mPipeline->GetLabel().c_str());
+    Ref<DeviceBase> device = mPipeline->GetDevice();
+
+    WGPUCreatePipelineAsyncStatus status = WGPUCreatePipelineAsyncStatus_Success;
+    std::string message;
+    Ref<PipelineType> pipeline;
+
+    // Gather the arguments to mCallback while holding the device lock to handle device loss and
+    // cache lookups. Release the lock before calling mCallback so that reentrant callbacks are
+    // safe.
+    {
+        // TODO(dawn:2353): Device losts later than this check could potentially lead to racing
+        // condition when not using implicit synchronization.
+        auto deviceGuard = device->GetGuard();
+
+        if (device->IsLost()) {
+            // Invalid async creation should "succeed" if the device is already lost.
+            if (!mPipeline->IsError()) {
+                const std::string& label = mPipeline->GetLabel();
+                mPipeline = PipelineType::MakeError(device.Get(), label.c_str());
+            }
+            pipeline = std::move(mPipeline);
+        } else if (mError != nullptr) {
+            switch (mError->GetType()) {
+                case InternalErrorType::Validation:
+                    status = WGPUCreatePipelineAsyncStatus_ValidationError;
+                    break;
+                default:
+                    status = WGPUCreatePipelineAsyncStatus_InternalError;
+                    break;
+            }
+            message = mError->GetFormattedMessage();
+        } else {
+            AddOrGetCachedPipeline();
+            pipeline = std::move(mPipeline);
         }
-        if (mCallback) {
-            mCallback(WGPUCreatePipelineAsyncStatus_Success,
-                      ToAPI(ReturnToAPI(std::move(mPipeline))), kEmptyOutputStringView, userdata1,
-                      userdata2);
-        }
-        return;
     }
 
-    if (mError != nullptr) {
-        WGPUCreatePipelineAsyncStatus status;
-        switch (mError->GetType()) {
-            case InternalErrorType::Validation:
-                status = WGPUCreatePipelineAsyncStatus_ValidationError;
-                break;
-            default:
-                status = WGPUCreatePipelineAsyncStatus_InternalError;
-                break;
-        }
-        if (mCallback) {
-            mCallback(status, nullptr, ToOutputStringView(mError->GetFormattedMessage()), userdata1,
-                      userdata2);
-        }
-        return;
-    }
-
-    AddOrGetCachedPipeline();
     if (mCallback) {
-        mCallback(WGPUCreatePipelineAsyncStatus_Success, ToAPI(ReturnToAPI(std::move(mPipeline))),
-                  kEmptyOutputStringView, userdata1, userdata2);
+        WGPUStringView messageView =
+            message.empty() ? kEmptyOutputStringView : ToOutputStringView(message);
+        mCallback(status, ToAPI(ReturnToAPI(std::move(pipeline))), messageView, userdata1,
+                  userdata2);
     }
 }
 
 template class CreatePipelineAsyncEvent<ComputePipelineBase,
-                                        WGPUCreateComputePipelineAsyncCallbackInfo2>;
+                                        WGPUCreateComputePipelineAsyncCallbackInfo>;
 template class CreatePipelineAsyncEvent<RenderPipelineBase,
-                                        WGPUCreateRenderPipelineAsyncCallbackInfo2>;
+                                        WGPUCreateRenderPipelineAsyncCallbackInfo>;
 
 }  // namespace dawn::native

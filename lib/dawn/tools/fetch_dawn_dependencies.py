@@ -98,11 +98,11 @@ def main(args):
     required_submodules = [
         'third_party/abseil-cpp',
         'third_party/dxc',
-        'third_party/dxheaders',
-        'third_party/glfw',
+        'third_party/directx-headers/src',
+        'third_party/glfw3/src',
         'third_party/jinja2',
-        'third_party/khronos/EGL-Registry',
-        'third_party/khronos/OpenGL-Registry',
+        'third_party/EGL-Registry/src',
+        'third_party/OpenGL-Registry/src',
         'third_party/libprotobuf-mutator/src',
         'third_party/protobuf',
         'third_party/markupsafe',
@@ -114,10 +114,8 @@ def main(args):
         'third_party/vulkan-headers/src',
         'third_party/vulkan-loader/src',
         'third_party/vulkan-utility-libraries/src',
+        'third_party/webgpu-headers/src',
     ]
-    if args.use_test_deps:
-        log("""WARNING: --use-test-deps argument deprecated. 
-            Test dependencies are now always included.""")
 
     root_dir = Path(args.directory).resolve()
 
@@ -227,6 +225,7 @@ class Var:
     Mock Var class, that the content of DEPS files assume to exist when they
     are exec-ed.
     """
+
     def __init__(self, name):
         self.name = name
 

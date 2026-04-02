@@ -57,8 +57,11 @@ class BindGroupLayoutBase final : public ApiObjectBase {
         return mPipelineCompatibilityToken;
     }
 
+    bool IsEmpty() const;
+
   protected:
-    void DestroyImpl() override;
+    void DestroyImpl(DestroyReason reason) override;
+    void SetLabelImpl() override;
 
   private:
     BindGroupLayoutBase(DeviceBase* device, ObjectBase::ErrorTag tag, StringView label);
@@ -66,7 +69,7 @@ class BindGroupLayoutBase final : public ApiObjectBase {
     const Ref<BindGroupLayoutInternalBase> mInternalLayout;
 
     // Non-0 if this BindGroupLayout was created as part of a default PipelineLayout.
-    const PipelineCompatibilityToken mPipelineCompatibilityToken = PipelineCompatibilityToken(0);
+    const PipelineCompatibilityToken mPipelineCompatibilityToken = kExplicitPCT;
 };
 
 }  // namespace dawn::native

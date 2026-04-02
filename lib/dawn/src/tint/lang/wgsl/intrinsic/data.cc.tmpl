@@ -16,6 +16,8 @@ See:
 
 {{- $I := LoadIntrinsics "src/tint/lang/wgsl/wgsl.def" -}}
 
+// clang-format off
+
 #include <limits>
 #include <string>
 
@@ -24,6 +26,7 @@ See:
 #include "src/tint/lang/core/type/abstract_int.h"
 #include "src/tint/lang/core/type/abstract_numeric.h"
 #include "src/tint/lang/wgsl/intrinsic/dialect.h"
+#include "src/tint/lang/wgsl/intrinsic/type_matchers.h"
 #include "src/tint/utils/text/string_stream.h"
 
 namespace tint::wgsl::intrinsic {
@@ -53,3 +56,5 @@ inline bool MatchIa(intrinsic::MatchState& state, const core::type::Type* ty) {
   "Name"       "Dialect::kData" -}}
 
 }  // namespace tint::wgsl::intrinsic
+
+// clang-format on

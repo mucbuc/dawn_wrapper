@@ -31,14 +31,10 @@
 #include <string>
 
 #include "src/tint/lang/hlsl/writer/common/options.h"
-#include "src/tint/lang/hlsl/writer/output.h"
-#include "src/tint/utils/diagnostic/diagnostic.h"
-#include "src/tint/utils/result/result.h"
+#include "src/tint/lang/hlsl/writer/common/output.h"
+#include "src/tint/utils/result.h"
 
 // Forward declarations
-namespace tint {
-class Program;
-}  // namespace tint
 namespace tint::core::ir {
 class Module;
 }  // namespace tint::core::ir
@@ -51,13 +47,6 @@ namespace tint::hlsl::writer {
 /// @param options the configuration options to use when generating HLSL
 /// @returns the resulting HLSL and supplementary information, or failure
 Result<Output> Generate(core::ir::Module& ir, const Options& options);
-
-/// Generate HLSL for a program, according to a set of configuration options.
-/// The result will contain the HLSL and supplementary information, or failure.
-/// @param program the program to translate to HLSL
-/// @param options the configuration options to use when generating HLSL
-/// @returns the resulting HLSL and supplementary information, or failure
-Result<Output> Generate(const Program& program, const Options& options);
 
 }  // namespace tint::hlsl::writer
 

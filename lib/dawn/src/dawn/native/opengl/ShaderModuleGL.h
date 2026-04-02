@@ -28,13 +28,13 @@
 #ifndef SRC_DAWN_NATIVE_OPENGL_SHADERMODULEGL_H_
 #define SRC_DAWN_NATIVE_OPENGL_SHADERMODULEGL_H_
 
+#include <memory>
 #include <string>
 #include <vector>
 
 #include "dawn/native/IntegerTypes.h"
 #include "dawn/native/Serializable.h"
 #include "dawn/native/ShaderModule.h"
-#include "dawn/native/opengl/BindingPoint.h"
 #include "dawn/native/opengl/opengl_platform.h"
 
 namespace dawn::native {
@@ -49,26 +49,26 @@ class Source;
 namespace opengl {
 
 class Device;
+class EmulatedTextureBuiltinRegistrar;
 class PipelineLayout;
 struct OpenGLFunctions;
 
-std::string GetBindingName(BindGroupIndex group, BindingNumber bindingNumber);
+#define COMBINED_SAMPLER_ELEMENT_MEMBERS(X)                                                 \
+    X(BindGroupIndex, group)                                                                \
+    X(BindingIndex, index)                                                                  \
+    /* Return the array size of the element in the WGSL / GLSL as OpenGL requires that a */ \
+    /* non-arrayed (arraySize = 1) binding uses glUniform1i and not glUniform1iv. */        \
+    X(BindingIndex, shaderArraySize, 1)
+DAWN_SERIALIZABLE(struct, CombinedSamplerElement, COMBINED_SAMPLER_ELEMENT_MEMBERS){};
+#undef COMBINED_SAMPLER_ELEMENT_MEMBERS
 
-#define BINDING_LOCATION_MEMBERS(X) \
-    X(BindGroupIndex, group)        \
-    X(BindingNumber, binding)
-DAWN_SERIALIZABLE(struct, BindingLocation, BINDING_LOCATION_MEMBERS){};
-#undef BINDING_LOCATION_MEMBERS
+bool operator<(const CombinedSamplerElement& a, const CombinedSamplerElement& b);
 
-bool operator<(const BindingLocation& a, const BindingLocation& b);
-
-#define COMBINED_SAMPLER_MEMBERS(X)                                                         \
-    X(BindingLocation, samplerLocation)                                                     \
-    X(BindingLocation, textureLocation)                                                     \
-    /* OpenGL requires a sampler with texelFetch. If this is true, the developer did not */ \
-    /* provide one and Dawn should bind a placeholder non-filtering sampler;  */            \
-    /* |samplerLocation| is unused. */                                                      \
-    X(bool, usePlaceholderSampler)
+#define COMBINED_SAMPLER_MEMBERS(X)                                                            \
+    /* OpenGL requires a sampler with texelFetch. If this is nullopt, the developer did not */ \
+    /* provide one and Dawn should bind a placeholder non-filtering sampler.  */               \
+    X(std::optional<CombinedSamplerElement>, samplerLocation)                                  \
+    X(CombinedSamplerElement, textureLocation)
 
 DAWN_SERIALIZABLE(struct, CombinedSampler, COMBINED_SAMPLER_MEMBERS) {
     std::string GetName() const;
@@ -77,37 +77,29 @@ DAWN_SERIALIZABLE(struct, CombinedSampler, COMBINED_SAMPLER_MEMBERS) {
 
 bool operator<(const CombinedSampler& a, const CombinedSampler& b);
 
-using CombinedSamplerInfo = std::vector<CombinedSampler>;
-
 class ShaderModule final : public ShaderModuleBase {
   public:
     static ResultOrError<Ref<ShaderModule>> Create(
         Device* device,
         const UnpackedPtr<ShaderModuleDescriptor>& descriptor,
-        const std::vector<tint::wgsl::Extension>& internalExtensions,
-        ShaderModuleParseResult* parseResult,
-        OwnedCompilationMessages* compilationMessages);
+        const std::vector<tint::wgsl::Extension>& internalExtensions);
 
     ResultOrError<GLuint> CompileShader(const OpenGLFunctions& gl,
                                         const ProgrammableStage& programmableStage,
                                         SingleShaderStage stage,
-                                        bool usesVertexIndex,
-                                        bool usesInstanceIndex,
-                                        bool usesFragDepth,
+                                        const ImmediateConstantMask& pipelineImmediateMask,
                                         VertexAttributeMask bgraSwizzleAttributes,
-                                        CombinedSamplerInfo* combinedSamplers,
+                                        std::vector<CombinedSampler>* combinedSamplers,
                                         const PipelineLayout* layout,
-                                        bool* needsPlaceholderSampler,
-                                        bool* needsTextureBuiltinUniformBuffer,
-                                        BindingPointToFunctionAndOffset* bindingPointToData) const;
+                                        EmulatedTextureBuiltinRegistrar* emulatedTextureBuiltings,
+                                        bool* needsSSBOLengthUniformBuffer,
+                                        Extent3D* workgroupSize);
 
   private:
     ShaderModule(Device* device,
                  const UnpackedPtr<ShaderModuleDescriptor>& descriptor,
                  std::vector<tint::wgsl::Extension> internalExtensions);
     ~ShaderModule() override = default;
-    MaybeError Initialize(ShaderModuleParseResult* parseResult,
-                          OwnedCompilationMessages* compilationMessages);
 };
 
 }  // namespace opengl

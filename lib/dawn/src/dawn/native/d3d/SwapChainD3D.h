@@ -30,9 +30,8 @@
 
 #include <vector>
 
-#include "dawn/native/SwapChain.h"
-
 #include "dawn/native/IntegerTypes.h"
+#include "dawn/native/SwapChain.h"
 #include "dawn/native/d3d/d3d_platform.h"
 
 namespace dawn::native::d3d {
@@ -43,7 +42,7 @@ class Texture;
 // SwapChain abstracts the swapchain creation for D3D12 and D3D11.
 // D3D11 and D3D12 have different ways to present and get the backbuffer.
 // D3D11 doesn't need to wait for the GPU to finish before presenting, but D3D12 does.
-// D3D11 manages buffers and we can only read and write the the buffer with index 0, but for D3D12
+// D3D11 manages buffers and we can only read and write the buffer with index 0, but for D3D12
 // we need to manage all buffers by ourselves.
 class SwapChain : public SwapChainBase {
   protected:

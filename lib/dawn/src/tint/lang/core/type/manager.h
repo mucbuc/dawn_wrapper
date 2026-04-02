@@ -30,15 +30,21 @@
 
 #include <utility>
 
-#include "src/tint/lang/core/access.h"
-#include "src/tint/lang/core/address_space.h"
+#include "src/tint/lang/core/enums.h"
 #include "src/tint/lang/core/fluent_types.h"
 #include "src/tint/lang/core/number.h"
 #include "src/tint/lang/core/type/atomic.h"
+#include "src/tint/lang/core/type/buffer.h"
+#include "src/tint/lang/core/type/depth_multisampled_texture.h"
+#include "src/tint/lang/core/type/depth_texture.h"
 #include "src/tint/lang/core/type/external_texture.h"
+#include "src/tint/lang/core/type/input_attachment.h"
+#include "src/tint/lang/core/type/multisampled_texture.h"
 #include "src/tint/lang/core/type/sampler.h"
+#include "src/tint/lang/core/type/string.h"
 #include "src/tint/lang/core/type/struct.h"
 #include "src/tint/lang/core/type/subgroup_matrix.h"
+#include "src/tint/lang/core/type/texel_buffer.h"
 #include "src/tint/lang/core/type/type.h"
 #include "src/tint/lang/core/type/unique_node.h"
 #include "src/tint/utils/containers/unique_allocator.h"
@@ -49,17 +55,23 @@ namespace tint::core::type {
 class AbstractFloat;
 class AbstractInt;
 class Array;
+class BindingArray;
 class Bool;
 class F16;
 class F32;
+class Function;
 class I8;
 class I32;
 class Invalid;
 class Matrix;
 class Pointer;
 class Reference;
+class SampledTexture;
+class StorageTexture;
 class U8;
+class U16;
 class U32;
+class U64;
 class Vector;
 class Void;
 }  // namespace tint::core::type
@@ -71,7 +83,7 @@ namespace tint::core::type {
 static constexpr inline core::Access DefaultAccessFor(core::AddressSpace space) {
     switch (space) {
         case core::AddressSpace::kIn:
-        case core::AddressSpace::kPushConstant:
+        case core::AddressSpace::kImmediate:
         case core::AddressSpace::kUniform:
         case core::AddressSpace::kHandle:
             return core::Access::kRead;
@@ -145,8 +157,12 @@ class Manager final {
             return Get<core::type::I32>(std::forward<ARGS>(args)...);
         } else if constexpr (std::is_same_v<T, tint::core::u8>) {
             return Get<core::type::U8>(std::forward<ARGS>(args)...);
+        } else if constexpr (std::is_same_v<T, tint::core::u16>) {
+            return Get<core::type::U16>(std::forward<ARGS>(args)...);
         } else if constexpr (std::is_same_v<T, tint::core::u32>) {
             return Get<core::type::U32>(std::forward<ARGS>(args)...);
+        } else if constexpr (std::is_same_v<T, tint::core::u64>) {
+            return Get<core::type::U64>(std::forward<ARGS>(args)...);
         } else if constexpr (std::is_same_v<T, tint::core::f32>) {
             return Get<core::type::F32>(std::forward<ARGS>(args)...);
         } else if constexpr (std::is_same_v<T, tint::core::f16>) {
@@ -184,8 +200,14 @@ class Manager final {
         return types_.Find<TYPE>(std::forward<ARGS>(args)...);
     }
 
+    /// @returns the subtype for a given `format`
+    const Type* SubtypeFor(core::TexelFormat format);
+
     /// @returns an invalid type
     const core::type::Invalid* invalid();
+
+    /// @returns an function type
+    const core::type::Function* function();
 
     /// @returns a void type
     const core::type::Void* void_();
@@ -202,8 +224,14 @@ class Manager final {
     /// @returns a u8 type
     const core::type::U8* u8();
 
+    /// @returns a u16 type
+    const core::type::U16* u16();
+
     /// @returns a u32 type
     const core::type::U32* u32();
+
+    /// @returns a u64 type
+    const core::type::U64* u64();
 
     /// @returns an f32 type
     const core::type::F32* f32();
@@ -249,6 +277,83 @@ class Manager final {
     /// @param inner the inner type
     /// @returns a vec4 type with the element type @p inner
     const core::type::Vector* vec4(const core::type::Type* inner);
+
+    /// @returns a vec2 type with the element type f32
+    const core::type::Vector* vec2f();
+
+    /// @returns a vec3 type with the element type f32
+    const core::type::Vector* vec3f();
+
+    /// @returns a vec4 type with the element type f32
+    const core::type::Vector* vec4f();
+
+    /// @returns a vec2 type with the element type f16
+    const core::type::Vector* vec2h();
+
+    /// @returns a vec3 type with the element type f16
+    const core::type::Vector* vec3h();
+
+    /// @returns a vec4 type with the element type f16
+    const core::type::Vector* vec4h();
+
+    /// @returns a vec2 type with the element type i32
+    const core::type::Vector* vec2i();
+
+    /// @returns a vec3 type with the element type i32
+    const core::type::Vector* vec3i();
+
+    /// @returns a vec4 type with the element type i32
+    const core::type::Vector* vec4i();
+
+    /// @returns a vec2 type with the element type u32
+    const core::type::Vector* vec2u();
+
+    /// @returns a vec3 type with the element type u32
+    const core::type::Vector* vec3u();
+
+    /// @returns a vec4 type with the element type u32
+    const core::type::Vector* vec4u();
+
+    /// @param dim the dimensionality of the texture
+    /// @param type the data type of the sampled texture
+    /// @returns a sampled texture type with the provided params
+    const core::type::SampledTexture* sampled_texture(TextureDimension dim,
+                                                      const core::type::Type* type);
+
+    /// @param dim the dimensionality of the texture
+    /// @param type the data type of the sampled texture
+    /// @param filterable the filterablity
+    /// @returns a sampled texture type with the provided params
+    const core::type::SampledTexture* sampled_texture(TextureDimension dim,
+                                                      const core::type::Type* type,
+                                                      TextureFilterable filterable);
+
+    /// @param dim the dimensionality of the texture
+    /// @param type the data type of the sampled texture
+    /// @returns a multisampled texture type with the provided params
+    const core::type::MultisampledTexture* multisampled_texture(TextureDimension dim,
+                                                                const core::type::Type* type);
+
+    /// @param dim the dimensionality of the texture
+    /// @param format the texel format of the texture
+    /// @param access the access control type of the texture
+    /// @returns a storage texture type with the provided params
+    const core::type::StorageTexture* storage_texture(TextureDimension dim,
+                                                      core::TexelFormat format,
+                                                      core::Access access);
+
+    /// @param format the texel format of the texel buffer
+    /// @param access the access control type of the texel buffer
+    /// @returns a texel buffer type with the provided params
+    const core::type::TexelBuffer* texel_buffer(core::TexelFormat format, core::Access access);
+
+    /// @param dim the dimensionality of the texture
+    /// @returns a depth texture type with the provided params
+    const core::type::DepthTexture* depth_texture(TextureDimension dim);
+
+    /// @param dim the dimensionality of the texture
+    /// @returns a depth multisampled texture type with the provided params
+    const core::type::DepthMultisampledTexture* depth_multisampled_texture(TextureDimension dim);
 
     /// Return a type with element type `el_ty` that has the same number of vector components as
     /// `match`. If `match` is scalar just return `el_ty`.
@@ -435,79 +540,86 @@ class Manager final {
 
     /// @param kind the subgroup matrix kind
     /// @param inner the inner type
-    /// @param rows the number of rows
     /// @param cols the number of columns
+    /// @param rows the number of rows
     /// @returns the subgroup_matrix type
     const core::type::SubgroupMatrix* subgroup_matrix(SubgroupMatrixKind kind,
                                                       const core::type::Type* inner,
-                                                      uint32_t rows,
-                                                      uint32_t cols);
+                                                      uint32_t cols,
+                                                      uint32_t rows);
 
     /// @param inner the inner type
-    /// @param rows the number of rows
     /// @param cols the number of columns
+    /// @param rows the number of rows
     /// @returns the subgroup_matrix type
     const core::type::SubgroupMatrix* subgroup_matrix_left(const core::type::Type* inner,
-                                                           uint32_t rows,
-                                                           uint32_t cols) {
-        return subgroup_matrix(SubgroupMatrixKind::kLeft, inner, rows, cols);
+                                                           uint32_t cols,
+                                                           uint32_t rows) {
+        return subgroup_matrix(SubgroupMatrixKind::kLeft, inner, cols, rows);
     }
 
     /// @param inner the inner type
-    /// @param rows the number of rows
     /// @param cols the number of columns
+    /// @param rows the number of rows
     /// @returns the subgroup_matrix type
     const core::type::SubgroupMatrix* subgroup_matrix_right(const core::type::Type* inner,
-                                                            uint32_t rows,
-                                                            uint32_t cols) {
-        return subgroup_matrix(SubgroupMatrixKind::kRight, inner, rows, cols);
+                                                            uint32_t cols,
+                                                            uint32_t rows) {
+        return subgroup_matrix(SubgroupMatrixKind::kRight, inner, cols, rows);
     }
 
     /// @param inner the inner type
-    /// @param rows the number of rows
     /// @param cols the number of columns
+    /// @param rows the number of rows
     /// @returns the subgroup_matrix type
     const core::type::SubgroupMatrix* subgroup_matrix_result(const core::type::Type* inner,
-                                                             uint32_t rows,
-                                                             uint32_t cols) {
-        return subgroup_matrix(SubgroupMatrixKind::kResult, inner, rows, cols);
+                                                             uint32_t cols,
+                                                             uint32_t rows) {
+        return subgroup_matrix(SubgroupMatrixKind::kResult, inner, cols, rows);
     }
 
     /// @tparam K the kind of the matrix
     /// @tparam T the element type
-    /// @tparam R the number of rows in the matrix
     /// @tparam C the number of columns in the matrix
+    /// @tparam R the number of rows in the matrix
     /// @returns a matrix with the given number of columns and rows
-    template <SubgroupMatrixKind K, typename T, uint32_t R, uint32_t C>
+    template <SubgroupMatrixKind K, typename T, uint32_t C, uint32_t R>
     const core::type::SubgroupMatrix* subgroup_matrix() {
         return subgroup_matrix(K, Get<T>(), C, R);
     }
 
-    /// @param elem_ty the array element type
-    /// @param count the array element count
-    /// @param stride the optional array element stride
-    /// @returns the array type
-    const core::type::Array* array(const core::type::Type* elem_ty,
-                                   uint32_t count,
-                                   uint32_t stride = 0);
+    /// @param n the size of the buffer
+    /// @returns the buffer
+    const core::type::Buffer* buffer(uint32_t n);
+
+    /// @returns the unsized buffer
+    const core::type::Buffer* unsized_buffer();
 
     /// @param elem_ty the array element type
-    /// @param stride the optional array element stride
+    /// @param count the array element count
+    /// @returns the array type
+    const core::type::Array* array(const core::type::Type* elem_ty, uint32_t count);
+
+    /// @param elem_ty the array element type
     /// @returns the runtime array type
-    const core::type::Array* runtime_array(const core::type::Type* elem_ty, uint32_t stride = 0);
+    const core::type::Array* runtime_array(const core::type::Type* elem_ty);
 
     /// @returns an array type with the element type `T` and size `N`.
     /// @tparam T the element type
     /// @tparam N the array length. If zero, then constructs a runtime-sized array.
-    /// @param stride the optional array element stride
     template <typename T, size_t N = 0>
-    const core::type::Array* array(uint32_t stride = 0) {
+    const core::type::Array* array() {
         if constexpr (N == 0) {
-            return runtime_array(Get<T>(), stride);
+            return runtime_array(Get<T>());
         } else {
-            return array(Get<T>(), N, stride);
+            return array(Get<T>(), N);
         }
     }
+
+    /// @param elem_ty the array element type
+    /// @param count the array element count
+    /// @returns the array type
+    const core::type::BindingArray* binding_array(const core::type::Type* elem_ty, uint32_t count);
 
     /// @param address_space the address space
     /// @param subtype the pointer subtype
@@ -566,10 +678,24 @@ class Manager final {
         return Get<core::type::Sampler>(core::type::SamplerKind::kSampler);
     }
 
+    /// @param filtering the sampler filtering parameter
+    /// @returns the sampler type
+    const core::type::Sampler* sampler(SamplerFiltering filtering) {
+        return Get<core::type::Sampler>(core::type::SamplerKind::kSampler, filtering);
+    }
+
     /// @returns the comparison sampler type
     const core::type::Sampler* comparison_sampler() {
         return Get<core::type::Sampler>(core::type::SamplerKind::kComparisonSampler);
     }
+
+    /// @returns an input attachment type
+    const core::type::InputAttachment* input_attachment(const core::type::Type* inner) {
+        return Get<core::type::InputAttachment>(inner);
+    }
+
+    /// @returns a string type
+    const core::type::String* String() { return Get<core::type::String>(); }
 
     /// A structure member descriptor.
     struct StructMemberDesc {
@@ -593,7 +719,10 @@ class Manager final {
     /// @param members the list of structure member descriptors
     /// @note a structure must not already exist with the same name
     /// @returns the structure type
-    core::type::Struct* Struct(Symbol name, VectorRef<StructMemberDesc> members);
+    core::type::Struct* Struct(Symbol name, VectorRef<StructMemberDesc> members) {
+        return Struct(name, /* is_wgsl_internal */ false,
+                      tint::Vector<StructMemberDesc, 4>(members));
+    }
 
     /// Create a new structure declaration.
     /// @param name the name of the structure
@@ -602,6 +731,17 @@ class Manager final {
     /// @returns the structure type
     core::type::Struct* Struct(Symbol name, std::initializer_list<StructMemberDesc> members) {
         return Struct(name, tint::Vector<StructMemberDesc, 4>(members));
+    }
+
+    /// Create a new WGSL internal structure declaration.
+    /// @param name the name of the structure
+    /// @param members the list of structure member descriptors
+    /// @note an internal structure must not already exist with the same name
+    /// @returns the structure type
+    core::type::Struct* WgslInternalStruct(Symbol name,
+                                           std::initializer_list<StructMemberDesc> members) {
+        return Struct(name, /* is_wgsl_internal */ true,
+                      tint::Vector<StructMemberDesc, 4>(members));
     }
 
     /// @returns the external texture type
@@ -619,6 +759,16 @@ class Manager final {
     UniqueAllocator<UniqueNode> unique_nodes_;
     /// Non-unique nodes owned by the manager
     BlockAllocator<Node> nodes_;
+
+    /// Create a new structure declaration.
+    /// @param name the name of the structure
+    /// @param is_wgsl_internal `true` if the structure is internally defined in WGSL
+    /// @param members the list of structure member descriptors
+    /// @note a structure must not already exist with the same name
+    /// @returns the structure type
+    core::type::Struct* Struct(Symbol name,
+                               bool is_wgsl_internal,
+                               VectorRef<StructMemberDesc> members);
 };
 
 }  // namespace tint::core::type

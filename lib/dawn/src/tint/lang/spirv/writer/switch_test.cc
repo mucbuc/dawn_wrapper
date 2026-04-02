@@ -33,7 +33,7 @@ namespace tint::spirv::writer {
 namespace {
 
 TEST_F(SpirvWriterTest, Switch_Basic) {
-    auto* func = b.Function("foo", ty.void_());
+    auto* func = b.ComputeFunction("main");
     b.Append(func->Block(), [&] {
         auto* swtch = b.Switch(42_i);
 
@@ -45,7 +45,8 @@ TEST_F(SpirvWriterTest, Switch_Basic) {
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST(R"(
           %4 = OpLabel
                OpSelectionMerge %8 None
@@ -59,7 +60,7 @@ TEST_F(SpirvWriterTest, Switch_Basic) {
 }
 
 TEST_F(SpirvWriterTest, Switch_MultipleCases) {
-    auto* func = b.Function("foo", ty.void_());
+    auto* func = b.ComputeFunction("main");
     b.Append(func->Block(), [&] {
         auto* swtch = b.Switch(42_i);
 
@@ -81,16 +82,17 @@ TEST_F(SpirvWriterTest, Switch_MultipleCases) {
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST(R"(
           %4 = OpLabel
                OpSelectionMerge %10 None
                OpSwitch %int_42 %5 1 %8 2 %9
+          %5 = OpLabel
+               OpBranch %10
           %8 = OpLabel
                OpBranch %10
           %9 = OpLabel
-               OpBranch %10
-          %5 = OpLabel
                OpBranch %10
          %10 = OpLabel
                OpReturn
@@ -99,7 +101,7 @@ TEST_F(SpirvWriterTest, Switch_MultipleCases) {
 }
 
 TEST_F(SpirvWriterTest, Switch_MultipleSelectorsPerCase) {
-    auto* func = b.Function("foo", ty.void_());
+    auto* func = b.ComputeFunction("main");
     b.Append(func->Block(), [&] {
         auto* swtch = b.Switch(42_i);
 
@@ -121,7 +123,8 @@ TEST_F(SpirvWriterTest, Switch_MultipleSelectorsPerCase) {
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST(R"(
           %4 = OpLabel
                OpSelectionMerge %10 None
@@ -161,16 +164,23 @@ TEST_F(SpirvWriterTest, Switch_AllCasesReturn) {
         b.Unreachable();
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Call(func);
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST(R"(
           %4 = OpLabel
                OpSelectionMerge %10 None
                OpSwitch %int_42 %5 1 %8 2 %9
+          %5 = OpLabel
+               OpBranch %10
           %8 = OpLabel
                OpBranch %10
           %9 = OpLabel
-               OpBranch %10
-          %5 = OpLabel
                OpBranch %10
          %10 = OpLabel
                OpReturn
@@ -204,19 +214,26 @@ TEST_F(SpirvWriterTest, Switch_ConditionalBreak) {
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Call(func);
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST(R"(
           %4 = OpLabel
                OpSelectionMerge %9 None
                OpSwitch %int_42 %5 1 %8
+          %5 = OpLabel
+               OpBranch %9
           %8 = OpLabel
                OpSelectionMerge %10 None
                OpBranchConditional %true %11 %10
          %11 = OpLabel
                OpBranch %9
          %10 = OpLabel
-               OpBranch %9
-          %5 = OpLabel
                OpBranch %9
           %9 = OpLabel
                OpReturn
@@ -228,7 +245,7 @@ TEST_F(SpirvWriterTest, Switch_Phi_SingleValue) {
     auto* func = b.Function("foo", ty.i32());
     b.Append(func->Block(), [&] {
         auto* s = b.Switch(42_i);
-        s->SetResults(b.InstructionResult(ty.i32()));
+        s->SetResult(b.InstructionResult(ty.i32()));
         auto* case_a = b.Case(s, Vector{b.Constant(1_i), nullptr});
         b.Append(case_a, [&] {  //
             b.ExitSwitch(s, 10_i);
@@ -242,7 +259,14 @@ TEST_F(SpirvWriterTest, Switch_Phi_SingleValue) {
         b.Return(func, s);
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST(R"(
           %4 = OpLabel
                OpSelectionMerge %8 None
@@ -262,7 +286,7 @@ TEST_F(SpirvWriterTest, Switch_Phi_SingleValue_CaseReturn) {
     auto* func = b.Function("foo", ty.i32());
     b.Append(func->Block(), [&] {
         auto* s = b.Switch(42_i);
-        s->SetResults(b.InstructionResult(ty.i32()));
+        s->SetResult(b.InstructionResult(ty.i32()));
         auto* case_a = b.Case(s, Vector{b.Constant(1_i), nullptr});
         b.Append(case_a, [&] {  //
             b.Return(func, 10_i);
@@ -276,7 +300,14 @@ TEST_F(SpirvWriterTest, Switch_Phi_SingleValue_CaseReturn) {
         b.Return(func, s);
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST(R"(
           %4 = OpLabel
 %return_value = OpVariable %_ptr_Function_int Function %7
@@ -291,18 +322,17 @@ TEST_F(SpirvWriterTest, Switch_Phi_SingleValue_CaseReturn) {
          %14 = OpLabel
                OpBranch %15
          %15 = OpLabel
-         %18 = OpPhi %int %19 %12 %int_20 %14
-         %21 = OpLoad %bool %continue_execution None
-               OpSelectionMerge %22 None
-               OpBranchConditional %21 %23 %22
-         %23 = OpLabel
-               OpStore %return_value %18 None
-               OpBranch %22
-         %22 = OpLabel
-         %24 = OpLoad %int %return_value None
-               OpReturnValue %24
+         %16 = OpPhi %int %17 %12 %int_20 %14
+         %19 = OpLoad %bool %continue_execution None
+               OpSelectionMerge %20 None
+               OpBranchConditional %19 %21 %20
+         %21 = OpLabel
+               OpStore %return_value %16 None
+               OpBranch %20
+         %20 = OpLabel
+         %22 = OpLoad %int %return_value None
+               OpReturnValue %22
                OpFunctionEnd
-
 )");
 }
 
@@ -324,7 +354,14 @@ TEST_F(SpirvWriterTest, Switch_Phi_MultipleValue_0) {
         b.Return(func, s->Result(0));
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST(R"(
           %4 = OpLabel
                OpSelectionMerge %8 None
@@ -359,7 +396,14 @@ TEST_F(SpirvWriterTest, Switch_Phi_MultipleValue_1) {
         b.Return(func, s->Result(1));
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST(R"(
           %4 = OpLabel
                OpSelectionMerge %9 None
@@ -380,11 +424,11 @@ TEST_F(SpirvWriterTest, Switch_Phi_NestedIf) {
     auto* func = b.Function("foo", ty.i32());
     b.Append(func->Block(), [&] {
         auto* s = b.Switch(42_i);
-        s->SetResults(b.InstructionResult(ty.i32()));
+        s->SetResult(b.InstructionResult(ty.i32()));
         auto* case_a = b.Case(s, Vector{b.Constant(1_i), nullptr});
         b.Append(case_a, [&] {  //
             auto* inner = b.If(true);
-            inner->SetResults(b.InstructionResult(ty.i32()));
+            inner->SetResult(b.InstructionResult(ty.i32()));
             b.Append(inner->True(), [&] {  //
                 b.ExitIf(inner, 10_i);
             });
@@ -392,7 +436,7 @@ TEST_F(SpirvWriterTest, Switch_Phi_NestedIf) {
                 b.ExitIf(inner, 20_i);
             });
 
-            b.ExitSwitch(s, inner->Result(0));
+            b.ExitSwitch(s, inner->Result());
         });
 
         auto* case_b = b.Case(s, Vector{b.Constant(2_i)});
@@ -403,26 +447,33 @@ TEST_F(SpirvWriterTest, Switch_Phi_NestedIf) {
         b.Return(func, s);
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST(R"(
           %4 = OpLabel
                OpSelectionMerge %8 None
                OpSwitch %int_42 %5 1 %5 2 %7
           %5 = OpLabel
                OpSelectionMerge %9 None
-               OpBranchConditional %true %10 %11
-         %10 = OpLabel
+               OpBranchConditional %true %13 %14
+         %13 = OpLabel
                OpBranch %9
-         %11 = OpLabel
+         %14 = OpLabel
                OpBranch %9
           %9 = OpLabel
-         %14 = OpPhi %int %int_10 %10 %int_20 %11
+         %12 = OpPhi %int %int_10 %13 %int_20 %14
                OpBranch %8
           %7 = OpLabel
                OpBranch %8
           %8 = OpLabel
-         %17 = OpPhi %int %int_20 %7 %14 %9
-               OpReturnValue %17
+         %10 = OpPhi %int %int_20 %7 %12 %9
+               OpReturnValue %10
                OpFunctionEnd
 )");
 }
@@ -431,7 +482,7 @@ TEST_F(SpirvWriterTest, Switch_Phi_NestedSwitch) {
     auto* func = b.Function("foo", ty.i32());
     b.Append(func->Block(), [&] {
         auto* outer = b.Switch(42_i);
-        outer->SetResults(b.InstructionResult(ty.i32()));
+        outer->SetResult(b.InstructionResult(ty.i32()));
         auto* case_a = b.Case(outer, Vector{b.Constant(1_i), nullptr});
         b.Append(case_a, [&] {  //
             auto* inner = b.Switch(42_i);
@@ -451,23 +502,30 @@ TEST_F(SpirvWriterTest, Switch_Phi_NestedSwitch) {
         b.Return(func, outer);
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST(R"(
           %4 = OpLabel
                OpSelectionMerge %8 None
                OpSwitch %int_42 %5 1 %5 2 %7
           %5 = OpLabel
-               OpSelectionMerge %10 None
-               OpSwitch %int_42 %9 2 %9
+               OpSelectionMerge %9 None
+               OpSwitch %int_42 %13 2 %13
+         %13 = OpLabel
+               OpBranch %9
           %9 = OpLabel
-               OpBranch %10
-         %10 = OpLabel
                OpBranch %8
           %7 = OpLabel
                OpBranch %8
           %8 = OpLabel
-         %11 = OpPhi %int %int_20 %7 %int_10 %10
-               OpReturnValue %11
+         %10 = OpPhi %int %int_20 %7 %int_10 %9
+               OpReturnValue %10
                OpFunctionEnd
 )");
 }

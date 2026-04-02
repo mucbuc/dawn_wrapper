@@ -32,7 +32,7 @@ package main
 import (
 	"flag"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -40,49 +40,53 @@ import (
 	"text/template"
 	"unicode"
 
+	"dawn.googlesource.com/dawn/tools/src/oswrapper"
 	"github.com/ben-clayton/webidlparser/ast"
 	"github.com/ben-clayton/webidlparser/parser"
 )
 
 func main() {
-	if err := run(); err != nil {
+	if err := run(os.Args[1:], oswrapper.GetRealOSWrapper()); err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}
 }
 
-func showUsage() {
-	fmt.Println(`
+func showUsage() error {
+	return fmt.Errorf(`
 idlgen is a tool used to generate code from WebIDL files and a golang
 template file
 
 Usage:
   idlgen --template=<template-path> --output=<output-path> <idl-file> [<idl-file>...]`)
-	os.Exit(1)
 }
 
-func run() error {
+func run(args []string, osWrapper oswrapper.OSWrapper) error {
 	var templatePath string
 	var outputPath string
-	flag.StringVar(&templatePath, "template", "", "the template file run with the parsed WebIDL files")
-	flag.StringVar(&outputPath, "output", "", "the output file")
-	flag.Parse()
 
-	idlFiles := flag.Args()
+	flagSet := flag.NewFlagSet("idlgen", flag.ContinueOnError)
+	flagSet.StringVar(&templatePath, "template", "", "the template file run with the parsed WebIDL files")
+	flagSet.StringVar(&outputPath, "output", "", "the output file")
+	if err := flagSet.Parse(args); err != nil {
+		return err
+	}
+
+	idlFiles := flagSet.Args()
 
 	// Check all required arguments are provided
-	if templatePath == "" || outputPath == "" || len(idlFiles) == 0 {
-		showUsage()
+	if templatePath == "" || len(idlFiles) == 0 {
+		return showUsage()
 	}
 
 	// Open up the output file
-	out := os.Stdout
+	var out io.Writer = os.Stdout
 	if outputPath != "" {
 		dir := filepath.Dir(outputPath)
-		if err := os.MkdirAll(dir, 0777); err != nil {
+		if err := osWrapper.MkdirAll(dir, 0777); err != nil {
 			return fmt.Errorf("failed to create output directory '%v'", dir)
 		}
-		file, err := os.Create(outputPath)
+		file, err := osWrapper.Create(outputPath)
 		if err != nil {
 			return fmt.Errorf("failed to open output file '%v'", outputPath)
 		}
@@ -91,7 +95,7 @@ func run() error {
 	}
 
 	// Read the template file
-	tmpl, err := ioutil.ReadFile(templatePath)
+	tmpl, err := osWrapper.ReadFile(templatePath)
 	if err != nil {
 		return fmt.Errorf("failed to open template file '%v'", templatePath)
 	}
@@ -101,7 +105,7 @@ func run() error {
 
 	// Parse each of the WebIDL files and add the declarations to idl
 	for _, path := range idlFiles {
-		content, err := ioutil.ReadFile(path)
+		content, err := osWrapper.ReadFile(path)
 		if err != nil {
 			return fmt.Errorf("failed to open file '%v'", path)
 		}
@@ -117,7 +121,10 @@ func run() error {
 	}
 
 	// Initialize the generator
-	g := generator{t: template.New(templatePath)}
+	g := generator{
+		t:         template.New(templatePath),
+		osWrapper: osWrapper,
+	}
 	g.workingDir = filepath.Dir(templatePath)
 	g.funcs = map[string]interface{}{
 		// Functions exposed to the template
@@ -126,11 +133,13 @@ func run() error {
 		"EnumEntryName":              enumEntryName,
 		"Eval":                       g.eval,
 		"HasAnnotation":              hasAnnotation,
+		"HasConstructor":             hasConstructor,
 		"FlattenedAttributesOf":      g.flattenedAttributesOf,
 		"FlattenedConstantsOf":       g.flattenedConstantsOf,
 		"FlattenedMethodsOf":         g.flattenedMethodsOf,
 		"Include":                    g.include,
 		"IsBasicLiteral":             is(ast.BasicLiteral{}),
+		"IsCallback":                 is(ast.Callback{}),
 		"IsInitializer":              isInitializer,
 		"IsDefaultDictionaryLiteral": is(ast.DefaultDictionaryLiteral{}),
 		"IsDictionary":               is(ast.Dictionary{}),
@@ -194,8 +203,11 @@ func nameOf(n ast.Node) string {
 		return n.Name
 	case *ast.Mixin:
 		return n.Name
+	case *ast.Callback:
+		return n.Name
 	case *ast.Includes:
 		return ""
+
 	default:
 		panic(fmt.Errorf("unhandled AST declaration %T", n))
 	}
@@ -381,6 +393,10 @@ func (s *simplifier) visit(d ast.Decl) {
 		if register(d.Name) {
 			return
 		}
+	case *ast.Callback:
+		for _, p := range d.Parameters {
+			s.visitType(p.Type)
+		}
 	default:
 		panic(fmt.Errorf("unhandled AST declaration %T", d))
 	}
@@ -436,6 +452,8 @@ type generator struct {
 	funcs map[string]interface{}
 	// dependency-sorted declarations
 	declarations declarations
+	// osWrapper for file operations
+	osWrapper oswrapper.OSWrapper
 }
 
 // eval executes the sub-template with the given name and arguments, returning
@@ -484,13 +502,25 @@ func (g *generator) lookup(name string) ast.Decl {
 // include loads the template with the given path, importing the declarations
 // into the scope of the current template.
 func (g *generator) include(path string) (string, error) {
-	t, err := g.t.
-		Option("missingkey=invalid").
-		Funcs(g.funcs).
-		ParseFiles(filepath.Join(g.workingDir, path))
+	// The file is read and manually parsed instead of using Template.ParseFiles
+	// since ParseFiles circumvents our filesystem dependency injection.
+	fullPath := filepath.Join(g.workingDir, path)
+	content, err := g.osWrapper.ReadFile(fullPath)
 	if err != nil {
 		return "", err
 	}
+
+	// ParseFiles uses the basename of the file as the template name.
+	basename := filepath.Base(path)
+	t := g.t.New(basename).
+		Option("missingkey=invalid").
+		Funcs(g.funcs)
+
+	t, err = t.Parse(string(content))
+	if err != nil {
+		return "", err
+	}
+
 	g.t.AddParseTree(path, t.Tree)
 	return "", nil
 }
@@ -523,7 +553,7 @@ func is(prototypes ...interface{}) func(interface{}) bool {
 	return func(v interface{}) bool {
 		ty := reflect.TypeOf(v)
 		for _, rty := range types {
-			if ty == rty || ty == reflect.PtrTo(rty) {
+			if ty == rty || ty == reflect.PointerTo(rty) {
 				return true
 			}
 		}
@@ -577,6 +607,17 @@ func hasAnnotation(obj interface{}, name string) bool {
 		return findAnnotation(obj.Annotations, name) != nil || findAnnotation(obj.TypeAnnotations, name) != nil
 	}
 	panic("Unhandled AST node type in hasAnnotation")
+}
+
+func hasConstructor(obj interface{}) bool {
+	iface := obj.(*ast.Interface)
+	for _, member := range iface.Members {
+		member := member.(*ast.Member)
+		if isInitializer(member) {
+			return true
+		}
+	}
+	return false
 }
 
 // Method describes a WebIDL interface method

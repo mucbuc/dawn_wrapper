@@ -25,6 +25,8 @@
 // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+#include "dawn/utils/TestUtils.h"
+
 #include <algorithm>
 #include <memory>
 #include <ostream>
@@ -32,9 +34,7 @@
 #include <vector>
 
 #include "dawn/common/Assert.h"
-#include "dawn/common/Constants.h"
 #include "dawn/common/Math.h"
-#include "dawn/utils/TestUtils.h"
 #include "dawn/utils/TextureUtils.h"
 #include "dawn/utils/WGPUHelpers.h"
 
@@ -53,18 +53,22 @@ std::ostream& operator<<(std::ostream& stream, const RGBA8& color) {
                   << ", " << static_cast<int>(color.b) << ", " << static_cast<int>(color.a) << ")";
 }
 
-uint32_t GetMinimumBytesPerRow(wgpu::TextureFormat format, uint32_t width) {
+uint32_t GetMinimumBytesPerRow(wgpu::TextureFormat format,
+                               uint32_t width,
+                               uint32_t textureBytesPerRowAlignment) {
     const uint32_t bytesPerBlock = dawn::utils::GetTexelBlockSizeInBytes(format);
     const uint32_t blockWidth = dawn::utils::GetTextureFormatBlockWidth(format);
     DAWN_ASSERT(width % blockWidth == 0);
-    return Align(bytesPerBlock * (width / blockWidth), kTextureBytesPerRowAlignment);
+    return Align(bytesPerBlock * (width / blockWidth), textureBytesPerRowAlignment);
 }
 
-TextureDataCopyLayout GetTextureDataCopyLayoutForTextureAtLevel(wgpu::TextureFormat format,
-                                                                wgpu::Extent3D textureSizeAtLevel0,
-                                                                uint32_t mipmapLevel,
-                                                                wgpu::TextureDimension dimension,
-                                                                uint32_t rowsPerImage) {
+TextureDataCopyLayout GetTextureDataCopyLayoutForTextureAtLevel(
+    wgpu::TextureFormat format,
+    wgpu::Extent3D textureSizeAtLevel0,
+    uint32_t mipmapLevel,
+    wgpu::TextureDimension dimension,
+    uint32_t rowsPerImage,
+    uint32_t textureBytesPerRowAlignment) {
     // Compressed texture formats not supported in this function yet.
     DAWN_ASSERT(dawn::utils::GetTextureFormatBlockWidth(format) == 1);
 
@@ -79,7 +83,8 @@ TextureDataCopyLayout GetTextureDataCopyLayoutForTextureAtLevel(wgpu::TextureFor
             std::max(textureSizeAtLevel0.depthOrArrayLayers >> mipmapLevel, 1u);
     }
 
-    layout.bytesPerRow = GetMinimumBytesPerRow(format, layout.mipSize.width);
+    layout.bytesPerRow =
+        GetMinimumBytesPerRow(format, layout.mipSize.width, textureBytesPerRowAlignment);
 
     if (rowsPerImage == wgpu::kCopyStrideUndefined) {
         rowsPerImage = layout.mipSize.height;
@@ -152,14 +157,14 @@ void UnalignDynamicUploader(wgpu::Device device) {
     descriptor.usage = wgpu::TextureUsage::CopyDst | wgpu::TextureUsage::CopySrc;
     wgpu::Texture texture = device.CreateTexture(&descriptor);
 
-    wgpu::ImageCopyTexture imageCopyTexture =
-        dawn::utils::CreateImageCopyTexture(texture, 0, {0, 0, 0});
-    wgpu::TextureDataLayout textureDataLayout =
-        dawn::utils::CreateTextureDataLayout(0, wgpu::kCopyStrideUndefined);
+    wgpu::TexelCopyTextureInfo texelCopyTextureInfo =
+        dawn::utils::CreateTexelCopyTextureInfo(texture, 0, {0, 0, 0});
+    wgpu::TexelCopyBufferLayout texelCopyBufferLayout =
+        dawn::utils::CreateTexelCopyBufferLayout(0, wgpu::kCopyStrideUndefined);
     wgpu::Extent3D copyExtent = {1, 1, 1};
 
     // WriteTexture with exactly 1 byte of data.
-    device.GetQueue().WriteTexture(&imageCopyTexture, data.data(), 1, &textureDataLayout,
+    device.GetQueue().WriteTexture(&texelCopyTextureInfo, data.data(), 1, &texelCopyBufferLayout,
                                    &copyExtent);
 }
 

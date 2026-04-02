@@ -27,17 +27,15 @@
 
 #include "src/tint/lang/wgsl/ast/accessor_expression.h"
 
+#include "src/tint/utils/ice/ice.h"
+
 TINT_INSTANTIATE_TYPEINFO(tint::ast::AccessorExpression);
 
 namespace tint::ast {
 
-AccessorExpression::AccessorExpression(GenerationID pid,
-                                       NodeID nid,
-                                       const Source& src,
-                                       const Expression* obj)
-    : Base(pid, nid, src), object(obj) {
+AccessorExpression::AccessorExpression(NodeID nid, const Source& src, const Expression* obj)
+    : Base(nid, src), object(obj) {
     TINT_ASSERT(object);
-    TINT_ASSERT_GENERATION_IDS_EQUAL_IF_VALID(object, generation_id);
 }
 
 AccessorExpression::~AccessorExpression() = default;

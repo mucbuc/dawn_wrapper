@@ -29,7 +29,6 @@
 #define SRC_DAWN_NATIVE_D3D12_PHYSICALDEVICED3D12_H_
 
 #include "dawn/native/PhysicalDevice.h"
-
 #include "dawn/native/d3d/PhysicalDeviceD3D.h"
 #include "dawn/native/d3d12/D3D12Info.h"
 #include "dawn/native/d3d12/d3d12_platform.h"
@@ -40,12 +39,13 @@ class Backend;
 
 class PhysicalDevice : public d3d::PhysicalDevice {
   public:
-    PhysicalDevice(Backend* backend, ComPtr<IDXGIAdapter4> hardwareAdapter);
+    PhysicalDevice(Backend* backend, ComPtr<IDXGIAdapter3> hardwareAdapter);
     ~PhysicalDevice() override;
 
     // PhysicalDeviceBase Implementation
     bool SupportsExternalImages() const override;
-    bool SupportsFeatureLevel(FeatureLevel featureLevel) const override;
+    bool SupportsFeatureLevel(wgpu::FeatureLevel featureLevel,
+                              InstanceBase* instance) const override;
 
     // Get the applied shader model version under the given adapter or device toggle state, which
     // may be lower than the shader model reported in mDeviceInfo.
@@ -54,6 +54,8 @@ class PhysicalDevice : public d3d::PhysicalDevice {
     const D3D12DeviceInfo& GetDeviceInfo() const;
     Backend* GetBackend() const;
     ComPtr<ID3D12Device> GetDevice() const;
+
+    bool SupportsBufferMapExtendedUsages() const;
 
   private:
     using Base = d3d::PhysicalDevice;
@@ -81,10 +83,13 @@ class PhysicalDevice : public d3d::PhysicalDevice {
         wgpu::FeatureName feature,
         const TogglesState& toggles) const override;
 
+    MaybeError ValidateUseOfD3D12() const;
+
     MaybeError InitializeDebugLayerFilters();
     void CleanUpDebugLayerFilters();
 
-    void PopulateBackendProperties(UnpackedPtr<AdapterInfo>& info) const override;
+    void PopulateBackendProperties(UnpackedPtr<AdapterInfo>& info,
+                                   const TogglesState& adapterToggles) const override;
 
     ComPtr<ID3D12Device> mD3d12Device;
 

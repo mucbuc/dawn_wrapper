@@ -32,7 +32,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
 	"strings"
 	"sync"
 	"time"
@@ -42,6 +41,7 @@ import (
 	"dawn.googlesource.com/dawn/tools/src/cov"
 	"dawn.googlesource.com/dawn/tools/src/fileutils"
 	"dawn.googlesource.com/dawn/tools/src/git"
+	"dawn.googlesource.com/dawn/tools/src/oswrapper"
 	"dawn.googlesource.com/dawn/tools/src/progressbar"
 	"dawn.googlesource.com/dawn/tools/src/term"
 )
@@ -77,6 +77,9 @@ type Coverage struct {
 	OutputFile string
 }
 
+// TODO(crbug.com/416755658): Split into smaller functions and add unittest
+// coverage once the exec calls in browser.Open() are handled via dependency
+// injection.
 // StreamResults reads from the chan 'results', printing the results in test-id
 // sequential order.
 // Once all the results have been printed, a summary will be printed and the
@@ -84,11 +87,13 @@ type Coverage struct {
 func StreamResults(
 	ctx context.Context,
 	colors bool,
+	failuresOnly bool,
 	state State,
 	verbose bool,
 	coverage *Coverage, // Optional coverage generation info
 	numTestCases int, // Total number of test cases
-	stream <-chan Result) (Results, error) {
+	stream <-chan Result,
+	osWrapper oswrapper.OSWrapper) (Results, error) {
 	// If the context was already cancelled then just return
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -124,7 +129,7 @@ func StreamResults(
 
 	start := time.Now()
 	for res := range stream {
-		state.Log.logResults(res)
+		state.Log.logResults(res, failuresOnly)
 		results[res.TestCase] = res
 		expected := state.Expectations[res.TestCase]
 		exStatus := expectedStatus{
@@ -181,6 +186,7 @@ func StreamResults(
 		}
 	}
 
+	unexpectedFailures := 0
 	for _, s := range AllStatuses {
 		// number of tests, just run, that resulted in the given status
 		numByStatus := numByExpectedStatus[expectedStatus{s, true}] +
@@ -193,6 +199,10 @@ func StreamResults(
 		}
 		if numByStatus == 0 && diffFromExpected == 0 {
 			continue
+		}
+
+		if s == Fail {
+			unexpectedFailures += 1
 		}
 
 		fmt.Fprint(stdout, term.Bold, statusColor[s])
@@ -216,8 +226,8 @@ func StreamResults(
 	if coverage != nil {
 		// Obtain the current git revision
 		revision := "HEAD"
-		if g, err := git.New(""); err == nil {
-			if r, err := g.Open(fileutils.DawnRoot()); err == nil {
+		if g, err := git.New("", osWrapper); err == nil {
+			if r, err := g.Open(fileutils.DawnRoot(osWrapper)); err == nil {
 				if l, err := r.Log(&git.LogOptions{From: "HEAD", To: "HEAD"}); err == nil {
 					revision = l[0].Hash.String()
 				}
@@ -225,7 +235,7 @@ func StreamResults(
 		}
 
 		if coverage.OutputFile != "" {
-			file, err := os.Create(coverage.OutputFile)
+			file, err := osWrapper.Create(coverage.OutputFile)
 			if err != nil {
 				return nil, fmt.Errorf("failed to create the coverage file: %w", err)
 			}
@@ -249,13 +259,16 @@ func StreamResults(
 				fmt.Fprintln(stdout)
 				fmt.Fprintln(stdout, term.Blue+"Serving coverage view at "+url+term.Reset)
 				return browser.Open(url)
-			})
+			}, osWrapper)
 			if err != nil {
 				return nil, err
 			}
 		}
 	}
 
+	if unexpectedFailures > 0 {
+		return results, fmt.Errorf("%v unexpected failure(s)", unexpectedFailures)
+	}
 	return results, nil
 }
 
@@ -349,7 +362,7 @@ func splitCTSQuery(testcase TestCase) cov.Path {
 	s := 0
 	for e, r := range testcase {
 		switch r {
-		case ':', '.':
+		case ':', '.', ',':
 			out = append(out, string(testcase[s:e+1]))
 			s = e + 1
 		}

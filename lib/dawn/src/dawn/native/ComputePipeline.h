@@ -28,6 +28,8 @@
 #ifndef SRC_DAWN_NATIVE_COMPUTEPIPELINE_H_
 #define SRC_DAWN_NATIVE_COMPUTEPIPELINE_H_
 
+#include <vector>
+
 #include "dawn/common/ContentLessObjectCacheable.h"
 #include "dawn/common/NonCopyable.h"
 #include "dawn/native/Forward.h"
@@ -52,20 +54,32 @@ class ComputePipelineBase : public PipelineBase,
 
     ObjectType GetType() const override;
 
+    const ComputePipelineBase* AsComputePipeline() const override { return this; }
+    ComputePipelineBase* AsComputePipeline() override { return this; }
+
     // Functors necessary for the unordered_set<ComputePipelineBase*>-based cache.
     struct EqualityFunc {
         bool operator()(const ComputePipelineBase* a, const ComputePipelineBase* b) const;
     };
 
-    bool IsFullSubgroupsRequired() const;
+    Extent3D GetWorkgroupSize() const;
+    bool UsesLinearIndexing() const;
+    bool UsesGlobalInvocationIndex() const;
 
   protected:
-    void DestroyImpl() override;
+    void DestroyImpl(DestroyReason reason) override;
 
   private:
     ComputePipelineBase(DeviceBase* device, ObjectBase::ErrorTag tag, StringView label);
 
-    bool mRequiresFullSubgroups;
+    MaybeError InitializeWithShaders() final;
+    // Overridden by backends to perform their initialization steps. Returns the workgroup size
+    // (after overridable constants are applied).
+    virtual ResultOrError<Extent3D> InitializeImpl() = 0;
+
+    Extent3D mWorkgroupSize = {1, 1, 1};
+    bool mUsesLinearIndex = false;
+    bool mUsesGlobalInvocationIndex = false;
 };
 
 }  // namespace dawn::native

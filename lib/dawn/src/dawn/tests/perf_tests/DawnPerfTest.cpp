@@ -266,7 +266,9 @@ void DawnPerfTestBase::DoRunLoop(double maxRunTime) {
         submittedIterations++;
         mTest->queue.OnSubmittedWorkDone(
             wgpu::CallbackMode::AllowProcessEvents,
-            [&finishedIterations](wgpu::QueueWorkDoneStatus) { finishedIterations++; });
+            [&finishedIterations](wgpu::QueueWorkDoneStatus, wgpu::StringView) {
+                finishedIterations++;
+            });
 
         if (mRunning) {
             ++mNumStepsPerformed;
@@ -279,12 +281,7 @@ void DawnPerfTestBase::DoRunLoop(double maxRunTime) {
     }
 
     // Wait for all GPU commands to complete.
-    // TODO(enga): When Dawn has multiple backgrounds threads, add a Device::WaitForIdleForTesting()
-    // which waits for all threads to stop doing work. When we output results, there should
-    // be no additional incoming trace events.
-    while (submittedIterations != finishedIterations) {
-        mTest->WaitABit();
-    }
+    mTest->WaitForAllOperations();
 
     mTimer->Stop();
 }

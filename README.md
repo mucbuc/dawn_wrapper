@@ -3,9 +3,21 @@
 ![Native Tests](https://github.com/mucbuc/dawn_wrapper/workflows/Native%20WebGPU%20Tests/badge.svg)
 ![Emscripten Tests](https://github.com/mucbuc/dawn_wrapper/workflows/Emscripten%20WebGPU%20Tests/badge.svg)
 
-## example
+A C++ wrapper around [Dawn](https://dawn.googlesource.com/dawn), Google's WebGPU implementation. Targets both native (macOS) and browser (via Emscripten) from the same codebase.
+
+## Browser Support
+
+| Browser | Status | Notes |
+|---|---|---|
+| Chrome | ✅ Supported | Primary target |
+| Edge | ✅ Supported | Chromium-based, behaves like Chrome |
+| Safari | ⚠️ Broken | Memory misalignment in SDF output. Under investigation |
+| Firefox | ❌ Not supported | Out of scope |
+
+## Example
+
 **example.cpp**
-```
+```cpp
 #include <iostream>
 #include <sstream>
 
@@ -40,10 +52,12 @@ int main()
 
     // compile shader
     auto comp = plugin.make_compute();
-    comp.compile_shader( shader_script.str(), entry_point );
+    comp.compile_shader(shader_script.str(), entry_point);
 
     // layout and pipeline
-    auto layout = comp.make_bindgroup_layout().add_read_only_buffer(binding_in).add_buffer(binding_out);
+    auto layout = comp.make_bindgroup_layout()
+        .add_read_only_buffer(binding_in)
+        .add_buffer(binding_out);
     comp.init_pipeline(layout);
 
     // buffers
@@ -52,7 +66,9 @@ int main()
     buffer_wrapper mapped = plugin.make_dst_buffer(size_bytes, buffer_type::map_read);
 
     // compute
-    auto bindgroup = comp.make_bindgroup().add_buffer(binding_in, input).add_buffer(binding_out, output);
+    auto bindgroup = comp.make_bindgroup()
+        .add_buffer(binding_in, input)
+        .add_buffer(binding_out, output);
     auto encoder = plugin.make_encoder();
     comp.compute(bindgroup, unsigned(data.size()), 1, encoder);
     plugin.run();
@@ -74,46 +90,7 @@ int main()
 }
 ```
 
-## build
-**CMakeLists.txt**
-```
-cmake_minimum_required(VERSION 3.27)
-
-project(Example)
-
-add_executable(Example src/example.cpp)
-set_target_properties(Example PROPERTIES
-    CXX_STANDARD 20
-	CXX_STANDARD_REQUIRED ON
-	CXX_EXTENSIONS OFF
-	COMPILE_WARNING_AS_ERROR ON
-)
-set(CMAKE_THREAD_LIBS_INIT "-lpthread")
-add_compile_definitions(TARGET_HEADLESS)
-add_subdirectory(lib/dawn_wrapper)
-
-if (EMSCRIPTEN)
-    set_target_properties(Example PROPERTIES SUFFIX ".html")
-    target_link_options(Example PRIVATE "-sUSE_WEBGPU=1" "-sUSE_GLFW=3")
-endif()
-
-target_link_libraries(Example PRIVATE
-    dawn_wrapper
-)
-
-target_include_directories(Example SYSTEM PUBLIC ${CMAKE_SOURCE_DIR})
-```
-**build native:**
-```
-cmake -B build
-cmake --build build -j 8
-```
-**build emscripten:**
-```
-emcmake cmake -B web-build -DDAWN_EMSCRIPTEN_TOOLCHAIN="~/outside_of_dawn_wrapper/emscripten"
-cmake --build web-build
-```
-**output:**
+**Output:**
 ```
 2
 3
@@ -125,3 +102,55 @@ cmake --build web-build
 19
 21
 ```
+
+## Build
+
+**CMakeLists.txt**
+```cmake
+cmake_minimum_required(VERSION 3.27)
+
+project(Example)
+
+add_executable(Example src/example.cpp)
+
+set_target_properties(Example PROPERTIES
+    CXX_STANDARD 20
+    CXX_STANDARD_REQUIRED ON
+    CXX_EXTENSIONS OFF
+    COMPILE_WARNING_AS_ERROR ON
+)
+
+add_compile_definitions(TARGET_HEADLESS)
+add_subdirectory(lib/dawn_wrapper)
+add_subdirectory(lib/asserter)
+
+if (EMSCRIPTEN)
+    set_target_properties(Example PROPERTIES SUFFIX ".html")
+    target_link_options(Example PRIVATE
+        --use-port=emdawnwebgpu
+        --closure=1
+        --emrun
+    )
+endif()
+
+target_link_libraries(Example PRIVATE dawn_wrapper)
+target_include_directories(Example SYSTEM PUBLIC ${CMAKE_CURRENT_LIST_DIR}/lib)
+```
+
+**Native:**
+```bash
+cmake -B build
+cmake --build build -j 8
+./build/Example
+```
+
+**Emscripten:**
+```bash
+emcmake cmake -B web-build
+cmake --build web-build
+emrun --browser chrome web-build/Example.html
+```
+
+## Dawn
+
+Dawn is checked in wholesale under `lib/dawn/` at branch `chromium/7767`. See [dawn_integration.md](dawn_integration.md) for update instructions.

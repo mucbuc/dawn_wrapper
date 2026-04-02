@@ -51,8 +51,12 @@ tint_add_target(tint_lang_core_type lib
   lang/core/type/array_count.h
   lang/core/type/atomic.cc
   lang/core/type/atomic.h
+  lang/core/type/binding_array.cc
+  lang/core/type/binding_array.h
   lang/core/type/bool.cc
   lang/core/type/bool.h
+  lang/core/type/buffer.cc
+  lang/core/type/buffer.h
   lang/core/type/builtin_structs.cc
   lang/core/type/builtin_structs.h
   lang/core/type/clone_context.h
@@ -66,6 +70,8 @@ tint_add_target(tint_lang_core_type lib
   lang/core/type/f16.h
   lang/core/type/f32.cc
   lang/core/type/f32.h
+  lang/core/type/function.cc
+  lang/core/type/function.h
   lang/core/type/i32.cc
   lang/core/type/i32.h
   lang/core/type/i8.cc
@@ -90,6 +96,10 @@ tint_add_target(tint_lang_core_type lib
   lang/core/type/pointer.h
   lang/core/type/reference.cc
   lang/core/type/reference.h
+  lang/core/type/resource_table.cc
+  lang/core/type/resource_table.h
+  lang/core/type/resource_type.cc
+  lang/core/type/resource_type.h
   lang/core/type/sampled_texture.cc
   lang/core/type/sampled_texture.h
   lang/core/type/sampler.cc
@@ -100,18 +110,28 @@ tint_add_target(tint_lang_core_type lib
   lang/core/type/scalar.h
   lang/core/type/storage_texture.cc
   lang/core/type/storage_texture.h
+  lang/core/type/string.cc
+  lang/core/type/string.h
   lang/core/type/struct.cc
   lang/core/type/struct.h
   lang/core/type/subgroup_matrix.cc
   lang/core/type/subgroup_matrix.h
+  lang/core/type/swizzle_view.cc
+  lang/core/type/swizzle_view.h
+  lang/core/type/texel_buffer.cc
+  lang/core/type/texel_buffer.h
   lang/core/type/texture.cc
   lang/core/type/texture.h
   lang/core/type/texture_dimension.cc
   lang/core/type/texture_dimension.h
   lang/core/type/type.cc
   lang/core/type/type.h
+  lang/core/type/u16.cc
+  lang/core/type/u16.h
   lang/core/type/u32.cc
   lang/core/type/u32.h
+  lang/core/type/u64.cc
+  lang/core/type/u64.h
   lang/core/type/u8.cc
   lang/core/type/u8.h
   lang/core/type/unique_node.cc
@@ -123,20 +143,18 @@ tint_add_target(tint_lang_core_type lib
 )
 
 tint_target_add_dependencies(tint_lang_core_type lib
+  tint_api_common
   tint_lang_core
+  tint_utils
   tint_utils_containers
   tint_utils_diagnostic
   tint_utils_ice
-  tint_utils_id
   tint_utils_macros
   tint_utils_math
   tint_utils_memory
-  tint_utils_reflection
-  tint_utils_result
   tint_utils_rtti
   tint_utils_symbol
   tint_utils_text
-  tint_utils_traits
 )
 
 tint_target_add_external_dependencies(tint_lang_core_type lib
@@ -150,7 +168,9 @@ tint_target_add_external_dependencies(tint_lang_core_type lib
 tint_add_target(tint_lang_core_type_test test
   lang/core/type/array_test.cc
   lang/core/type/atomic_test.cc
+  lang/core/type/binding_array_test.cc
   lang/core/type/bool_test.cc
+  lang/core/type/buffer_test.cc
   lang/core/type/builtin_structs_test.cc
   lang/core/type/depth_multisampled_texture_test.cc
   lang/core/type/depth_texture_test.cc
@@ -161,6 +181,7 @@ tint_add_target(tint_lang_core_type_test test
   lang/core/type/i32_test.cc
   lang/core/type/i8_test.cc
   lang/core/type/input_attachment_test.cc
+  lang/core/type/is_host_shareable_test.cc
   lang/core/type/manager_test.cc
   lang/core/type/matrix_test.cc
   lang/core/type/multisampled_texture_test.cc
@@ -169,11 +190,15 @@ tint_add_target(tint_lang_core_type_test test
   lang/core/type/sampled_texture_test.cc
   lang/core/type/sampler_test.cc
   lang/core/type/storage_texture_test.cc
+  lang/core/type/string_test.cc
   lang/core/type/struct_test.cc
   lang/core/type/subgroup_matrix_test.cc
+  lang/core/type/texel_buffer_test.cc
   lang/core/type/texture_test.cc
   lang/core/type/type_test.cc
+  lang/core/type/u16_test.cc
   lang/core/type/u32_test.cc
+  lang/core/type/u64_test.cc
   lang/core/type/u8_test.cc
   lang/core/type/vector_test.cc
 )
@@ -181,28 +206,16 @@ tint_add_target(tint_lang_core_type_test test
 tint_target_add_dependencies(tint_lang_core_type_test test
   tint_api_common
   tint_lang_core
-  tint_lang_core_constant
   tint_lang_core_type
-  tint_lang_wgsl
-  tint_lang_wgsl_ast
-  tint_lang_wgsl_common
-  tint_lang_wgsl_features
-  tint_lang_wgsl_program
-  tint_lang_wgsl_resolver
-  tint_lang_wgsl_sem
+  tint_utils
   tint_utils_containers
-  tint_utils_diagnostic
   tint_utils_ice
-  tint_utils_id
   tint_utils_macros
   tint_utils_math
   tint_utils_memory
-  tint_utils_reflection
-  tint_utils_result
   tint_utils_rtti
   tint_utils_symbol
   tint_utils_text
-  tint_utils_traits
 )
 
 tint_target_add_external_dependencies(tint_lang_core_type_test test

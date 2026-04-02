@@ -28,14 +28,20 @@
 #ifndef SRC_DAWN_NATIVE_OPENGL_PIPELINELAYOUTGL_H_
 #define SRC_DAWN_NATIVE_OPENGL_PIPELINELAYOUTGL_H_
 
-#include "dawn/native/PipelineLayout.h"
-
 #include "dawn/common/ityp_array.h"
 #include "dawn/common/ityp_vector.h"
 #include "dawn/native/BindingInfo.h"
+#include "dawn/native/PipelineLayout.h"
+#include "dawn/native/opengl/IntegerTypes.h"
 #include "dawn/native/opengl/opengl_platform.h"
 
 namespace dawn::native::opengl {
+
+// According to gpuinfo.org, devices report GL_MAX_TEXTURE_IMAGE_UNITS <= 128
+inline constexpr size_t kGLMaxTextureImageUnitsReported = 128;
+
+// According to gpuinfo.org, devices report GL_MAX_SHADER_STORAGE_BUFFER_BINDINGS <= 96
+inline constexpr size_t kGLMaxShaderStorageBufferBindingsReported = 96;
 
 class Device;
 
@@ -46,29 +52,25 @@ class PipelineLayout final : public PipelineLayoutBase {
     // GL backend does not support separate bind group index
     // BindingIndexInfo is a map from BindingPoint(group, binding) to a flattened GLuint binding
     // number.
-    using BindingIndexInfo = PerBindGroup<ityp::vector<BindingIndex, GLuint>>;
+    using BindingIndexInfo = PerBindGroup<ityp::vector<BindingIndex, FlatBindingIndex>>;
     const BindingIndexInfo& GetBindingIndexInfo() const;
 
-    GLuint GetTextureUnitsUsed() const;
-    size_t GetNumSamplers() const;
-    size_t GetNumSampledTextures() const;
+    FlatBindingIndex GetNumSamplers() const;
+    FlatBindingIndex GetNumSampledTextures() const;
+    FlatBindingIndex GetNumSSBO() const;
 
-    GLuint GetInternalUniformBinding() const;
-
-    enum PushConstantLocation {
-        FirstVertex = 0,
-        FirstInstance = 1,
-        MinDepth = 2,
-        MaxDepth = 3,
-    };
+    FlatBindingIndex GetInternalTextureBuiltinsUniformBinding() const;
+    FlatBindingIndex GetInternalArrayLengthUniformBinding() const;
 
   private:
     ~PipelineLayout() override = default;
     BindingIndexInfo mIndexInfo;
-    size_t mNumSamplers;
-    size_t mNumSampledTextures;
+    FlatBindingIndex mNumSamplers;
+    FlatBindingIndex mNumSampledTextures;
+    FlatBindingIndex mNumSSBO;
 
-    GLuint mInternalUniformBinding;
+    FlatBindingIndex mInternalTextureBuiltinsUniformBinding;
+    FlatBindingIndex mInternalArrayLengthUniformBinding;
 };
 
 }  // namespace dawn::native::opengl

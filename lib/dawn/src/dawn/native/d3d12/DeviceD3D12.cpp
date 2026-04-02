@@ -29,6 +29,7 @@
 
 #include <algorithm>
 #include <limits>
+#include <memory>
 #include <sstream>
 #include <utility>
 
@@ -51,7 +52,7 @@
 #include "dawn/native/d3d12/QueueD3D12.h"
 #include "dawn/native/d3d12/RenderPipelineD3D12.h"
 #include "dawn/native/d3d12/ResidencyManagerD3D12.h"
-#include "dawn/native/d3d12/ResourceAllocatorManagerD3D12.h"
+#include "dawn/native/d3d12/ResourceTableD3D12.h"
 #include "dawn/native/d3d12/SamplerD3D12.h"
 #include "dawn/native/d3d12/SamplerHeapCacheD3D12.h"
 #include "dawn/native/d3d12/ShaderModuleD3D12.h"
@@ -71,7 +72,7 @@ namespace {
 static constexpr uint16_t kShaderVisibleDescriptorHeapSize = 1024;
 static constexpr uint8_t kAttachmentDescriptorHeapSize = 64;
 
-// Value may change in the future to better accomodate large clears.
+// Value may change in the future to better accommodate large clears.
 static constexpr uint64_t kZeroBufferSize = 1024 * 1024 * 4;  // 4 Mb
 
 static constexpr uint64_t kMaxDebugMessagesToPrint = 5;
@@ -177,10 +178,8 @@ MaybeError Device::Initialize(const UnpackedPtr<DeviceDescriptor>& descriptor) {
     GetD3D12Device()->CreateCommandSignature(&programDesc, nullptr,
                                              IID_PPV_ARGS(&mDrawIndexedIndirectSignature));
 
-    DAWN_TRY(DeviceBase::Initialize(std::move(queue)));
-
-    // Ensure DXC if use_dxc toggle is set.
-    DAWN_TRY(EnsureDXCIfRequired());
+    DAWN_TRY(DeviceBase::Initialize(descriptor, std::move(queue)));
+    DAWN_TRY(EnsureCompilerLibraries());
 
     // Set up shader profile for DXC.
     if (IsToggleEnabled(Toggle::UseDXC)) {
@@ -198,6 +197,9 @@ MaybeError Device::Initialize(const UnpackedPtr<DeviceDescriptor>& descriptor) {
         mDxcShaderProfiles[SingleShaderStage::Compute] = L"c" + profileSuffix;
     }
 
+    // The device guard isn't needed for thread safety exactly, since device creation should happen
+    // on a single thread, but it's required to satisfy assertions.
+    auto deviceGuard = GetGuard();
     DAWN_TRY(CreateZeroBuffer());
 
     SetLabelImpl();
@@ -217,7 +219,20 @@ ID3D12Device* Device::GetD3D12Device() const {
     return mD3d12Device.Get();
 }
 
-ResultOrError<ComPtr<ID3D11On12Device>> Device::GetOrCreateD3D11on12Device() {
+ComPtr<ID3D11On12Device> Device::GetOrCreateD3D11On12Device() {
+    ComPtr<ID3D11On12Device> d3d11On12Device;
+    // Use std::addressof to avoid ComPtr's overloaded operator& returning ComPtrRef type.
+    if (ConsumedError(GetOrCreateD3D11On12DeviceInternal(), std::addressof(d3d11On12Device))) {
+        return nullptr;
+    }
+    return d3d11On12Device;
+}
+
+ComPtr<ID3D12CommandQueue> Device::GetD3D12CommandQueue() const {
+    return ToBackend(GetQueue())->GetCommandQueue();
+}
+
+ResultOrError<ComPtr<ID3D11On12Device>> Device::GetOrCreateD3D11On12DeviceInternal() {
     if (mD3d11On12Device == nullptr) {
         ComPtr<ID3D11Device> d3d11Device;
         D3D_FEATURE_LEVEL d3dFeatureLevel;
@@ -271,12 +286,11 @@ ComPtr<ID3D12CommandSignature> Device::GetDrawIndexedIndirectSignature() const {
 }
 
 // Ensure DXC if use_dxc toggles are set and validated.
-MaybeError Device::EnsureDXCIfRequired() {
+MaybeError Device::EnsureCompilerLibraries() {
     if (IsToggleEnabled(Toggle::UseDXC)) {
-        DAWN_ASSERT(ToBackend(GetPhysicalDevice())->GetBackend()->IsDXCAvailable());
-        DAWN_TRY(ToBackend(GetPhysicalDevice())->GetBackend()->EnsureDxcCompiler());
-        DAWN_TRY(ToBackend(GetPhysicalDevice())->GetBackend()->EnsureDxcLibrary());
-        DAWN_TRY(ToBackend(GetPhysicalDevice())->GetBackend()->EnsureDxcValidator());
+        DAWN_TRY(ToBackend(GetPhysicalDevice())->GetBackend()->EnsureDXC());
+    } else {
+        DAWN_TRY(ToBackend(GetPhysicalDevice())->GetBackend()->EnsureFXC());
     }
 
     return {};
@@ -292,26 +306,46 @@ MutexProtected<ResidencyManager>& Device::GetResidencyManager() const {
 
 MaybeError Device::CreateZeroBuffer() {
     BufferDescriptor zeroBufferDescriptor;
-    zeroBufferDescriptor.usage = wgpu::BufferUsage::CopySrc | wgpu::BufferUsage::CopyDst;
     zeroBufferDescriptor.size = kZeroBufferSize;
     zeroBufferDescriptor.label = "ZeroBuffer_Internal";
-    DAWN_TRY_ASSIGN(mZeroBuffer, Buffer::Create(this, Unpack(&zeroBufferDescriptor)));
 
-    CommandRecordingContext* commandContext =
-        ToBackend(GetQueue())->GetPendingCommandContext(QueueBase::SubmitMode::Passive);
+    Ref<BufferBase> zeroBufferBase;
 
-    DynamicUploader* uploader = GetDynamicUploader();
-    UploadHandle uploadHandle;
-    DAWN_TRY_ASSIGN(uploadHandle,
-                    uploader->Allocate(kZeroBufferSize, GetQueue()->GetPendingCommandSerial(),
-                                       kCopyBufferToBufferOffsetAlignment));
+    // Clear zero buffer from CPU when `Feature::BufferMapExtendedUsages` is supported.
+    if (ToBackend(GetPhysicalDevice())->SupportsBufferMapExtendedUsages()) {
+        zeroBufferDescriptor.mappedAtCreation = true;
+        zeroBufferDescriptor.usage = wgpu::BufferUsage::CopySrc | wgpu::BufferUsage::MapWrite;
 
-    memset(uploadHandle.mappedBuffer, 0u, kZeroBufferSize);
+        DAWN_TRY_ASSIGN(zeroBufferBase, CreateBuffer(&zeroBufferDescriptor));
 
-    CopyFromStagingToBufferHelper(commandContext, uploadHandle.stagingBuffer,
-                                  uploadHandle.startOffset, mZeroBuffer.Get(), 0, kZeroBufferSize);
+        void* mappedPointer = zeroBufferBase->GetMappedPointer();
+        DAWN_ASSERT(mappedPointer != nullptr);
+        memset(mappedPointer, 0, zeroBufferBase->GetAllocatedSize());
+        DAWN_TRY(zeroBufferBase->Unmap());
+    } else {
+        zeroBufferDescriptor.usage = wgpu::BufferUsage::CopySrc | wgpu::BufferUsage::CopyDst;
 
-    mZeroBuffer->SetInitialized(true);
+        DAWN_TRY_ASSIGN(zeroBufferBase, CreateBuffer(&zeroBufferDescriptor));
+
+        auto scopedUseZeroBuffer = zeroBufferBase->UseInternal();
+        CommandRecordingContext* commandContext =
+            ToBackend(GetQueue())->GetPendingCommandContext(QueueBase::SubmitMode::Passive);
+
+        DAWN_TRY(GetDynamicUploader()->WithUploadReservation(
+            kZeroBufferSize, kCopyBufferToBufferOffsetAlignment,
+            [&](UploadReservation reservation) -> MaybeError {
+                memset(reservation.mappedPointer, 0u, kZeroBufferSize);
+
+                CopyFromStagingToBufferHelper(commandContext, reservation.buffer.Get(),
+                                              reservation.offsetInBuffer, zeroBufferBase.Get(), 0,
+                                              kZeroBufferSize);
+
+                zeroBufferBase->SetInitialized(true);
+                return {};
+            }));
+    }
+
+    mZeroBuffer = ToBackend(zeroBufferBase);
     return {};
 }
 
@@ -322,6 +356,7 @@ MaybeError Device::ClearBufferToZero(CommandRecordingContext* commandContext,
     Buffer* dstBuffer = ToBackend(destination);
 
     // Necessary to ensure residency of the zero buffer.
+    auto scopedUseZeroBuffer = mZeroBuffer->UseInternal();
     mZeroBuffer->TrackUsageAndTransitionNow(commandContext, wgpu::BufferUsage::CopySrc);
     dstBuffer->TrackUsageAndTransitionNow(commandContext, wgpu::BufferUsage::CopyDst);
 
@@ -342,8 +377,8 @@ MaybeError Device::TickImpl() {
     ExecutionSerial completedSerial = GetQueue()->GetCompletedCommandSerial();
 
     (*mResourceAllocatorManager)->Tick(completedSerial);
-    (*mViewShaderVisibleDescriptorAllocator)->Tick(completedSerial);
-    (*mSamplerShaderVisibleDescriptorAllocator)->Tick(completedSerial);
+    mViewShaderVisibleDescriptorAllocator->Tick(completedSerial);
+    mSamplerShaderVisibleDescriptorAllocator->Tick(completedSerial);
     (*mRenderTargetViewAllocator)->Tick(completedSerial);
     (*mDepthStencilViewAllocator)->Tick(completedSerial);
     mUsedComObjectRefs->ClearUpTo(completedSerial);
@@ -360,11 +395,11 @@ void Device::ReferenceUntilUnused(ComPtr<IUnknown> object) {
 }
 
 ResultOrError<Ref<BindGroupBase>> Device::CreateBindGroupImpl(
-    const BindGroupDescriptor* descriptor) {
+    const UnpackedPtr<BindGroupDescriptor>& descriptor) {
     return BindGroup::Create(this, descriptor);
 }
 ResultOrError<Ref<BindGroupLayoutInternalBase>> Device::CreateBindGroupLayoutImpl(
-    const BindGroupLayoutDescriptor* descriptor) {
+    const UnpackedPtr<BindGroupLayoutDescriptor>& descriptor) {
     return BindGroupLayout::Create(this, descriptor);
 }
 ResultOrError<Ref<BufferBase>> Device::CreateBufferImpl(
@@ -391,16 +426,17 @@ Ref<RenderPipelineBase> Device::CreateUninitializedRenderPipelineImpl(
     const UnpackedPtr<RenderPipelineDescriptor>& descriptor) {
     return RenderPipeline::CreateUninitialized(this, descriptor);
 }
+ResultOrError<Ref<ResourceTableBase>> Device::CreateResourceTableImpl(
+    const ResourceTableDescriptor* descriptor) {
+    return ResourceTable::Create(this, descriptor);
+}
 ResultOrError<Ref<SamplerBase>> Device::CreateSamplerImpl(const SamplerDescriptor* descriptor) {
     return Sampler::Create(this, descriptor);
 }
 ResultOrError<Ref<ShaderModuleBase>> Device::CreateShaderModuleImpl(
     const UnpackedPtr<ShaderModuleDescriptor>& descriptor,
-    const std::vector<tint::wgsl::Extension>& internalExtensions,
-    ShaderModuleParseResult* parseResult,
-    OwnedCompilationMessages* compilationMessages) {
-    return ShaderModule::Create(this, descriptor, internalExtensions, parseResult,
-                                compilationMessages);
+    const std::vector<tint::wgsl::Extension>& internalExtensions) {
+    return ShaderModule::Create(this, descriptor, internalExtensions);
 }
 ResultOrError<Ref<SwapChainBase>> Device::CreateSwapChainImpl(Surface* surface,
                                                               SwapChainBase* previousSwapChain,
@@ -429,8 +465,10 @@ ResultOrError<Ref<SharedBufferMemoryBase>> Device::ImportSharedBufferMemoryImpl(
     DAWN_TRY_ASSIGN(unpacked, ValidateAndUnpack(descriptor));
 
     wgpu::SType type;
-    DAWN_TRY_ASSIGN(
-        type, (unpacked.ValidateBranches<Branch<SharedBufferMemoryD3D12ResourceDescriptor>>()));
+    DAWN_TRY_ASSIGN(type,
+                    (unpacked.ValidateBranches<
+                        Branch<SharedBufferMemoryD3D12ResourceDescriptor>,
+                        Branch<SharedBufferMemoryD3D12SharedMemoryFileMappingHandleDescriptor>>()));
 
     switch (type) {
         case wgpu::SType::SharedBufferMemoryD3D12ResourceDescriptor:
@@ -439,6 +477,14 @@ ResultOrError<Ref<SharedBufferMemoryBase>> Device::ImportSharedBufferMemoryImpl(
                             wgpu::FeatureName::SharedBufferMemoryD3D12Resource);
             return SharedBufferMemory::Create(
                 this, descriptor->label, unpacked.Get<SharedBufferMemoryD3D12ResourceDescriptor>());
+        case wgpu::SType::SharedBufferMemoryD3D12SharedMemoryFileMappingHandleDescriptor:
+            DAWN_INVALID_IF(
+                !HasFeature(Feature::SharedBufferMemoryD3D12SharedMemoryFileMappingHandle),
+                "%s is not enabled.",
+                wgpu::FeatureName::SharedBufferMemoryD3D12SharedMemoryFileMappingHandle);
+            return SharedBufferMemory::Create(
+                this, descriptor->label,
+                unpacked.Get<SharedBufferMemoryD3D12SharedMemoryFileMappingHandleDescriptor>());
         default:
             DAWN_UNREACHABLE();
     }
@@ -451,7 +497,8 @@ ResultOrError<Ref<SharedTextureMemoryBase>> Device::ImportSharedTextureMemoryImp
 
     wgpu::SType type;
     DAWN_TRY_ASSIGN(
-        type, (unpacked.ValidateBranches<Branch<SharedTextureMemoryDXGISharedHandleDescriptor>>()));
+        type, (unpacked.ValidateBranches<Branch<SharedTextureMemoryDXGISharedHandleDescriptor>,
+                                         Branch<SharedTextureMemoryD3D12ResourceDescriptor>>()));
 
     switch (type) {
         case wgpu::SType::SharedTextureMemoryDXGISharedHandleDescriptor:
@@ -461,6 +508,13 @@ ResultOrError<Ref<SharedTextureMemoryBase>> Device::ImportSharedTextureMemoryImp
             return SharedTextureMemory::Create(
                 this, descriptor->label,
                 unpacked.Get<SharedTextureMemoryDXGISharedHandleDescriptor>());
+        case wgpu::SType::SharedTextureMemoryD3D12ResourceDescriptor:
+            DAWN_INVALID_IF(!HasFeature(Feature::SharedTextureMemoryD3D12Resource),
+                            "%s is not enabled.",
+                            wgpu::FeatureName::SharedTextureMemoryD3D12Resource);
+            return SharedTextureMemory::Create(
+                this, descriptor->label,
+                unpacked.Get<SharedTextureMemoryD3D12ResourceDescriptor>());
         default:
             DAWN_UNREACHABLE();
     }
@@ -486,11 +540,11 @@ ResultOrError<Ref<SharedFenceBase>> Device::ImportSharedFenceImpl(
     }
 }
 
-MaybeError Device::CopyFromStagingToBufferImpl(BufferBase* source,
-                                               uint64_t sourceOffset,
-                                               BufferBase* destination,
-                                               uint64_t destinationOffset,
-                                               uint64_t size) {
+MaybeError Device::CopyFromStagingToBuffer(BufferBase* source,
+                                           uint64_t sourceOffset,
+                                           BufferBase* destination,
+                                           uint64_t destinationOffset,
+                                           uint64_t size) {
     CommandRecordingContext* commandRecordingContext =
         ToBackend(GetQueue())->GetPendingCommandContext(QueueBase::SubmitMode::Passive);
 
@@ -522,8 +576,8 @@ void Device::CopyFromStagingToBufferHelper(CommandRecordingContext* commandConte
         sourceOffset, size);
 }
 
-MaybeError Device::CopyFromStagingToTextureImpl(const BufferBase* source,
-                                                const TextureDataLayout& src,
+MaybeError Device::CopyFromStagingToTextureImpl(BufferBase* source,
+                                                const TexelCopyBufferLayout& src,
                                                 const TextureCopy& dst,
                                                 const Extent3D& copySizePixels) {
     CommandRecordingContext* commandContext =
@@ -541,11 +595,20 @@ MaybeError Device::CopyFromStagingToTextureImpl(const BufferBase* source,
 
     texture->TrackUsageAndTransitionNow(commandContext, wgpu::TextureUsage::CopyDst, range);
 
-    RecordBufferTextureCopyWithBufferHandle(BufferTextureCopyDirection::B2T,
-                                            commandContext->GetCommandList(),
-                                            ToBackend(source)->GetD3D12Resource(), src.offset,
-                                            src.bytesPerRow, src.rowsPerImage, dst, copySizePixels);
+    const TypedTexelBlockInfo& blockInfo = GetBlockInfo(dst);
+    BlockCount blocksPerRow = blockInfo.BytesToBlocks(src.bytesPerRow);
+    BlockCount rowsPerImage{src.rowsPerImage};
+    BlockExtent3D copySizePixelsInBlocks = blockInfo.ToBlock(copySizePixels);
+
+    RecordBufferTextureCopyWithBufferHandle(
+        BufferTextureCopyDirection::B2T, commandContext->GetCommandList(),
+        ToBackend(source)->GetD3D12Resource(), src.offset, blocksPerRow, rowsPerImage, dst,
+        copySizePixelsInBlocks);
     return {};
+}
+
+uint32_t Device::GetResourceHeapTier() const {
+    return IsToggleEnabled(Toggle::UseD3D12ResourceHeapTier2) ? 2u : 1u;
 }
 
 void Device::DeallocateMemory(ResourceHeapAllocation& allocation) {
@@ -553,14 +616,14 @@ void Device::DeallocateMemory(ResourceHeapAllocation& allocation) {
 }
 
 ResultOrError<ResourceHeapAllocation> Device::AllocateMemory(
-    D3D12_HEAP_TYPE heapType,
+    ResourceHeapKind resourceHeapKind,
     const D3D12_RESOURCE_DESC& resourceDescriptor,
     D3D12_RESOURCE_STATES initialUsage,
     uint32_t formatBytesPerBlock,
     bool forceAllocateAsCommittedResource) {
     // formatBytesPerBlock is needed only for color non-compressed formats for a workaround.
     return (*mResourceAllocatorManager)
-        ->AllocateMemory(heapType, resourceDescriptor, initialUsage, formatBytesPerBlock,
+        ->AllocateMemory(resourceHeapKind, resourceDescriptor, initialUsage, formatBytesPerBlock,
                          forceAllocateAsCommittedResource);
 }
 
@@ -573,7 +636,7 @@ MaybeError Device::ImportSharedHandleResource(HANDLE handle,
 
     if (useKeyedMutex) {
         ComPtr<ID3D11On12Device> d3d11on12Device;
-        DAWN_TRY_ASSIGN(d3d11on12Device, GetOrCreateD3D11on12Device());
+        DAWN_TRY_ASSIGN(d3d11on12Device, GetOrCreateD3D11On12DeviceInternal());
 
         // Since D3D12 does not directly support keyed mutexes, we need to wrap the D3D12 resource
         // using 11on12 and QueryInterface the D3D11 representation for the keyed mutex.
@@ -703,10 +766,11 @@ void Device::AppendDeviceLostMessage(ErrorData* error) {
         HRESULT result = mD3d12Device->GetDeviceRemovedReason();
         error->AppendBackendMessage("Device removed reason: %s (0x%08X)",
                                     d3d::HRESULTAsString(result), result);
+        RecordDeviceRemovedReason(result);
     }
 }
 
-void Device::DestroyImpl() {
+void Device::DestroyImpl(DestroyReason reason) {
     DAWN_ASSERT(GetState() == State::Disconnected);
 
     // TODO(crbug.com/dawn/831): DestroyImpl is called from two places.
@@ -717,7 +781,7 @@ void Device::DestroyImpl() {
     //   is implicitly destroyed. This case is thread-safe because there are no
     //   other threads using the device since there are no other live refs.
 
-    Base::DestroyImpl();
+    Base::DestroyImpl(reason);
 
     mZeroBuffer = nullptr;
 
@@ -731,29 +795,29 @@ void Device::DestroyImpl() {
     DAWN_ASSERT(mUsedComObjectRefs->Empty());
 }
 
-MutexProtected<ShaderVisibleDescriptorAllocator>& Device::GetViewShaderVisibleDescriptorAllocator()
-    const {
-    return *mViewShaderVisibleDescriptorAllocator.get();
+ShaderVisibleDescriptorAllocator* Device::GetViewShaderVisibleDescriptorAllocator() const {
+    return mViewShaderVisibleDescriptorAllocator.get();
 }
 
-MutexProtected<ShaderVisibleDescriptorAllocator>&
-Device::GetSamplerShaderVisibleDescriptorAllocator() const {
-    return *mSamplerShaderVisibleDescriptorAllocator.get();
+ShaderVisibleDescriptorAllocator* Device::GetSamplerShaderVisibleDescriptorAllocator() const {
+    return mSamplerShaderVisibleDescriptorAllocator.get();
 }
 
 MutexProtected<StagingDescriptorAllocator>* Device::GetViewStagingDescriptorAllocator(
     uint32_t descriptorCount) const {
     DAWN_ASSERT(descriptorCount <= kMaxViewDescriptorsPerBindGroup);
+    DAWN_ASSERT(descriptorCount > 0);
     // This is Log2 of the next power of two, plus 1.
-    uint32_t allocatorIndex = descriptorCount == 0 ? 0 : Log2Ceil(descriptorCount) + 1;
+    uint32_t allocatorIndex = Log2Ceil(descriptorCount) + 1;
     return mViewAllocators[allocatorIndex].get();
 }
 
 MutexProtected<StagingDescriptorAllocator>* Device::GetSamplerStagingDescriptorAllocator(
     uint32_t descriptorCount) const {
     DAWN_ASSERT(descriptorCount <= kMaxSamplerDescriptorsPerBindGroup);
+    DAWN_ASSERT(descriptorCount > 0);
     // This is Log2 of the next power of two, plus 1.
-    uint32_t allocatorIndex = descriptorCount == 0 ? 0 : Log2Ceil(descriptorCount) + 1;
+    uint32_t allocatorIndex = Log2Ceil(descriptorCount) + 1;
     return mSamplerAllocators[allocatorIndex].get();
 }
 
@@ -779,6 +843,14 @@ uint32_t Device::GetOptimalBytesPerRowAlignment() const {
 // so we return 1 and let ComputeTextureCopySplits take care of the alignment.
 uint64_t Device::GetOptimalBufferToTextureCopyOffsetAlignment() const {
     return 1;
+}
+
+bool Device::CanTextureLoadResolveTargetInTheSameRenderpass() const {
+    return true;
+}
+
+bool Device::CanResolveSubRect() const {
+    return true;
 }
 
 float Device::GetTimestampPeriodInNS() const {

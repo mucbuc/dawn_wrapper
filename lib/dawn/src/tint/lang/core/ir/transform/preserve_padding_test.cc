@@ -46,9 +46,9 @@ class IR_PreservePaddingTest : public TransformTest {
     const type::Struct* MakeStructWithoutPadding() {
         auto* structure =
             ty.Struct(mod.symbols.New("MyStruct"), {
-                                                       {mod.symbols.New("a"), ty.vec4<u32>()},
-                                                       {mod.symbols.New("b"), ty.vec4<u32>()},
-                                                       {mod.symbols.New("c"), ty.vec4<u32>()},
+                                                       {mod.symbols.New("a"), ty.vec4u()},
+                                                       {mod.symbols.New("b"), ty.vec4u()},
+                                                       {mod.symbols.New("c"), ty.vec4u()},
                                                    });
         return structure;
     }
@@ -56,7 +56,7 @@ class IR_PreservePaddingTest : public TransformTest {
     const type::Struct* MakeStructWithTrailingPadding() {
         auto* structure =
             ty.Struct(mod.symbols.New("MyStruct"), {
-                                                       {mod.symbols.New("a"), ty.vec4<u32>()},
+                                                       {mod.symbols.New("a"), ty.vec4u()},
                                                        {mod.symbols.New("b"), ty.u32()},
                                                    });
         return structure;
@@ -65,9 +65,9 @@ class IR_PreservePaddingTest : public TransformTest {
     const type::Struct* MakeStructWithInternalPadding() {
         auto* structure =
             ty.Struct(mod.symbols.New("MyStruct"), {
-                                                       {mod.symbols.New("a"), ty.vec4<u32>()},
+                                                       {mod.symbols.New("a"), ty.vec4u()},
                                                        {mod.symbols.New("b"), ty.u32()},
-                                                       {mod.symbols.New("c"), ty.vec4<u32>()},
+                                                       {mod.symbols.New("c"), ty.vec4u()},
                                                    });
         return structure;
     }
@@ -93,7 +93,7 @@ MyStruct = struct @align(16) {
 }
 
 $B1: {  # root
-  %buffer:ptr<workgroup, MyStruct, read_write> = var
+  %buffer:ptr<workgroup, MyStruct, read_write> = var undef
 }
 
 %foo = func(%value:MyStruct):void {
@@ -132,7 +132,7 @@ MyStruct = struct @align(16) {
 }
 
 $B1: {  # root
-  %buffer:ptr<private, MyStruct, read_write> = var
+  %buffer:ptr<private, MyStruct, read_write> = var undef
 }
 
 %foo = func(%value:MyStruct):void {
@@ -171,7 +171,7 @@ MyStruct = struct @align(16) {
 
 %foo = func(%value:MyStruct):void {
   $B1: {
-    %buffer:ptr<function, MyStruct, read_write> = var
+    %buffer:ptr<function, MyStruct, read_write> = var undef
     store %buffer, %value
     ret
   }
@@ -208,7 +208,7 @@ MyStruct = struct @align(16) {
 }
 
 $B1: {  # root
-  %buffer:ptr<storage, MyStruct, read_write> = var @binding_point(0, 0)
+  %buffer:ptr<storage, MyStruct, read_write> = var undef @binding_point(0, 0)
 }
 
 %foo = func(%value:MyStruct):void {
@@ -243,7 +243,7 @@ TEST_F(IR_PreservePaddingTest, NoModify_MatrixWithoutPadding) {
 
     auto* src = R"(
 $B1: {  # root
-  %buffer:ptr<storage, mat4x4<f32>, read_write> = var @binding_point(0, 0)
+  %buffer:ptr<storage, mat4x4<f32>, read_write> = var undef @binding_point(0, 0)
 }
 
 %foo = func(%value:mat4x4<f32>):void {
@@ -278,7 +278,7 @@ TEST_F(IR_PreservePaddingTest, NoModify_ArrayWithoutPadding) {
 
     auto* src = R"(
 $B1: {  # root
-  %buffer:ptr<storage, array<vec4<f32>, 4>, read_write> = var @binding_point(0, 0)
+  %buffer:ptr<storage, array<vec4<f32>, 4>, read_write> = var undef @binding_point(0, 0)
 }
 
 %foo = func(%value:array<vec4<f32>, 4>):void {
@@ -298,11 +298,11 @@ $B1: {  # root
 }
 
 TEST_F(IR_PreservePaddingTest, NoModify_Vec3) {
-    auto* buffer = b.Var("buffer", ty.ptr(storage, ty.vec3<f32>()));
+    auto* buffer = b.Var("buffer", ty.ptr(storage, ty.vec3f()));
     buffer->SetBindingPoint(0, 0);
     mod.root_block->Append(buffer);
 
-    auto* value = b.FunctionParam("value", ty.vec3<f32>());
+    auto* value = b.FunctionParam("value", ty.vec3f());
     auto* func = b.Function("foo", ty.void_());
     func->SetParams({value});
     b.Append(func->Block(), [&] {
@@ -312,7 +312,7 @@ TEST_F(IR_PreservePaddingTest, NoModify_Vec3) {
 
     auto* src = R"(
 $B1: {  # root
-  %buffer:ptr<storage, vec3<f32>, read_write> = var @binding_point(0, 0)
+  %buffer:ptr<storage, vec3<f32>, read_write> = var undef @binding_point(0, 0)
 }
 
 %foo = func(%value:vec3<f32>):void {
@@ -351,7 +351,7 @@ MyStruct = struct @align(16) {
 }
 
 $B1: {  # root
-  %buffer:ptr<storage, MyStruct, read_write> = var @binding_point(0, 0)
+  %buffer:ptr<storage, MyStruct, read_write> = var undef @binding_point(0, 0)
 }
 
 %foo = func():MyStruct {
@@ -392,7 +392,7 @@ MyStruct = struct @align(16) {
 }
 
 $B1: {  # root
-  %buffer:ptr<storage, MyStruct, read_write> = var @binding_point(0, 0)
+  %buffer:ptr<storage, MyStruct, read_write> = var undef @binding_point(0, 0)
 }
 
 %foo = func(%value:MyStruct):void {
@@ -411,7 +411,7 @@ MyStruct = struct @align(16) {
 }
 
 $B1: {  # root
-  %buffer:ptr<storage, MyStruct, read_write> = var @binding_point(0, 0)
+  %buffer:ptr<storage, MyStruct, read_write> = var undef @binding_point(0, 0)
 }
 
 %foo = func(%value:MyStruct):void {
@@ -461,7 +461,7 @@ MyStruct = struct @align(16) {
 }
 
 $B1: {  # root
-  %buffer:ptr<storage, MyStruct, read_write> = var @binding_point(0, 0)
+  %buffer:ptr<storage, MyStruct, read_write> = var undef @binding_point(0, 0)
 }
 
 %foo = func(%value:MyStruct):void {
@@ -481,7 +481,7 @@ MyStruct = struct @align(16) {
 }
 
 $B1: {  # root
-  %buffer:ptr<storage, MyStruct, read_write> = var @binding_point(0, 0)
+  %buffer:ptr<storage, MyStruct, read_write> = var undef @binding_point(0, 0)
 }
 
 %foo = func(%value:MyStruct):void {
@@ -541,7 +541,7 @@ Outer = struct @align(16) {
 }
 
 $B1: {  # root
-  %buffer:ptr<storage, Outer, read_write> = var @binding_point(0, 0)
+  %buffer:ptr<storage, Outer, read_write> = var undef @binding_point(0, 0)
 }
 
 %foo = func(%value:Outer):void {
@@ -565,7 +565,7 @@ Outer = struct @align(16) {
 }
 
 $B1: {  # root
-  %buffer:ptr<storage, Outer, read_write> = var @binding_point(0, 0)
+  %buffer:ptr<storage, Outer, read_write> = var undef @binding_point(0, 0)
 }
 
 %foo = func(%value:Outer):void {
@@ -626,7 +626,7 @@ MyStruct = struct @align(16) {
 }
 
 $B1: {  # root
-  %buffer:ptr<storage, array<MyStruct, 4>, read_write> = var @binding_point(0, 0)
+  %buffer:ptr<storage, array<MyStruct, 4>, read_write> = var undef @binding_point(0, 0)
 }
 
 %foo = func(%value:array<MyStruct, 4>):void {
@@ -645,7 +645,7 @@ MyStruct = struct @align(16) {
 }
 
 $B1: {  # root
-  %buffer:ptr<storage, array<MyStruct, 4>, read_write> = var @binding_point(0, 0)
+  %buffer:ptr<storage, array<MyStruct, 4>, read_write> = var undef @binding_point(0, 0)
 }
 
 %foo = func(%value:array<MyStruct, 4>):void {
@@ -715,7 +715,7 @@ TEST_F(IR_PreservePaddingTest, Mat3x3) {
 
     auto* src = R"(
 $B1: {  # root
-  %buffer:ptr<storage, mat3x3<f32>, read_write> = var @binding_point(0, 0)
+  %buffer:ptr<storage, mat3x3<f32>, read_write> = var undef @binding_point(0, 0)
 }
 
 %foo = func(%value:mat3x3<f32>):void {
@@ -729,7 +729,7 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %buffer:ptr<storage, mat3x3<f32>, read_write> = var @binding_point(0, 0)
+  %buffer:ptr<storage, mat3x3<f32>, read_write> = var undef @binding_point(0, 0)
 }
 
 %foo = func(%value:mat3x3<f32>):void {
@@ -785,7 +785,7 @@ MyStruct = struct @align(16) {
 }
 
 $B1: {  # root
-  %buffer:ptr<storage, MyStruct, read_write> = var @binding_point(0, 0)
+  %buffer:ptr<storage, MyStruct, read_write> = var undef @binding_point(0, 0)
 }
 
 %foo = func(%value:MyStruct):void {
@@ -804,7 +804,7 @@ MyStruct = struct @align(16) {
 }
 
 $B1: {  # root
-  %buffer:ptr<storage, MyStruct, read_write> = var @binding_point(0, 0)
+  %buffer:ptr<storage, MyStruct, read_write> = var undef @binding_point(0, 0)
 }
 
 %foo = func(%value:MyStruct):void {
@@ -863,7 +863,7 @@ TEST_F(IR_PreservePaddingTest, Mat3x3_Array) {
 
     auto* src = R"(
 $B1: {  # root
-  %buffer:ptr<storage, array<mat3x3<f32>, 4>, read_write> = var @binding_point(0, 0)
+  %buffer:ptr<storage, array<mat3x3<f32>, 4>, read_write> = var undef @binding_point(0, 0)
 }
 
 %foo = func(%value:array<mat3x3<f32>, 4>):void {
@@ -877,7 +877,7 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %buffer:ptr<storage, array<mat3x3<f32>, 4>, read_write> = var @binding_point(0, 0)
+  %buffer:ptr<storage, array<mat3x3<f32>, 4>, read_write> = var undef @binding_point(0, 0)
 }
 
 %foo = func(%value:array<mat3x3<f32>, 4>):void {
@@ -934,7 +934,7 @@ $B1: {  # root
 }
 
 TEST_F(IR_PreservePaddingTest, Vec3_Array) {
-    auto* arr = ty.array(ty.vec3<f32>(), 4);
+    auto* arr = ty.array(ty.vec3f(), 4);
 
     auto* buffer = b.Var("buffer", ty.ptr(storage, arr));
     buffer->SetBindingPoint(0, 0);
@@ -950,7 +950,7 @@ TEST_F(IR_PreservePaddingTest, Vec3_Array) {
 
     auto* src = R"(
 $B1: {  # root
-  %buffer:ptr<storage, array<vec3<f32>, 4>, read_write> = var @binding_point(0, 0)
+  %buffer:ptr<storage, array<vec3<f32>, 4>, read_write> = var undef @binding_point(0, 0)
 }
 
 %foo = func(%value:array<vec3<f32>, 4>):void {
@@ -964,7 +964,7 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %buffer:ptr<storage, array<vec3<f32>, 4>, read_write> = var @binding_point(0, 0)
+  %buffer:ptr<storage, array<vec3<f32>, 4>, read_write> = var undef @binding_point(0, 0)
 }
 
 %foo = func(%value:array<vec3<f32>, 4>):void {
@@ -1051,7 +1051,7 @@ Outer = struct @align(16) {
 }
 
 $B1: {  # root
-  %buffer:ptr<storage, array<Outer, 3>, read_write> = var @binding_point(0, 0)
+  %buffer:ptr<storage, array<Outer, 3>, read_write> = var undef @binding_point(0, 0)
 }
 
 %foo = func(%value:array<Outer, 3>):void {
@@ -1079,7 +1079,7 @@ Outer = struct @align(16) {
 }
 
 $B1: {  # root
-  %buffer:ptr<storage, array<Outer, 3>, read_write> = var @binding_point(0, 0)
+  %buffer:ptr<storage, array<Outer, 3>, read_write> = var undef @binding_point(0, 0)
 }
 
 %foo = func(%value:array<Outer, 3>):void {
@@ -1242,7 +1242,7 @@ TEST_F(IR_PreservePaddingTest, MultipleStoresSameType) {
 
     auto* src = R"(
 $B1: {  # root
-  %buffer:ptr<storage, array<mat3x3<f32>, 4>, read_write> = var @binding_point(0, 0)
+  %buffer:ptr<storage, array<mat3x3<f32>, 4>, read_write> = var undef @binding_point(0, 0)
 }
 
 %foo = func(%value:mat3x3<f32>):void {
@@ -1263,7 +1263,7 @@ $B1: {  # root
 
     auto* expect = R"(
 $B1: {  # root
-  %buffer:ptr<storage, array<mat3x3<f32>, 4>, read_write> = var @binding_point(0, 0)
+  %buffer:ptr<storage, array<mat3x3<f32>, 4>, read_write> = var undef @binding_point(0, 0)
 }
 
 %foo = func(%value:mat3x3<f32>):void {

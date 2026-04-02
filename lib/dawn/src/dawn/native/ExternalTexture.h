@@ -30,6 +30,7 @@
 
 #include <array>
 
+#include "dawn/common/Algebra.h"
 #include "dawn/native/Error.h"
 #include "dawn/native/Forward.h"
 #include "dawn/native/ObjectBase.h"
@@ -39,29 +40,42 @@ namespace dawn::native {
 
 class TextureViewBase;
 
+// Matches the structure defined in Tint's multiplanar_external_texture.cc transform.
+struct TransferFunctionParams {
+    uint32_t mode;
+    float a, b, c, d, e, f, g;
+};
+
+// Matches the structure defined in Tint's multiplanar_external_texture.cc transform.
 struct ExternalTextureParams {
     uint32_t numPlanes;
     // TODO(crbug.com/dawn/1466): Only go as few steps as necessary.
     uint32_t doYuvToRgbConversionOnly;
-    std::array<uint32_t, 2> padding;
-    std::array<float, 12> yuvToRgbConversionMatrix;
-    std::array<float, 8> gammaDecodingParams = {};
-    std::array<float, 8> gammaEncodingParams = {};
-    std::array<float, 12> gamutConversionMatrix = {};
-    std::array<float, 6> sampleTransform = {};
-    std::array<float, 6> loadTransform = {};
-    std::array<float, 2> samplePlane0RectMin = {};
-    std::array<float, 2> samplePlane0RectMax = {};
-    std::array<float, 2> samplePlane1RectMin = {};
-    std::array<float, 2> samplePlane1RectMax = {};
-    std::array<uint32_t, 2> visibleSize = {};
+    // Multiplied with the vector on the left (Mat4x3 would use 16 more bytes).
+    math::Mat3x4f yuvToRgbConversionMatrix;
+    TransferFunctionParams srcTransferFunction;
+    TransferFunctionParams dstTransferFunction;
+    math::Mat3x3f gamutConversionMatrix;
+    math::Mat3x2f sampleTransform;
+    math::Mat3x2f loadTransform;
+    math::Vec2f samplePlane0RectMin;
+    math::Vec2f samplePlane0RectMax;
+    math::Vec2f samplePlane1RectMin;
+    math::Vec2f samplePlane1RectMax;
+    // The shader-visible size of the texture for textureLoad and textureDimensions
+    math::Vec2u apparentSize;
     // textureLoad() passes coords in plane0 related size.
     // Use this Factor to calculate plane1 load coord.
-    std::array<float, 2> plane1CoordFactor = {};
+    math::Vec2f plane1CoordFactor;
 };
 
 MaybeError ValidateExternalTextureDescriptor(const DeviceBase* device,
                                              const ExternalTextureDescriptor* descriptor);
+
+// Create a parameter buffer for a simple texture view intended for use as an external texture. The
+// buffer contains the uniform parameters required by a shader to sample from an external texture.
+ResultOrError<Ref<BufferBase>> MakeParamsBufferForSimpleView(DeviceBase* device,
+                                                             Ref<TextureViewBase> textureView);
 
 class ExternalTextureBase : public ApiObjectBase {
   public:
@@ -72,9 +86,7 @@ class ExternalTextureBase : public ApiObjectBase {
     BufferBase* GetParamsBuffer() const;
     const std::array<Ref<TextureViewBase>, kMaxPlanesPerFormat>& GetTextureViews() const;
     ObjectType GetType() const override;
-
-    const Extent2D& GetVisibleSize() const;
-    const Origin2D& GetVisibleOrigin() const;
+    bool HasSingleView() const;
 
     MaybeError ValidateCanUseInSubmitNow() const;
     static Ref<ExternalTextureBase> MakeError(DeviceBase* device, StringView label = {});
@@ -85,7 +97,7 @@ class ExternalTextureBase : public ApiObjectBase {
 
   protected:
     ExternalTextureBase(DeviceBase* device, const ExternalTextureDescriptor* descriptor);
-    void DestroyImpl() override;
+    void DestroyImpl(DestroyReason reason) override;
 
     MaybeError Initialize(DeviceBase* device, const ExternalTextureDescriptor* descriptor);
 
@@ -98,15 +110,9 @@ class ExternalTextureBase : public ApiObjectBase {
     MaybeError ValidateRefresh();
     MaybeError ValidateExpire();
 
-    Ref<TextureBase> mPlaceholderTexture;
+    uint32_t mViewCount;
     Ref<BufferBase> mParamsBuffer;
     std::array<Ref<TextureViewBase>, kMaxPlanesPerFormat> mTextureViews;
-
-    // TODO(dawn:1082) Use the visible size and origin in the external texture shader
-    // code to sample video content.
-    Origin2D mVisibleOrigin;
-    Extent2D mVisibleSize;
-
     ExternalTextureState mState;
 };
 }  // namespace dawn::native

@@ -40,6 +40,7 @@ import (
 	"dawn.googlesource.com/dawn/tools/src/cts/expectations"
 	"dawn.googlesource.com/dawn/tools/src/cts/query"
 	"dawn.googlesource.com/dawn/tools/src/cts/result"
+	"dawn.googlesource.com/dawn/tools/src/oswrapper"
 	"go.chromium.org/luci/auth/client/authcli"
 )
 
@@ -60,11 +61,11 @@ func (i *arrayFlags) Set(value string) error {
 
 type cmd struct {
 	flags struct {
-		results               common.ResultSource
-		expectations          arrayFlags
-		auth                  authcli.Flags
-		verbose               bool
-		useSimplifiedCodepath bool
+		results              common.ResultSource
+		expectations         arrayFlags
+		auth                 authcli.Flags
+		verbose              bool
+		generateExplicitTags bool // If true, the most explicit tags will be used instead of several broad ones
 	}
 }
 
@@ -78,15 +79,16 @@ func (cmd) Desc() string {
 
 func (c *cmd) RegisterFlags(ctx context.Context, cfg common.Config) ([]string, error) {
 	c.flags.results.RegisterFlags(cfg)
-	c.flags.auth.Register(flag.CommandLine, auth.DefaultAuthOptions())
+	c.flags.auth.Register(flag.CommandLine, auth.DefaultAuthOptions(cfg.OsWrapper))
 	flag.BoolVar(&c.flags.verbose, "verbose", false, "emit additional logging")
-	flag.BoolVar(&c.flags.useSimplifiedCodepath, "use-simplified-codepath", false, "use the simplified codepath that only looks at unexpected failures")
+	flag.BoolVar(&c.flags.generateExplicitTags, "generate-explicit-tags", false,
+		"Use the most explicit tags for expectations instead of several broad ones")
 	flag.Var(&c.flags.expectations, "expectations", "path to CTS expectations file(s) to update")
 	return nil, nil
 }
 
-func loadTestList(path string) ([]query.Query, error) {
-	data, err := os.ReadFile(path)
+func loadTestList(path string, fsReader oswrapper.FilesystemReader) ([]query.Query, error) {
+	data, err := fsReader.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load test list: %w", err)
 	}
@@ -100,7 +102,7 @@ func loadTestList(path string) ([]query.Query, error) {
 
 func (c *cmd) Run(ctx context.Context, cfg common.Config) error {
 	if len(c.flags.expectations) == 0 {
-		c.flags.expectations = common.DefaultExpectationsPaths()
+		c.flags.expectations = common.DefaultExpectationsPaths(cfg.OsWrapper)
 	}
 
 	// Validate command line arguments
@@ -111,12 +113,7 @@ func (c *cmd) Run(ctx context.Context, cfg common.Config) error {
 
 	// Fetch the results
 	log.Println("fetching results...")
-	var resultsByExecutionMode result.ResultsByExecutionMode
-	if c.flags.useSimplifiedCodepath {
-		resultsByExecutionMode, err = c.flags.results.GetUnsuppressedFailingResults(ctx, cfg, auth)
-	} else {
-		resultsByExecutionMode, err = c.flags.results.GetResults(ctx, cfg, auth)
-	}
+	resultsByExecutionMode, err := c.flags.results.GetUnsuppressedFailingResults(ctx, cfg, auth)
 	if err != nil {
 		return err
 	}
@@ -128,7 +125,7 @@ func (c *cmd) Run(ctx context.Context, cfg common.Config) error {
 	}
 
 	log.Println("loading test list...")
-	testlist, err := loadTestList(common.DefaultTestListPath())
+	testlist, err := loadTestList(common.DefaultTestListPath(cfg.OsWrapper), cfg.OsWrapper)
 	if err != nil {
 		return err
 	}
@@ -136,10 +133,12 @@ func (c *cmd) Run(ctx context.Context, cfg common.Config) error {
 	for _, expectationsFilename := range c.flags.expectations {
 		// Load the expectations file
 		log.Printf("loading expectations %s...\n", expectationsFilename)
-		ex, err := expectations.Load(expectationsFilename)
+		ex, err := expectations.Load(expectationsFilename, cfg.OsWrapper)
 		if err != nil {
 			return err
 		}
+
+		(&ex).RemoveExpectationsForUnknownTests(&testlist)
 
 		log.Printf("validating %s...\n", expectationsFilename)
 		if diag := ex.Validate(); diag.NumErrors() > 0 {
@@ -154,14 +153,9 @@ func (c *cmd) Run(ctx context.Context, cfg common.Config) error {
 			name = "compat"
 		}
 
-		var diag expectations.Diagnostics
-		if c.flags.useSimplifiedCodepath {
-			err = ex.AddExpectationsForFailingResults(resultsByExecutionMode[name], testlist, c.flags.verbose)
-			// TODO(crbug.com/372730248): Report actual diagnostics.
-			diag = expectations.Diagnostics{}
-		} else {
-			diag, err = ex.Update(resultsByExecutionMode[name], testlist, c.flags.verbose)
-		}
+		err = ex.AddExpectationsForFailingResults(resultsByExecutionMode[name], c.flags.generateExplicitTags, c.flags.verbose)
+		// TODO(crbug.com/372730248): Report actual diagnostics.
+		diag := expectations.Diagnostics{}
 		if err != nil {
 			return err
 		}
@@ -170,7 +164,7 @@ func (c *cmd) Run(ctx context.Context, cfg common.Config) error {
 		diag.Print(os.Stdout, expectationsFilename)
 
 		// Save the updated expectations file
-		err = ex.Save(expectationsFilename)
+		err = ex.Save(expectationsFilename, cfg.OsWrapper)
 		if err != nil {
 			break
 		}

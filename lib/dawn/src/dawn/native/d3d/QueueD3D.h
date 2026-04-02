@@ -28,11 +28,13 @@
 #ifndef SRC_DAWN_NATIVE_D3D_QUEUED3D_H_
 #define SRC_DAWN_NATIVE_D3D_QUEUED3D_H_
 
+#include "dawn/common/windows_with_undefs.h"
+
+#include <span>
 #include <vector>
 
 #include "dawn/common/MutexProtected.h"
 #include "dawn/common/SerialMap.h"
-#include "dawn/common/windows_with_undefs.h"
 #include "dawn/native/Queue.h"
 #include "dawn/native/SystemEvent.h"
 
@@ -48,10 +50,11 @@ class Queue : public QueueBase {
     virtual ResultOrError<Ref<SharedFence>> GetOrCreateSharedFence() = 0;
 
   protected:
-    ResultOrError<bool> WaitForQueueSerial(ExecutionSerial serial, Nanoseconds timeout) override;
+    ResultOrError<ExecutionSerial> WaitForQueueSerialImpl(ExecutionSerial waitSerial,
+                                                          Nanoseconds timeout) override;
 
     ResultOrError<SystemEventReceiver> GetSystemEventReceiver();
-    MaybeError ReturnSystemEventReceivers(std::vector<SystemEventReceiver> receivers);
+    MaybeError ReturnSystemEventReceivers(std::span<SystemEventReceiver> receivers);
     MaybeError RecycleSystemEventReceivers(ExecutionSerial completeSerial);
 
   private:

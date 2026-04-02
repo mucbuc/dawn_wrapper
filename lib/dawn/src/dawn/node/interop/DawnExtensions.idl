@@ -28,29 +28,65 @@
 // An IDL file that adds support for Dawn extensions that are not part of the
 // upstream webgpu.idl.
 
+// ============================================================================
+// Language features, they are not defined in WebGPU's IDL.
+// ============================================================================
+enum WGSLLanguageFeatureName {
+    "readonly_and_readwrite_storage_textures",
+    "packed_4x8_integer_dot_product",
+    "unrestricted_pointer_parameters",
+    "pointer_composite_access",
+    "sized_binding_array",
+    "texel_buffers",
+    "fragment_depth",
+    "immediate_address_space",
+    "chromium_print",
+    "uniform_buffer_standard_layout",
+    "subgroup_id",
+    "subgroup_uniformity",
+    "texture_and_sampler_let",
+    "buffer_view",
+    "filtering_parameters",
+    "swizzle_assignment",
+    "linear_indexing",
+    "texture_formats_tier1",
+};
+
+// ============================================================================
+// Subgroup matrices
+// ============================================================================
 enum GPUFeatureName {
-    "chromium-experimental-subgroups",
-    "chromium-experimental-subgroup-uniform-control-flow",
-    // subgroups, subgroups-f16 and multi-draw-indirect features are not in webgpu.idl yet.
-    "subgroups",
-    "subgroups-f16",
+    "chromium-experimental-subgroup-matrix",
+}
+
+enum GPUSubgroupMatrixComponentType {
+  "f32",
+  "f16",
+  "u32",
+  "i32",
+  "u8",
+  "i8",
+};
+
+interface GPUSubgroupMatrixConfig {
+  readonly attribute GPUSubgroupMatrixComponentType componentType;
+  readonly attribute GPUSubgroupMatrixComponentType resultComponentType;
+  readonly attribute unsigned long M;
+  readonly attribute unsigned long N;
+  readonly attribute unsigned long K;
+};
+
+interface GPUAdapterInfo {
+    [SameObject] readonly attribute FrozenArray<GPUSubgroupMatrixConfig> subgroupMatrixConfigs;
+};
+
+// ============================================================================
+// MultiDrawIndirect
+// ============================================================================
+enum GPUFeatureName {
     "multi-draw-indirect",
-    "chromium-experimental-immediate-data",
 };
 
-dictionary GPURequestAdapterOptions {
-    boolean compatibilityMode = false;
-};
-
-interface GPUAdapter {
-    readonly attribute boolean isCompatibilityMode;
-};
-
-interface GPUCommandEncoder {
-    undefined writeTimestamp(GPUQuerySet querySet, GPUSize32 queryIndex);
-};
-
-// Not in webgpu.idl yet.
 interface GPURenderPassEncoder {
     undefined multiDrawIndirect(GPUBuffer indirectBuffer, GPUSize64 indirectOffset, GPUSize32 maxDrawCount,
         GPUBuffer? drawCountBuffer, optional GPUSize64 drawCountBufferOffset = 0);
@@ -59,18 +95,36 @@ interface GPURenderPassEncoder {
                                 optional GPUSize64 drawCountBufferOffset = 0);
 };
 
-dictionary GPUTextureDescriptor {
-    GPUTextureViewDimension? textureBindingViewDimension;
+// ============================================================================
+// Immediates
+// ============================================================================
+dictionary GPUPipelineLayoutDescriptor {
+    GPUSize32 immediateSize = 0;
 };
-
-enum WGSLFeatureName {
-    "readonly_and_readwrite_storage_textures",
-    "packed_4x8_integer_dot_product",
-    "unrestricted_pointer_parameters",
-    "pointer_composite_access",
+interface GPUComputePassEncoder {
+    undefined setImmediates(GPUSize32 rangeOffset, AllowSharedBufferSource data, optional GPUSize64 dataOffset = 0, optional GPUSize64 size);
 };
-
+interface GPURenderBundleEncoder {
+    undefined setImmediates(GPUSize32 rangeOffset, AllowSharedBufferSource data, optional GPUSize64 dataOffset = 0, optional GPUSize64 size);
+};
+interface GPURenderPassEncoder {
+    undefined setImmediates(GPUSize32 rangeOffset, AllowSharedBufferSource data, optional GPUSize64 dataOffset = 0, optional GPUSize64 size);
+};
 interface GPUSupportedLimits {
-    readonly attribute (unsigned long or undefined) minSubgroupSize;
-    readonly attribute (unsigned long or undefined) maxSubgroupSize;
+    readonly attribute unsigned long maxImmediateSize;
+}
+
+// ============================================================================
+// Write timestamp
+// ============================================================================
+interface GPUCommandEncoder {
+    undefined writeTimestamp(GPUQuerySet querySet, GPUSize32 queryIndex);
 };
+
+// ============================================================================
+// Fixed-size binding arrays
+// ============================================================================
+dictionary GPUBindGroupLayoutEntry {
+    GPUSize32 bindingArraySize = 1;
+};
+

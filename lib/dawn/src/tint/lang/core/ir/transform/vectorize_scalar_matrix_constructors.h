@@ -29,7 +29,7 @@
 #define SRC_TINT_LANG_CORE_IR_TRANSFORM_VECTORIZE_SCALAR_MATRIX_CONSTRUCTORS_H_
 
 #include "src/tint/lang/core/ir/validator.h"
-#include "src/tint/utils/result/result.h"
+#include "src/tint/utils/result.h"
 
 // Forward declarations.
 namespace tint::core::ir {
@@ -42,7 +42,11 @@ namespace tint::core::ir::transform {
 const core::ir::Capabilities kVectorizeScalarMatrixConstructorsCapabilities{
     core::ir::Capability::kAllowVectorElementPointer,
     core::ir::Capability::kAllowHandleVarsWithoutBindings,
-    core::ir::Capability::kAllowClipDistancesOnF32,
+    core::ir::Capability::kAllowClipDistancesOnF32ScalarAndVector,
+    core::ir::Capability::kAllowDuplicateBindings,
+    core::ir::Capability::kAllowNonCoreTypes,
+    core::ir::Capability::kAllow8BitIntegers,
+    core::ir::Capability::kAllow16BitIntegers,
 };
 
 /// VectorizeScalarMatrixConstructors is a transform that replaces construct instructions that

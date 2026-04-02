@@ -30,11 +30,11 @@
 
 #include <memory>
 
+#include "absl/container/flat_hash_map.h"
 #include "dawn/common/Log.h"
 #include "dawn/mock_webgpu.h"
 #include "dawn/tests/MockCallback.h"
 #include "gtest/gtest.h"
-
 #include "webgpu/webgpu_cpp.h"
 
 namespace dawn {
@@ -111,6 +111,11 @@ inline testing::Matcher<const char*> ValidStringMessage() {
     return MakeMatcher(new StringMessageMatcher());
 }
 
+// Matcher for C++ types to verify that their internal C-handles are identical.
+MATCHER_P(CHandleIs, cType, "") {
+    return arg.Get() == cType;
+}
+
 // Skip a test when the given condition is satisfied.
 #define DAWN_SKIP_TEST_IF(condition)                            \
     do {                                                        \
@@ -122,6 +127,7 @@ inline testing::Matcher<const char*> ValidStringMessage() {
     } while (0)
 
 namespace wire {
+class CommandSerializer;
 class WireClient;
 class WireServer;
 namespace client {
@@ -136,7 +142,7 @@ namespace utils {
 class TerribleCommandBuffer;
 }  // namespace utils
 
-class WireTest : public testing::Test {
+class WireTest : virtual public testing::Test {
   protected:
     WireTest();
     ~WireTest() override;
@@ -147,13 +153,20 @@ class WireTest : public testing::Test {
     void FlushClient(bool success = true);
     void FlushServer(bool success = true);
 
-    void DefaultApiDeviceWasReleased();
-    void DefaultApiAdapterWasReleased();
+    WGPUDevice GetNewDevice();
 
-    testing::StrictMock<MockProcTable> api;
+    // We use a NiceMock instead of a StrictMock here since tests should ensure expected APIs are
+    // called. Using a StrictMock would require all APIs to be explicitly specified which may result
+    // in testing too much implementation dependent behavior, leading to cluttered and wordy tests.
+    testing::NiceMock<MockProcTable> api;
 
-    testing::MockCallback<WGPUDeviceLostCallbackNew> deviceLostCallback;
-    testing::MockCallback<WGPUErrorCallback> uncapturedErrorCallback;
+    // Mock callbacks tracking errors and destruction. These are strict mocks because any errors or
+    // device loss that aren't expected should result in test failures and not just some warnings
+    // printed to stdout.
+    testing::StrictMock<testing::MockCppCallback<wgpu::DeviceLostCallback<void>*>>
+        deviceLostCallback;
+    testing::StrictMock<testing::MockCppCallback<wgpu::UncapturedErrorCallback<void>*>>
+        uncapturedErrorCallback;
 
     wgpu::Instance instance;
     WGPUInstance apiInstance;
@@ -164,25 +177,29 @@ class WireTest : public testing::Test {
     wgpu::Queue queue;
     WGPUQueue apiQueue;
 
-    WGPUDevice cDevice;
-    WGPUQueue cQueue;
+    wire::WireServer* GetWireServer();
+    wire::WireClient* GetWireClient();
 
-    dawn::wire::WireServer* GetWireServer();
-    dawn::wire::WireClient* GetWireClient();
+    wire::CommandSerializer* GetC2SSerializer();
+    wire::CommandSerializer* GetS2CSerializer();
+
+    size_t GetC2SMaxAllocationSize();
 
     void DeleteServer();
     void DeleteClient();
 
   private:
-    void SetupIgnoredCallExpectations();
+    virtual wire::client::MemoryTransferService* GetClientMemoryTransferService();
+    virtual wire::server::MemoryTransferService* GetServerMemoryTransferService();
 
-    virtual dawn::wire::client::MemoryTransferService* GetClientMemoryTransferService();
-    virtual dawn::wire::server::MemoryTransferService* GetServerMemoryTransferService();
+    // Devices created on the server MUST call Device.Destroy at least once. This map is used to
+    // ensure that this invariant holds true for any devices returned.
+    absl::flat_hash_map<WGPUDevice, bool> mDeviceDestroyed;
 
-    std::unique_ptr<dawn::wire::WireServer> mWireServer;
-    std::unique_ptr<dawn::wire::WireClient> mWireClient;
-    std::unique_ptr<dawn::utils::TerribleCommandBuffer> mS2cBuf;
-    std::unique_ptr<dawn::utils::TerribleCommandBuffer> mC2sBuf;
+    std::unique_ptr<wire::WireServer> mWireServer;
+    std::unique_ptr<wire::WireClient> mWireClient;
+    std::unique_ptr<utils::TerribleCommandBuffer> mS2cBuf;
+    std::unique_ptr<utils::TerribleCommandBuffer> mC2sBuf;
 };
 
 }  // namespace dawn

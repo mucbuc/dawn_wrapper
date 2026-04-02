@@ -5,25 +5,21 @@
 namespace dawn_wrapper {
 struct shader_base {
 protected:
-    static void compilation_callback(WGPUCompilationInfoRequestStatus status, struct WGPUCompilationInfo const* compilationInfo, void* userdata)
+    static void compilation_callback(CompilationInfoRequestStatus status, CompilationInfo const* compilationInfo, void* userdata)
     {
         std::stringstream messages;
         size_t errorCount = 0;
         for (auto i = 0; i < compilationInfo->messageCount; ++i) {
             const auto message = compilationInfo->messages[i];
-            if (message.type == WGPUCompilationMessageType_Error) {
+            if (message.type == CompilationMessageType::Error) {
                 messages << "Error(" << i << "): ";
                 ++errorCount;
-            } else if (message.type == WGPUCompilationMessageType_Warning) {
+            } else if (message.type == CompilationMessageType::Warning) {
                 messages << "Warning(" << i << "): ";
-            } else if (message.type == WGPUCompilationMessageType_Info) {
+            } else if (message.type == CompilationMessageType::Info) {
                 messages << "Info(" << i << "): ";
             }
-#ifndef __EMSCRIPTEN__
             messages << message.message.data << std::endl;
-#else
-            messages << message.message << std::endl;
-#endif
         }
 
         ASSERT(!errorCount);

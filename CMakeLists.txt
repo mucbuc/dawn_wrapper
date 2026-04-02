@@ -34,7 +34,7 @@ target_sources(dawn_wrapper PRIVATE
 )
 
 if (NOT EMSCRIPTEN)
-    set(DAWN_FETCH_DEPENDENCIES ON)
+    set(DAWN_FETCH_DEPENDENCIES OFF)
     set(TINT_BUILD_TESTS FALSE)
     set(BUILD_SAMPLES OFF)
     set(TINT_BUILD_SPV_READER OFF)
@@ -43,6 +43,7 @@ if (NOT EMSCRIPTEN)
     add_subdirectory("lib/dawn" EXCLUDE_FROM_ALL)
     target_link_libraries(dawn_wrapper PUBLIC
         webgpu_dawn
-        dawn_glfw
     )
+else()
+    target_compile_options(dawn_wrapper PRIVATE --use-port=emdawnwebgpu)
 endif()

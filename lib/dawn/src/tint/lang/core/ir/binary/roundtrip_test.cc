@@ -25,12 +25,11 @@
 // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#include "src/tint/lang/core/ir/ir_helper_test.h"
-
 #include "src/tint/lang/core/io_attributes.h"
 #include "src/tint/lang/core/ir/binary/decode.h"
 #include "src/tint/lang/core/ir/binary/encode.h"
 #include "src/tint/lang/core/ir/disassembler.h"
+#include "src/tint/lang/core/ir/ir_helper_test.h"
 #include "src/tint/lang/core/type/depth_multisampled_texture.h"
 #include "src/tint/lang/core/type/depth_texture.h"
 #include "src/tint/lang/core/type/external_texture.h"
@@ -52,11 +51,11 @@ class IRBinaryRoundtripTestBase : public IRTestParamHelper<T> {
         auto pre = Disassembler(this->mod).Plain();
         auto encoded = EncodeToBinary(this->mod);
         if (encoded != Success) {
-            return {pre, encoded.Failure().reason.Str()};
+            return {pre, encoded.Failure().reason};
         }
-        auto decoded = Decode(encoded->Slice());
+        auto decoded = Decode(encoded->AsSpan());
         if (decoded != Success) {
-            return {pre, decoded.Failure().reason.Str()};
+            return {pre, decoded.Failure().reason};
         }
         auto post = Disassembler(decoded.Get()).Plain();
         return {pre, post};
@@ -207,12 +206,12 @@ TEST_F(IRBinaryRoundtripTest, f16) {
 }
 
 TEST_F(IRBinaryRoundtripTest, vec2_f32) {
-    b.Append(b.ir.root_block, [&] { b.Var<private_, vec2<f32>>(); });
+    b.Append(b.ir.root_block, [&] { b.Var<private_, vec2f>(); });
     RUN_TEST();
 }
 
 TEST_F(IRBinaryRoundtripTest, vec3_i32) {
-    b.Append(b.ir.root_block, [&] { b.Var<private_, vec3<i32>>(); });
+    b.Append(b.ir.root_block, [&] { b.Var<private_, vec3i>(); });
     RUN_TEST();
 }
 
@@ -222,12 +221,12 @@ TEST_F(IRBinaryRoundtripTest, vec4_bool) {
 }
 
 TEST_F(IRBinaryRoundtripTest, mat4x2_f32) {
-    b.Append(b.ir.root_block, [&] { b.Var<private_, vec4<mat4x2<f32>>>(); });
+    b.Append(b.ir.root_block, [&] { b.Var<private_, vec4<mat4x2f>>(); });
     RUN_TEST();
 }
 
 TEST_F(IRBinaryRoundtripTest, mat2x4_f16) {
-    b.Append(b.ir.root_block, [&] { b.Var<private_, vec4<mat2x4<f16>>>(); });
+    b.Append(b.ir.root_block, [&] { b.Var<private_, vec4<mat2x4h>>(); });
     RUN_TEST();
 }
 
@@ -303,52 +302,56 @@ TEST_F(IRBinaryRoundtripTest, atomic_i32) {
 }
 
 TEST_F(IRBinaryRoundtripTest, depth_texture) {
-    auto* tex = ty.Get<core::type::DepthTexture>(core::type::TextureDimension::k2d);
+    auto* tex = ty.depth_texture(core::type::TextureDimension::k2d);
     b.Append(b.ir.root_block, [&] { b.Var(ty.ptr(handle, tex, read)); });
     RUN_TEST();
 }
 
 TEST_F(IRBinaryRoundtripTest, sampled_texture) {
-    auto* tex = ty.Get<core::type::SampledTexture>(core::type::TextureDimension::k3d, ty.i32());
+    auto* tex = ty.sampled_texture(core::type::TextureDimension::k3d, ty.i32());
     b.Append(b.ir.root_block, [&] { b.Var(ty.ptr(handle, tex, read)); });
     RUN_TEST();
 }
 
 TEST_F(IRBinaryRoundtripTest, multisampled_texture) {
-    auto* tex =
-        ty.Get<core::type::MultisampledTexture>(core::type::TextureDimension::k2d, ty.f32());
+    auto* tex = ty.multisampled_texture(core::type::TextureDimension::k2d, ty.f32());
     b.Append(b.ir.root_block, [&] { b.Var(ty.ptr(handle, tex, read)); });
     RUN_TEST();
 }
 
 TEST_F(IRBinaryRoundtripTest, depth_multisampled_texture) {
-    auto* tex = ty.Get<core::type::DepthMultisampledTexture>(core::type::TextureDimension::k2d);
+    auto* tex = ty.depth_multisampled_texture(core::type::TextureDimension::k2d);
     b.Append(b.ir.root_block, [&] { b.Var(ty.ptr(handle, tex, read)); });
     RUN_TEST();
 }
 
 TEST_F(IRBinaryRoundtripTest, storage_texture) {
-    auto* tex = ty.Get<core::type::StorageTexture>(core::type::TextureDimension::k2dArray,
-                                                   core::TexelFormat::kRg32Float,
-                                                   core::Access::kReadWrite, ty.f32());
+    auto* tex = ty.storage_texture(core::type::TextureDimension::k2dArray,
+                                   core::TexelFormat::kRg32Float, core::Access::kReadWrite);
     b.Append(b.ir.root_block, [&] { b.Var(ty.ptr(handle, tex, read)); });
     RUN_TEST();
 }
 
+TEST_F(IRBinaryRoundtripTest, texel_buffer) {
+    auto* buf = ty.texel_buffer(core::TexelFormat::kRgba32Float, core::Access::kReadWrite);
+    b.Append(b.ir.root_block, [&] { b.Var(ty.ptr(handle, buf, read)); });
+    RUN_TEST();
+}
+
 TEST_F(IRBinaryRoundtripTest, external_texture) {
-    auto* tex = ty.Get<core::type::ExternalTexture>();
+    auto* tex = ty.external_texture();
     b.Append(b.ir.root_block, [&] { b.Var(ty.ptr(handle, tex, read)); });
     RUN_TEST();
 }
 
 TEST_F(IRBinaryRoundtripTest, sampler) {
-    auto* sampler = ty.Get<core::type::Sampler>(core::type::SamplerKind::kSampler);
+    auto* sampler = ty.sampler();
     b.Append(b.ir.root_block, [&] { b.Var(ty.ptr(handle, sampler, read)); });
     RUN_TEST();
 }
 
 TEST_F(IRBinaryRoundtripTest, comparision_sampler) {
-    auto* sampler = ty.Get<core::type::Sampler>(core::type::SamplerKind::kComparisonSampler);
+    auto* sampler = ty.comparison_sampler();
     b.Append(b.ir.root_block, [&] { b.Var(ty.ptr(handle, sampler, read)); });
     RUN_TEST();
 }
@@ -393,29 +396,29 @@ TEST_F(IRBinaryRoundtripTest, Return_f16) {
 }
 
 TEST_F(IRBinaryRoundtripTest, Return_vec3f_Composite) {
-    auto* fn = b.Function("Function", ty.vec3<f32>());
-    b.Append(fn->Block(), [&] { b.Return(fn, b.Composite<vec3<f32>>(1_f, 2_f, 3_f)); });
+    auto* fn = b.Function("Function", ty.vec3f());
+    b.Append(fn->Block(), [&] { b.Return(fn, b.Composite<vec3f>(1_f, 2_f, 3_f)); });
     RUN_TEST();
 }
 
 TEST_F(IRBinaryRoundtripTest, Return_vec3f_Splat) {
-    auto* fn = b.Function("Function", ty.vec3<f32>());
-    b.Append(fn->Block(), [&] { b.Return(fn, b.Splat<vec3<f32>>(1_f)); });
+    auto* fn = b.Function("Function", ty.vec3f());
+    b.Append(fn->Block(), [&] { b.Return(fn, b.Splat<vec3f>(1_f)); });
     RUN_TEST();
 }
 
 TEST_F(IRBinaryRoundtripTest, Return_mat2x3f_Composite) {
     auto* fn = b.Function("Function", ty.mat2x3<f32>());
     b.Append(fn->Block(), [&] {
-        b.Return(fn, b.Composite<mat2x3<f32>>(b.Composite<vec3<f32>>(1_f, 2_f, 3_f),
-                                              b.Composite<vec3<f32>>(4_f, 5_f, 6_f)));
+        b.Return(fn, b.Composite<mat2x3f>(b.Composite<vec3f>(1_f, 2_f, 3_f),
+                                          b.Composite<vec3f>(4_f, 5_f, 6_f)));
     });
     RUN_TEST();
 }
 
 TEST_F(IRBinaryRoundtripTest, Return_mat2x3f_Splat) {
     auto* fn = b.Function("Function", ty.mat2x3<f32>());
-    b.Append(fn->Block(), [&] { b.Return(fn, b.Splat<mat2x3<f32>>(b.Splat<vec3<f32>>(1_f))); });
+    b.Append(fn->Block(), [&] { b.Return(fn, b.Splat<mat2x3f>(b.Splat<vec3f>(1_f))); });
     RUN_TEST();
 }
 
@@ -434,7 +437,7 @@ TEST_F(IRBinaryRoundtripTest, Return_array_f32_Splat) {
 TEST_F(IRBinaryRoundtripTest, Construct) {
     auto* fn = b.Function("Function", ty.void_());
     b.Append(fn->Block(), [&] {
-        b.Construct<vec3<f32>>(1_f, 2_f, 3_f);
+        b.Construct<vec3f>(1_f, 2_f, 3_f);
         b.Return(fn);
     });
     RUN_TEST();
@@ -484,7 +487,7 @@ TEST_F(IRBinaryRoundtripTest, UserCall) {
 
 TEST_F(IRBinaryRoundtripTest, BuiltinCall) {
     auto* fn = b.Function("Function", ty.f32());
-    b.Append(fn->Block(), [&] { b.Return(fn, b.Call<i32>(core::BuiltinFn::kMax, 1_i, 2_i)); });
+    b.Append(fn->Block(), [&] { b.Return(fn, b.Max(1_i, 2_i)); });
     RUN_TEST();
 }
 
@@ -508,7 +511,7 @@ TEST_F(IRBinaryRoundtripTest, Store) {
 }
 
 TEST_F(IRBinaryRoundtripTest, LoadVectorElement) {
-    auto p = b.FunctionParam<ptr<function, vec3<f32>, read_write>>("p");
+    auto p = b.FunctionParam<ptr<function, vec3f, read_write>>("p");
     auto* fn = b.Function("Function", ty.f32());
     fn->SetParams({p});
     b.Append(fn->Block(), [&] { b.Return(fn, b.LoadVectorElement(p, 1_i)); });
@@ -516,7 +519,7 @@ TEST_F(IRBinaryRoundtripTest, LoadVectorElement) {
 }
 
 TEST_F(IRBinaryRoundtripTest, StoreVectorElement) {
-    auto p = b.FunctionParam<ptr<function, vec3<f32>, read_write>>("p");
+    auto p = b.FunctionParam<ptr<function, vec3f, read_write>>("p");
     auto* fn = b.Function("Function", ty.void_());
     fn->SetParams({p});
     b.Append(fn->Block(), [&] {
@@ -530,7 +533,7 @@ TEST_F(IRBinaryRoundtripTest, UnaryOp) {
     auto* x = b.FunctionParam<bool>("x");
     auto* fn = b.Function("Function", ty.bool_());
     fn->SetParams({x});
-    b.Append(fn->Block(), [&] { b.Return(fn, b.Not<bool>(x)); });
+    b.Append(fn->Block(), [&] { b.Return(fn, b.Not(x)); });
     RUN_TEST();
 }
 
@@ -539,33 +542,31 @@ TEST_F(IRBinaryRoundtripTest, BinaryOp) {
     auto* y = b.FunctionParam<f32>("y");
     auto* fn = b.Function("Function", ty.f32());
     fn->SetParams({x, y});
-    b.Append(fn->Block(), [&] { b.Return(fn, b.Add<f32>(x, y)); });
+    b.Append(fn->Block(), [&] { b.Return(fn, b.Add(x, y)); });
     RUN_TEST();
 }
 
 TEST_F(IRBinaryRoundtripTest, Swizzle) {
-    auto* x = b.FunctionParam<vec4<f32>>("x");
-    auto* fn = b.Function("Function", ty.vec3<f32>());
+    auto* x = b.FunctionParam<vec4f>("x");
+    auto* fn = b.Function("Function", ty.vec3f());
     fn->SetParams({x});
-    b.Append(fn->Block(), [&] {
-        b.Return(fn, b.Swizzle<vec3<f32>>(x, Vector<uint32_t, 3>{1, 0, 2}));
-    });
+    b.Append(fn->Block(), [&] { b.Return(fn, b.Swizzle<vec3f>(x, Vector<uint32_t, 3>{1, 0, 2})); });
     RUN_TEST();
 }
 
 TEST_F(IRBinaryRoundtripTest, Bitcast) {
-    auto* x = b.FunctionParam<vec4<f32>>("x");
-    auto* fn = b.Function("Function", ty.vec4<u32>());
+    auto* x = b.FunctionParam<vec4f>("x");
+    auto* fn = b.Function("Function", ty.vec4u());
     fn->SetParams({x});
-    b.Append(fn->Block(), [&] { b.Return(fn, b.Bitcast<vec4<u32>>(x)); });
+    b.Append(fn->Block(), [&] { b.Return(fn, b.Bitcast<vec4u>(x)); });
     RUN_TEST();
 }
 
 TEST_F(IRBinaryRoundtripTest, Convert) {
-    auto* x = b.FunctionParam<vec4<f32>>("x");
-    auto* fn = b.Function("Function", ty.vec4<u32>());
+    auto* x = b.FunctionParam<vec4f>("x");
+    auto* fn = b.Function("Function", ty.vec4u());
     fn->SetParams({x});
-    b.Append(fn->Block(), [&] { b.Return(fn, b.Convert<vec4<u32>>(x)); });
+    b.Append(fn->Block(), [&] { b.Return(fn, b.Convert<vec4u>(x)); });
     RUN_TEST();
 }
 
@@ -643,7 +644,7 @@ TEST_F(IRBinaryRoundtripTest, SwitchResults) {
     b.Append(fn->Block(), [&] {
         auto* switch_ = b.Switch(x);
         auto* res = b.InstructionResult<i32>();
-        switch_->SetResults(Vector{res});
+        switch_->SetResult(res);
         b.Append(b.Case(switch_, {b.Constant(1_i)}), [&] { b.ExitSwitch(switch_, 1_i); });
         b.Append(b.Case(switch_, {b.Constant(2_i), b.Constant(3_i)}),
                  [&] { b.ExitSwitch(switch_, 2_i); });
@@ -694,7 +695,7 @@ TEST_F(IRBinaryRoundtripTest, LoopResults) {
     b.Append(fn->Block(), [&] {
         auto* loop = b.Loop();
         auto* res = b.InstructionResult<i32>();
-        loop->SetResults(Vector{res});
+        loop->SetResult(res);
         b.Append(loop->Body(), [&] { b.ExitLoop(loop, 1_i); });
         b.Return(fn, res);
     });
@@ -738,12 +739,12 @@ TEST_F(IRBinaryRoundtripTest, Unreachable) {
 
 TEST_F(IRBinaryRoundtripTest, InputAttachment) {
     b.Append(b.ir.root_block, [&] {
-        auto* input_type = ty.Get<core::type::InputAttachment>(ty.i32());
+        auto* input_type = ty.input_attachment(ty.i32());
         auto* v = b.Var(ty.ptr(handle, input_type, read));
         v->SetBindingPoint(10, 20);
         v->SetInputAttachmentIndex(11);
 
-        auto* fn = b.Function("Function", ty.vec4<i32>());
+        auto* fn = b.Function("Function", ty.vec4i());
         b.Append(fn->Block(),
                  [&] { b.Return(fn, b.Call<i32>(core::BuiltinFn::kInputAttachmentLoad, v)); });
     });

@@ -36,6 +36,9 @@
 namespace dawn {
 namespace {
 
+// Expect lazy clear count for test in device to increment by N after `statement`.
+// Note: WebGPU backend doesn't maintain the lazy clear count for testing but rely on the inner
+// layer implementation for the initialization.
 #define EXPECT_LAZY_CLEAR(N, statement)                                                  \
     do {                                                                                 \
         if (UsesWire()) {                                                                \
@@ -44,7 +47,9 @@ namespace {
             size_t lazyClearsBefore = native::GetLazyClearCountForTesting(device.Get()); \
             statement;                                                                   \
             size_t lazyClearsAfter = native::GetLazyClearCountForTesting(device.Get());  \
-            EXPECT_EQ(N, lazyClearsAfter - lazyClearsBefore);                            \
+            if (!IsWebGPUOnWebGPU()) {                                                   \
+                EXPECT_EQ(N, lazyClearsAfter - lazyClearsBefore);                        \
+            }                                                                            \
         }                                                                                \
     } while (0)
 
@@ -121,19 +126,19 @@ class BufferZeroInitTest : public DawnTest {
         wgpu::Texture texture =
             CreateAndInitializeTexture(spec.textureSize, kTextureFormat, kClearColor);
 
-        const wgpu::ImageCopyTexture imageCopyTexture =
-            utils::CreateImageCopyTexture(texture, 0, {0, 0, 0});
+        const wgpu::TexelCopyTextureInfo texelCopyTextureInfo =
+            utils::CreateTexelCopyTextureInfo(texture, 0, {0, 0, 0});
 
         const uint64_t bufferSize = spec.bufferOffset + spec.extraBytes +
                                     utils::RequiredBytesInCopy(spec.bytesPerRow, spec.rowsPerImage,
                                                                spec.textureSize, kTextureFormat);
         wgpu::Buffer buffer =
             CreateBuffer(bufferSize, wgpu::BufferUsage::CopySrc | wgpu::BufferUsage::CopyDst);
-        const wgpu::ImageCopyBuffer imageCopyBuffer = utils::CreateImageCopyBuffer(
+        const wgpu::TexelCopyBufferInfo texelCopyBufferInfo = utils::CreateTexelCopyBufferInfo(
             buffer, spec.bufferOffset, spec.bytesPerRow, spec.rowsPerImage);
 
         wgpu::CommandEncoder encoder = device.CreateCommandEncoder();
-        encoder.CopyTextureToBuffer(&imageCopyTexture, &imageCopyBuffer, &spec.textureSize);
+        encoder.CopyTextureToBuffer(&texelCopyTextureInfo, &texelCopyBufferInfo, &spec.textureSize);
         wgpu::CommandBuffer commandBuffer = encoder.Finish();
         EXPECT_LAZY_CLEAR(spec.lazyClearCount, queue.Submit(1, &commandBuffer));
 
@@ -418,7 +423,7 @@ class BufferZeroInitTest : public DawnTest {
         constexpr wgpu::TextureFormat kColorAttachmentFormat = wgpu::TextureFormat::RGBA8Unorm;
         constexpr wgpu::Color kClearColorGreen = {0.f, 1.f, 0.f, 1.f};
 
-        // As long as the comptue shader is executed once, the pixel color of outImage will be set
+        // As long as the compute shader is executed once, the pixel color of outImage will be set
         // to red.
         const char* computeShader = R"(
             @group(0) @binding(0) var outImage : texture_storage_2d<rgba8unorm, write>;
@@ -771,6 +776,9 @@ TEST_P(BufferZeroInitTest, MapAsync_Write) {
 // Test that the code path of creating a buffer with BufferDescriptor.mappedAtCreation == true
 // clears the buffer correctly at the creation of the buffer.
 TEST_P(BufferZeroInitTest, MappedAtCreation) {
+    // TODO(crbug.com/473894293): [Capture] buffer mapping: investigate.
+    DAWN_SUPPRESS_TEST_IF(IsCaptureReplayCheckingEnabled());
+
     constexpr uint32_t kBufferSize = 16u;
 
     constexpr std::array<uint32_t, kBufferSize / sizeof(uint32_t)> kExpectedData = {{0, 0, 0, 0}};
@@ -865,8 +873,8 @@ TEST_P(BufferZeroInitTest, CopyBufferToTexture) {
     constexpr wgpu::TextureFormat kTextureFormat = wgpu::TextureFormat::R32Uint;
 
     wgpu::Texture texture = CreateAndInitializeTexture(kTextureSize, kTextureFormat);
-    const wgpu::ImageCopyTexture imageCopyTexture =
-        utils::CreateImageCopyTexture(texture, 0, {0, 0, 0});
+    const wgpu::TexelCopyTextureInfo texelCopyTextureInfo =
+        utils::CreateTexelCopyTextureInfo(texture, 0, {0, 0, 0});
 
     const uint32_t rowsPerImage = kTextureSize.height;
     const uint32_t requiredBufferSizeForCopy = utils::RequiredBytesInCopy(
@@ -880,11 +888,11 @@ TEST_P(BufferZeroInitTest, CopyBufferToTexture) {
         constexpr uint64_t kOffset = 0;
         const uint32_t totalBufferSize = requiredBufferSizeForCopy + kOffset;
         wgpu::Buffer buffer = CreateBuffer(totalBufferSize, kBufferUsage);
-        const wgpu::ImageCopyBuffer imageCopyBuffer = utils::CreateImageCopyBuffer(
+        const wgpu::TexelCopyBufferInfo texelCopyBufferInfo = utils::CreateTexelCopyBufferInfo(
             buffer, kOffset, kTextureBytesPerRowAlignment, kTextureSize.height);
 
         wgpu::CommandEncoder encoder = device.CreateCommandEncoder();
-        encoder.CopyBufferToTexture(&imageCopyBuffer, &imageCopyTexture, &kTextureSize);
+        encoder.CopyBufferToTexture(&texelCopyBufferInfo, &texelCopyTextureInfo, &kTextureSize);
         wgpu::CommandBuffer commandBuffer = encoder.Finish();
         EXPECT_LAZY_CLEAR(1u, queue.Submit(1, &commandBuffer));
 
@@ -898,11 +906,11 @@ TEST_P(BufferZeroInitTest, CopyBufferToTexture) {
         constexpr uint64_t kOffset = 8u;
         const uint32_t totalBufferSize = requiredBufferSizeForCopy + kOffset;
         wgpu::Buffer buffer = CreateBuffer(totalBufferSize, kBufferUsage);
-        const wgpu::ImageCopyBuffer imageCopyBuffer = utils::CreateImageCopyBuffer(
+        const wgpu::TexelCopyBufferInfo texelCopyBufferInfo = utils::CreateTexelCopyBufferInfo(
             buffer, kOffset, kTextureBytesPerRowAlignment, kTextureSize.height);
 
         wgpu::CommandEncoder encoder = device.CreateCommandEncoder();
-        encoder.CopyBufferToTexture(&imageCopyBuffer, &imageCopyTexture, &kTextureSize);
+        encoder.CopyBufferToTexture(&texelCopyBufferInfo, &texelCopyTextureInfo, &kTextureSize);
         wgpu::CommandBuffer commandBuffer = encoder.Finish();
         EXPECT_LAZY_CLEAR(1u, queue.Submit(1, &commandBuffer));
 
@@ -1055,6 +1063,9 @@ TEST_P(BufferZeroInitTest, BoundAsReadonlyStorageBuffer) {
 // Test that the buffer will be lazy initialized correctly when its first use is to be bound as a
 // storage buffer.
 TEST_P(BufferZeroInitTest, BoundAsStorageBuffer) {
+    // TODO(42242119): fail on Qualcomm Adreno X1.
+    DAWN_SUPPRESS_TEST_IF(IsD3D11() && IsQualcomm());
+
     constexpr uint32_t kBoundBufferSize = 32u;
     wgpu::ShaderModule module = utils::CreateShaderModule(device, R"(
         struct SSBO {
@@ -1123,10 +1134,16 @@ TEST_P(BufferZeroInitTest, PaddingInitialized) {
     DAWN_SUPPRESS_TEST_IF(IsANGLE());                              // TODO(crbug.com/dawn/1084)
     DAWN_SUPPRESS_TEST_IF(IsLinux() && IsVulkan() && IsNvidia());  // TODO(crbug.com/dawn/1214)
 
+    // TODO(crbug.com/40238674): Fails on Pixel 10.
+    DAWN_SUPPRESS_TEST_IF(IsImgTec());
+
     // TODO(crbug.com/dawn/2295): diagnose this failure on Pixel 4 OpenGLES
     DAWN_SUPPRESS_TEST_IF(IsOpenGLES() && IsAndroid() && IsQualcomm());
     // TODO(crbug.com/dawn/2295): diagnose this failure on Pixel 6 OpenGLES
     DAWN_SUPPRESS_TEST_IF(IsOpenGLES() && IsAndroid() && IsARM());
+
+    // TODO(crbug.com/473593119): [Capture] size not multiple of 4.
+    DAWN_SUPPRESS_TEST_IF(IsCaptureReplayCheckingEnabled());
 
     constexpr wgpu::TextureFormat kColorAttachmentFormat = wgpu::TextureFormat::RGBA8Unorm;
     // A small sub-4-byte format means a single vertex can fit entirely within the padded buffer,
@@ -1164,11 +1181,11 @@ TEST_P(BufferZeroInitTest, PaddingInitialized) {
         initTextureDesc.size = {vertexFormatSize + 4, 1, 1};
         initTextureDesc.format = wgpu::TextureFormat::R8Unorm;
         initTextureDesc.usage = wgpu::TextureUsage::CopySrc | wgpu::TextureUsage::CopyDst;
-        wgpu::ImageCopyTexture zeroTextureSrc =
-            utils::CreateImageCopyTexture(device.CreateTexture(&initTextureDesc), 0, {0, 0, 0});
+        wgpu::TexelCopyTextureInfo zeroTextureSrc =
+            utils::CreateTexelCopyTextureInfo(device.CreateTexture(&initTextureDesc), 0, {0, 0, 0});
         {
-            wgpu::TextureDataLayout layout =
-                utils::CreateTextureDataLayout(0, wgpu::kCopyStrideUndefined);
+            wgpu::TexelCopyBufferLayout layout =
+                utils::CreateTexelCopyBufferLayout(0, wgpu::kCopyStrideUndefined);
             std::vector<uint8_t> data(initTextureDesc.size.width);
             queue.WriteTexture(&zeroTextureSrc, data.data(), data.size(), &layout,
                                &initTextureDesc.size);
@@ -1191,8 +1208,8 @@ TEST_P(BufferZeroInitTest, PaddingInitialized) {
                 // it does not require 4-byte alignment.
                 {
                     wgpu::CommandEncoder encoder = device.CreateCommandEncoder();
-                    wgpu::ImageCopyBuffer dst =
-                        utils::CreateImageCopyBuffer(vertexBuffer, 0, wgpu::kCopyStrideUndefined);
+                    wgpu::TexelCopyBufferInfo dst = utils::CreateTexelCopyBufferInfo(
+                        vertexBuffer, 0, wgpu::kCopyStrideUndefined);
                     wgpu::Extent3D extent = {vertexBufferSize, 1, 1};
                     encoder.CopyTextureToBuffer(&zeroTextureSrc, &dst, &extent);
 
@@ -1245,10 +1262,6 @@ TEST_P(BufferZeroInitTest, SetIndexBuffer) {
 // Test the buffer will be lazily initialized correctly when its first use is an indirect buffer for
 // DrawIndirect.
 TEST_P(BufferZeroInitTest, IndirectBufferForDrawIndirect) {
-    // TODO(crbug.com/dawn/1292): Some Intel OpenGL drivers don't seem to like
-    // the offset= that Tint/GLSL produces.
-    DAWN_SUPPRESS_TEST_IF(IsIntel() && IsOpenGL() && IsLinux());
-
     // Bind the whole buffer as an indirect buffer.
     {
         constexpr uint64_t kOffset = 0u;
@@ -1265,10 +1278,6 @@ TEST_P(BufferZeroInitTest, IndirectBufferForDrawIndirect) {
 // Test the buffer will be lazily initialized correctly when its first use is an indirect buffer for
 // DrawIndexedIndirect.
 TEST_P(BufferZeroInitTest, IndirectBufferForDrawIndexedIndirect) {
-    // TODO(crbug.com/dawn/1292): Some Intel OpenGL drivers don't seem to like
-    // the offset= that Tint/GLSL produces.
-    DAWN_SUPPRESS_TEST_IF(IsIntel() && IsOpenGL() && IsLinux());
-
     // Bind the whole buffer as an indirect buffer.
     {
         constexpr uint64_t kOffset = 0u;
@@ -1312,6 +1321,9 @@ TEST_P(BufferZeroInitTest, ResolveQuerySet) {
 
     // crbug.com/dawn/940: Does not work on Mac 11.0+. Backend validation changed.
     DAWN_TEST_UNSUPPORTED_IF(IsMacOS() && !IsMacOS(10));
+
+    // TODO(crbug.com/451389800): [Capture] implement query set.
+    DAWN_SUPPRESS_TEST_IF(IsCaptureReplayCheckingEnabled());
 
     constexpr uint64_t kBufferSize = 16u;
     constexpr wgpu::BufferUsage kBufferUsage =
@@ -1369,13 +1381,16 @@ TEST_P(BufferZeroInitTest, ResolveQuerySet) {
 
 DAWN_INSTANTIATE_TEST(BufferZeroInitTest,
                       D3D11Backend({"nonzero_clear_resources_on_creation_for_testing"}),
+                      D3D11Backend({"auto_map_backend_buffer", "d3d11_disable_cpu_buffers",
+                                    "nonzero_clear_resources_on_creation_for_testing"}),
                       D3D12Backend({"nonzero_clear_resources_on_creation_for_testing"}),
                       D3D12Backend({"nonzero_clear_resources_on_creation_for_testing"},
                                    {"d3d12_create_not_zeroed_heap"}),
                       MetalBackend({"nonzero_clear_resources_on_creation_for_testing"}),
                       OpenGLBackend({"nonzero_clear_resources_on_creation_for_testing"}),
                       OpenGLESBackend({"nonzero_clear_resources_on_creation_for_testing"}),
-                      VulkanBackend({"nonzero_clear_resources_on_creation_for_testing"}));
+                      VulkanBackend({"nonzero_clear_resources_on_creation_for_testing"}),
+                      WebGPUBackend({"nonzero_clear_resources_on_creation_for_testing"}));
 
 }  // anonymous namespace
 }  // namespace dawn

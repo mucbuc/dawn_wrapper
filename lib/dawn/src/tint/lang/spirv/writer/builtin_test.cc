@@ -25,10 +25,9 @@
 // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#include "src/tint/lang/spirv/writer/common/helper_test.h"
-
-#include "src/tint/lang/core/builtin_fn.h"
+#include "src/tint/lang/core/enums.h"
 #include "src/tint/lang/core/type/builtin_structs.h"
+#include "src/tint/lang/spirv/writer/common/helper_test.h"
 
 using namespace tint::core::number_suffixes;  // NOLINT
 using namespace tint::core::fluent_types;     // NOLINT
@@ -51,32 +50,33 @@ using Builtin_1arg = SpirvWriterTestWithParam<BuiltinTestCase>;
 TEST_P(Builtin_1arg, Scalar) {
     auto params = GetParam();
 
-    auto* func = b.Function("foo", ty.void_());
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         b.Call(MakeScalarType(params.type), params.function, MakeScalarValue(params.type));
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST(params.spirv_inst);
 }
 TEST_P(Builtin_1arg, Vector) {
     auto params = GetParam();
 
-    auto* func = b.Function("foo", ty.void_());
+    auto* func = b.Function("main", ty.void_(), core::ir::Function::PipelineStage::kFragment);
     b.Append(func->Block(), [&] {
         b.Call(MakeVectorType(params.type), params.function, MakeVectorValue(params.type));
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST(params.spirv_inst);
 }
 INSTANTIATE_TEST_SUITE_P(
     SpirvWriterTest,
     Builtin_1arg,
-    testing::Values(BuiltinTestCase{kI32, core::BuiltinFn::kAbs, "SAbs"},
-                    BuiltinTestCase{kF32, core::BuiltinFn::kAbs, "FAbs"},
+    testing::Values(BuiltinTestCase{kF32, core::BuiltinFn::kAbs, "FAbs"},
                     BuiltinTestCase{kF16, core::BuiltinFn::kAbs, "FAbs"},
                     BuiltinTestCase{kF32, core::BuiltinFn::kAcos, "Acos"},
                     BuiltinTestCase{kF16, core::BuiltinFn::kAcos, "Acos"},
@@ -156,12 +156,46 @@ TEST_F(SpirvWriterTest, Builtin_Abs_u32) {
         mod.SetName(arg, "arg");
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST(R"(
         %foo = OpFunction %uint None %3
           %4 = OpLabel
                OpReturnValue %arg
                OpFunctionEnd
+)");
+}
+
+// Test that abs of a signed integer is implemented as max(x,-x);
+TEST_F(SpirvWriterTest, Builtin_Abs_i32) {
+    auto* func = b.Function("foo", MakeScalarType(kI32));
+    b.Append(func->Block(), [&] {
+        auto* arg = MakeScalarValue(kI32);
+        auto* result = b.Call(MakeScalarType(kI32), core::BuiltinFn::kAbs, arg);
+        b.Return(func, result);
+        mod.SetName(arg, "arg");
+    });
+
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
+    EXPECT_INST(R"(
+          %6 = OpBitcast %uint %arg
+          %8 = OpNot %uint %6
+          %9 = OpIAdd %uint %8 %uint_1
+         %11 = OpBitcast %int %9
+         %12 = OpExtInst %int %13 SMax %arg %11
 )");
 }
 
@@ -174,7 +208,14 @@ TEST_F(SpirvWriterTest, Builtin_Abs_vec2u) {
         mod.SetName(arg, "arg");
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST(R"(
         %foo = OpFunction %v2uint None %4
           %5 = OpLabel
@@ -193,7 +234,14 @@ TEST_F(SpirvWriterTest, Builtin_All_Scalar) {
         b.Return(func, result);
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func, b.Zero(ty.bool_())));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST("OpReturnValue %arg");
 }
 
@@ -207,7 +255,14 @@ TEST_F(SpirvWriterTest, Builtin_All_Vector) {
         mod.SetName(result, "result");
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func, b.Zero(ty.vec4<bool>())));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST("%result = OpAll %bool %arg");
 }
 
@@ -221,7 +276,14 @@ TEST_F(SpirvWriterTest, Builtin_Any_Scalar) {
         b.Return(func, result);
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func, b.Zero(ty.bool_())));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST("OpReturnValue %arg");
 }
 
@@ -235,7 +297,14 @@ TEST_F(SpirvWriterTest, Builtin_Any_Vector) {
         mod.SetName(result, "result");
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func, b.Zero(ty.vec4<bool>())));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST("%result = OpAny %bool %arg");
 }
 
@@ -249,7 +318,14 @@ TEST_F(SpirvWriterTest, Builtin_Determinant_Mat4x4f) {
         mod.SetName(result, "result");
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func, b.Zero(ty.mat4x4<f32>())));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST("%result = OpExtInst %float %9 Determinant %arg");
 }
 
@@ -263,7 +339,14 @@ TEST_F(SpirvWriterTest, Builtin_Determinant_Mat3x3h) {
         mod.SetName(result, "result");
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func, b.Zero(ty.mat3x3<f16>())));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST("%result = OpExtInst %half %9 Determinant %arg");
 }
 
@@ -278,7 +361,14 @@ TEST_F(SpirvWriterTest, Builtin_Frexp_F32) {
         mod.SetName(result, "result");
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func, b.Zero(ty.f32())));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST("%result = OpExtInst %__frexp_result_f32 %9 FrexpStruct %arg");
 }
 
@@ -293,13 +383,20 @@ TEST_F(SpirvWriterTest, Builtin_Frexp_F16) {
         mod.SetName(result, "result");
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func, b.Zero(ty.f16())));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST("%result = OpExtInst %__frexp_result_f16 %9 FrexpStruct %arg");
 }
 
 TEST_F(SpirvWriterTest, Builtin_Frexp_Vec2f) {
-    auto* str = core::type::CreateFrexpResult(ty, mod.symbols, ty.vec2<f32>());
-    auto* arg = b.FunctionParam("arg", ty.vec2<f32>());
+    auto* str = core::type::CreateFrexpResult(ty, mod.symbols, ty.vec2f());
+    auto* arg = b.FunctionParam("arg", ty.vec2f());
     auto* func = b.Function("foo", str);
     func->SetParams({arg});
     b.Append(func->Block(), [&] {
@@ -308,13 +405,20 @@ TEST_F(SpirvWriterTest, Builtin_Frexp_Vec2f) {
         mod.SetName(result, "result");
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func, b.Zero(ty.vec2f())));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST("%result = OpExtInst %__frexp_result_vec2_f32 %11 FrexpStruct %arg");
 }
 
 TEST_F(SpirvWriterTest, Builtin_Frexp_Vec3h) {
-    auto* str = core::type::CreateFrexpResult(ty, mod.symbols, ty.vec3<f16>());
-    auto* arg = b.FunctionParam("arg", ty.vec3<f16>());
+    auto* str = core::type::CreateFrexpResult(ty, mod.symbols, ty.vec3h());
+    auto* arg = b.FunctionParam("arg", ty.vec3h());
     auto* func = b.Function("foo", str);
     func->SetParams({arg});
     b.Append(func->Block(), [&] {
@@ -323,12 +427,19 @@ TEST_F(SpirvWriterTest, Builtin_Frexp_Vec3h) {
         mod.SetName(result, "result");
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func, b.Zero(ty.vec3h())));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST("%result = OpExtInst %__frexp_result_vec3_f16 %11 FrexpStruct %arg");
 }
 
 TEST_F(SpirvWriterTest, Builtin_Length_vec4f) {
-    auto* arg = b.FunctionParam("arg", ty.vec4<f32>());
+    auto* arg = b.FunctionParam("arg", ty.vec4f());
     auto* func = b.Function("foo", ty.f32());
     func->SetParams({arg});
     b.Append(func->Block(), [&] {
@@ -337,7 +448,14 @@ TEST_F(SpirvWriterTest, Builtin_Length_vec4f) {
         mod.SetName(result, "result");
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func, b.Zero(ty.vec4f())));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST("%result = OpExtInst %float %8 Length %arg");
 }
 
@@ -352,7 +470,14 @@ TEST_F(SpirvWriterTest, Builtin_Modf_F32) {
         mod.SetName(result, "result");
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func, b.Zero(ty.f32())));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST("%result = OpExtInst %__modf_result_f32 %8 ModfStruct %arg");
 }
 
@@ -367,13 +492,20 @@ TEST_F(SpirvWriterTest, Builtin_Modf_F16) {
         mod.SetName(result, "result");
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func, b.Zero(ty.f16())));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST("%result = OpExtInst %__modf_result_f16 %8 ModfStruct %arg");
 }
 
 TEST_F(SpirvWriterTest, Builtin_Modf_Vec2f) {
-    auto* str = core::type::CreateModfResult(ty, mod.symbols, ty.vec2<f32>());
-    auto* arg = b.FunctionParam("arg", ty.vec2<f32>());
+    auto* str = core::type::CreateModfResult(ty, mod.symbols, ty.vec2f());
+    auto* arg = b.FunctionParam("arg", ty.vec2f());
     auto* func = b.Function("foo", str);
     func->SetParams({arg});
     b.Append(func->Block(), [&] {
@@ -382,13 +514,20 @@ TEST_F(SpirvWriterTest, Builtin_Modf_Vec2f) {
         mod.SetName(result, "result");
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func, b.Zero(ty.vec2f())));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST("%result = OpExtInst %__modf_result_vec2_f32 %9 ModfStruct %arg");
 }
 
 TEST_F(SpirvWriterTest, Builtin_Modf_Vec3h) {
-    auto* str = core::type::CreateModfResult(ty, mod.symbols, ty.vec3<f16>());
-    auto* arg = b.FunctionParam("arg", ty.vec3<f16>());
+    auto* str = core::type::CreateModfResult(ty, mod.symbols, ty.vec3h());
+    auto* arg = b.FunctionParam("arg", ty.vec3h());
     auto* func = b.Function("foo", str);
     func->SetParams({arg});
     b.Append(func->Block(), [&] {
@@ -397,21 +536,35 @@ TEST_F(SpirvWriterTest, Builtin_Modf_Vec3h) {
         mod.SetName(result, "result");
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func, b.Zero(ty.vec3h())));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST("%result = OpExtInst %__modf_result_vec3_f16 %9 ModfStruct %arg");
 }
 
 TEST_F(SpirvWriterTest, Builtin_Normalize_vec4f) {
-    auto* arg = b.FunctionParam("arg", ty.vec4<f32>());
-    auto* func = b.Function("foo", ty.vec4<f32>());
+    auto* arg = b.FunctionParam("arg", ty.vec4f());
+    auto* func = b.Function("foo", ty.vec4f());
     func->SetParams({arg});
     b.Append(func->Block(), [&] {
-        auto* result = b.Call(ty.vec4<f32>(), core::BuiltinFn::kNormalize, arg);
+        auto* result = b.Call(ty.vec4f(), core::BuiltinFn::kNormalize, arg);
         b.Return(func, result);
         mod.SetName(result, "result");
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func, b.Zero(ty.vec4f())));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST("%result = OpExtInst %v4float %8 Normalize %arg");
 }
 
@@ -425,7 +578,14 @@ TEST_F(SpirvWriterTest, Builtin_Transpose_Mat2x3f) {
         mod.SetName(result, "result");
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func, b.Zero(ty.mat2x3<f32>())));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST("%result = OpTranspose %mat3v2float %arg");
 }
 
@@ -439,7 +599,14 @@ TEST_F(SpirvWriterTest, Builtin_Transpose_Mat4x4f) {
         mod.SetName(result, "result");
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func, b.Zero(ty.mat4x4<f32>())));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST("%result = OpTranspose %mat4v4float %arg");
 }
 
@@ -453,7 +620,14 @@ TEST_F(SpirvWriterTest, Builtin_Transpose_Mat4x3h) {
         mod.SetName(result, "result");
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func, b.Zero(ty.mat4x3<f16>())));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST("%result = OpTranspose %mat3v4half %arg");
 }
 
@@ -467,12 +641,19 @@ TEST_F(SpirvWriterTest, Builtin_Transpose_Mat2x2h) {
         mod.SetName(result, "result");
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func, b.Zero(ty.mat2x2<f16>())));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST("%result = OpTranspose %mat2v2half %arg");
 }
 
 TEST_F(SpirvWriterTest, Builtin_Pack2X16Float) {
-    auto* arg = b.FunctionParam("arg", ty.vec2<f32>());
+    auto* arg = b.FunctionParam("arg", ty.vec2f());
     auto* func = b.Function("foo", ty.u32());
     func->SetParams({arg});
     b.Append(func->Block(), [&] {
@@ -481,12 +662,19 @@ TEST_F(SpirvWriterTest, Builtin_Pack2X16Float) {
         mod.SetName(result, "result");
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func, b.Zero(ty.vec2f())));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST("%result = OpExtInst %uint %9 PackHalf2x16 %arg");
 }
 
 TEST_F(SpirvWriterTest, Builtin_Pack2X16Snorm) {
-    auto* arg = b.FunctionParam("arg", ty.vec2<f32>());
+    auto* arg = b.FunctionParam("arg", ty.vec2f());
     auto* func = b.Function("foo", ty.u32());
     func->SetParams({arg});
     b.Append(func->Block(), [&] {
@@ -495,12 +683,19 @@ TEST_F(SpirvWriterTest, Builtin_Pack2X16Snorm) {
         mod.SetName(result, "result");
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func, b.Zero(ty.vec2f())));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST("%result = OpExtInst %uint %9 PackSnorm2x16 %arg");
 }
 
 TEST_F(SpirvWriterTest, Builtin_Pack2X16Unorm) {
-    auto* arg = b.FunctionParam("arg", ty.vec2<f32>());
+    auto* arg = b.FunctionParam("arg", ty.vec2f());
     auto* func = b.Function("foo", ty.u32());
     func->SetParams({arg});
     b.Append(func->Block(), [&] {
@@ -509,12 +704,19 @@ TEST_F(SpirvWriterTest, Builtin_Pack2X16Unorm) {
         mod.SetName(result, "result");
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func, b.Zero(ty.vec2f())));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST("%result = OpExtInst %uint %9 PackUnorm2x16 %arg");
 }
 
 TEST_F(SpirvWriterTest, Builtin_Pack4X8Snorm) {
-    auto* arg = b.FunctionParam("arg", ty.vec4<f32>());
+    auto* arg = b.FunctionParam("arg", ty.vec4f());
     auto* func = b.Function("foo", ty.u32());
     func->SetParams({arg});
     b.Append(func->Block(), [&] {
@@ -523,12 +725,19 @@ TEST_F(SpirvWriterTest, Builtin_Pack4X8Snorm) {
         mod.SetName(result, "result");
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func, b.Zero(ty.vec4f())));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST("%result = OpExtInst %uint %9 PackSnorm4x8 %arg");
 }
 
 TEST_F(SpirvWriterTest, Builtin_Pack4X8Unorm) {
-    auto* arg = b.FunctionParam("arg", ty.vec4<f32>());
+    auto* arg = b.FunctionParam("arg", ty.vec4f());
     auto* func = b.Function("foo", ty.u32());
     func->SetParams({arg});
     b.Append(func->Block(), [&] {
@@ -537,77 +746,119 @@ TEST_F(SpirvWriterTest, Builtin_Pack4X8Unorm) {
         mod.SetName(result, "result");
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func, b.Zero(ty.vec4f())));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST("%result = OpExtInst %uint %9 PackUnorm4x8 %arg");
 }
 
 TEST_F(SpirvWriterTest, Builtin_Unpack2X16Float) {
     auto* arg = b.FunctionParam("arg", ty.u32());
-    auto* func = b.Function("foo", ty.vec2<f32>());
+    auto* func = b.Function("foo", ty.vec2f());
     func->SetParams({arg});
     b.Append(func->Block(), [&] {
-        auto* result = b.Call(ty.vec2<f32>(), core::BuiltinFn::kUnpack2X16Float, arg);
+        auto* result = b.Call(ty.vec2f(), core::BuiltinFn::kUnpack2X16Float, arg);
         b.Return(func, result);
         mod.SetName(result, "result");
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func, b.Zero(ty.u32())));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST("%result = OpExtInst %v2float %9 UnpackHalf2x16 %arg");
 }
 
 TEST_F(SpirvWriterTest, Builtin_Unpack2X16Snorm) {
     auto* arg = b.FunctionParam("arg", ty.u32());
-    auto* func = b.Function("foo", ty.vec2<f32>());
+    auto* func = b.Function("foo", ty.vec2f());
     func->SetParams({arg});
     b.Append(func->Block(), [&] {
-        auto* result = b.Call(ty.vec2<f32>(), core::BuiltinFn::kUnpack2X16Snorm, arg);
+        auto* result = b.Call(ty.vec2f(), core::BuiltinFn::kUnpack2X16Snorm, arg);
         b.Return(func, result);
         mod.SetName(result, "result");
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func, b.Zero(ty.u32())));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST("%result = OpExtInst %v2float %9 UnpackSnorm2x16 %arg");
 }
 
 TEST_F(SpirvWriterTest, Builtin_Unpack2X16Unorm) {
     auto* arg = b.FunctionParam("arg", ty.u32());
-    auto* func = b.Function("foo", ty.vec2<f32>());
+    auto* func = b.Function("foo", ty.vec2f());
     func->SetParams({arg});
     b.Append(func->Block(), [&] {
-        auto* result = b.Call(ty.vec2<f32>(), core::BuiltinFn::kUnpack2X16Unorm, arg);
+        auto* result = b.Call(ty.vec2f(), core::BuiltinFn::kUnpack2X16Unorm, arg);
         b.Return(func, result);
         mod.SetName(result, "result");
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func, b.Zero(ty.u32())));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST("%result = OpExtInst %v2float %9 UnpackUnorm2x16 %arg");
 }
 
 TEST_F(SpirvWriterTest, Builtin_Unpack4X8Snorm) {
     auto* arg = b.FunctionParam("arg", ty.u32());
-    auto* func = b.Function("foo", ty.vec4<f32>());
+    auto* func = b.Function("foo", ty.vec4f());
     func->SetParams({arg});
     b.Append(func->Block(), [&] {
-        auto* result = b.Call(ty.vec4<f32>(), core::BuiltinFn::kUnpack4X8Snorm, arg);
+        auto* result = b.Call(ty.vec4f(), core::BuiltinFn::kUnpack4X8Snorm, arg);
         b.Return(func, result);
         mod.SetName(result, "result");
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func, b.Zero(ty.u32())));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST("%result = OpExtInst %v4float %9 UnpackSnorm4x8 %arg");
 }
 
 TEST_F(SpirvWriterTest, Builtin_Unpack4X8Unorm) {
     auto* arg = b.FunctionParam("arg", ty.u32());
-    auto* func = b.Function("foo", ty.vec4<f32>());
+    auto* func = b.Function("foo", ty.vec4f());
     func->SetParams({arg});
     b.Append(func->Block(), [&] {
-        auto* result = b.Call(ty.vec4<f32>(), core::BuiltinFn::kUnpack4X8Unorm, arg);
+        auto* result = b.Call(ty.vec4f(), core::BuiltinFn::kUnpack4X8Unorm, arg);
         b.Return(func, result);
         mod.SetName(result, "result");
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func, b.Zero(ty.u32())));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST("%result = OpExtInst %v4float %9 UnpackUnorm4x8 %arg");
 }
 
@@ -621,7 +872,14 @@ TEST_F(SpirvWriterTest, Builtin_CountLeadingZeros_U32) {
         mod.SetName(result, "result");
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func, b.Zero(ty.u32())));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST(R"(
           %6 = OpULessThanEqual %bool %arg %uint_65535
           %9 = OpSelect %uint %6 %uint_16 %uint_0
@@ -658,7 +916,14 @@ TEST_F(SpirvWriterTest, Builtin_CountLeadingZeros_I32) {
         mod.SetName(result, "result");
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func, b.Zero(ty.i32())));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST(R"(
           %7 = OpBitcast %uint %arg
           %8 = OpULessThanEqual %bool %7 %uint_65535
@@ -688,16 +953,23 @@ TEST_F(SpirvWriterTest, Builtin_CountLeadingZeros_I32) {
 }
 
 TEST_F(SpirvWriterTest, Builtin_CountLeadingZeros_Vec2U32) {
-    auto* arg = b.FunctionParam("arg", ty.vec2<u32>());
-    auto* func = b.Function("foo", ty.vec2<u32>());
+    auto* arg = b.FunctionParam("arg", ty.vec2u());
+    auto* func = b.Function("foo", ty.vec2u());
     func->SetParams({arg});
     b.Append(func->Block(), [&] {
-        auto* result = b.Call(ty.vec2<u32>(), core::BuiltinFn::kCountLeadingZeros, arg);
+        auto* result = b.Call(ty.vec2u(), core::BuiltinFn::kCountLeadingZeros, arg);
         b.Return(func, result);
         mod.SetName(result, "result");
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func, b.Zero(ty.vec2u())));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST("%8 = OpConstantComposite %v2uint %uint_65535 %uint_65535");
     EXPECT_INST("%13 = OpConstantComposite %v2uint %uint_16 %uint_16");
     EXPECT_INST("%15 = OpConstantNull %v2uint");
@@ -745,7 +1017,14 @@ TEST_F(SpirvWriterTest, Builtin_CountTrailingZeros_U32) {
         mod.SetName(result, "result");
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func, b.Zero(ty.u32())));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST(R"(
           %6 = OpBitwiseAnd %uint %arg %uint_65535
           %8 = OpIEqual %bool %6 %uint_0
@@ -786,7 +1065,14 @@ TEST_F(SpirvWriterTest, Builtin_CountTrailingZeros_I32) {
         mod.SetName(result, "result");
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func, b.Zero(ty.i32())));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST(R"(
           %7 = OpBitcast %uint %arg
           %8 = OpBitwiseAnd %uint %7 %uint_65535
@@ -820,16 +1106,23 @@ TEST_F(SpirvWriterTest, Builtin_CountTrailingZeros_I32) {
 }
 
 TEST_F(SpirvWriterTest, Builtin_CountTrailingZeros_Vec2U32) {
-    auto* arg = b.FunctionParam("arg", ty.vec2<u32>());
-    auto* func = b.Function("foo", ty.vec2<u32>());
+    auto* arg = b.FunctionParam("arg", ty.vec2u());
+    auto* func = b.Function("foo", ty.vec2u());
     func->SetParams({arg});
     b.Append(func->Block(), [&] {
-        auto* result = b.Call(ty.vec2<u32>(), core::BuiltinFn::kCountTrailingZeros, arg);
+        auto* result = b.Call(ty.vec2u(), core::BuiltinFn::kCountTrailingZeros, arg);
         b.Return(func, result);
         mod.SetName(result, "result");
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func, b.Zero(ty.vec2u())));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST("%8 = OpConstantComposite %v2uint %uint_65535 %uint_65535");
     EXPECT_INST("%11 = OpConstantNull %v2uint");
     EXPECT_INST("%15 = OpConstantComposite %v2uint %uint_16 %uint_16");
@@ -880,7 +1173,14 @@ TEST_F(SpirvWriterTest, Builtin_FirstLeadingBit_U32) {
         mod.SetName(result, "result");
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func, b.Zero(ty.u32())));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST(R"(
           %6 = OpBitwiseAnd %uint %arg %uint_4294901760
           %8 = OpIEqual %bool %6 %uint_0
@@ -920,7 +1220,14 @@ TEST_F(SpirvWriterTest, Builtin_FirstLeadingBit_I32) {
         mod.SetName(result, "result");
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func, b.Zero(ty.i32())));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST(R"(
           %7 = OpBitcast %uint %arg
           %8 = OpNot %uint %7
@@ -956,16 +1263,23 @@ TEST_F(SpirvWriterTest, Builtin_FirstLeadingBit_I32) {
 }
 
 TEST_F(SpirvWriterTest, Builtin_FirstLeadingBit_Vec2U32) {
-    auto* arg = b.FunctionParam("arg", ty.vec2<u32>());
-    auto* func = b.Function("foo", ty.vec2<u32>());
+    auto* arg = b.FunctionParam("arg", ty.vec2u());
+    auto* func = b.Function("foo", ty.vec2u());
     func->SetParams({arg});
     b.Append(func->Block(), [&] {
-        auto* result = b.Call(ty.vec2<u32>(), core::BuiltinFn::kFirstLeadingBit, arg);
+        auto* result = b.Call(ty.vec2u(), core::BuiltinFn::kFirstLeadingBit, arg);
         b.Return(func, result);
         mod.SetName(result, "result");
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func, b.Zero(ty.vec2u())));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST("%8 = OpConstantComposite %v2uint %uint_4294901760 %uint_4294901760");
     EXPECT_INST("%11 = OpConstantNull %v2uint");
     EXPECT_INST("%15 = OpConstantComposite %v2uint %uint_16 %uint_16");
@@ -1016,7 +1330,14 @@ TEST_F(SpirvWriterTest, Builtin_FirstTrailingBit_U32) {
         mod.SetName(result, "result");
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func, b.Zero(ty.u32())));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST(R"(
           %6 = OpBitwiseAnd %uint %arg %uint_65535
           %8 = OpIEqual %bool %6 %uint_0
@@ -1056,7 +1377,14 @@ TEST_F(SpirvWriterTest, Builtin_FirstTrailingBit_I32) {
         mod.SetName(result, "result");
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func, b.Zero(ty.i32())));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST(R"(
           %7 = OpBitcast %uint %arg
           %8 = OpBitwiseAnd %uint %7 %uint_65535
@@ -1089,16 +1417,23 @@ TEST_F(SpirvWriterTest, Builtin_FirstTrailingBit_I32) {
 }
 
 TEST_F(SpirvWriterTest, Builtin_FirstTrailingBit_Vec2U32) {
-    auto* arg = b.FunctionParam("arg", ty.vec2<u32>());
-    auto* func = b.Function("foo", ty.vec2<u32>());
+    auto* arg = b.FunctionParam("arg", ty.vec2u());
+    auto* func = b.Function("foo", ty.vec2u());
     func->SetParams({arg});
     b.Append(func->Block(), [&] {
-        auto* result = b.Call(ty.vec2<u32>(), core::BuiltinFn::kFirstTrailingBit, arg);
+        auto* result = b.Call(ty.vec2u(), core::BuiltinFn::kFirstTrailingBit, arg);
         b.Return(func, result);
         mod.SetName(result, "result");
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func, b.Zero(ty.vec2u())));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST("%8 = OpConstantComposite %v2uint %uint_65535 %uint_65535");
     EXPECT_INST("%11 = OpConstantNull %v2uint");
     EXPECT_INST("%15 = OpConstantComposite %v2uint %uint_16 %uint_16");
@@ -1149,21 +1484,35 @@ TEST_F(SpirvWriterTest, Builtin_Saturate_F32) {
         mod.SetName(result, "result");
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func, b.Zero(ty.f32())));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST("%result = OpExtInst %float %7 NClamp %arg %float_0 %float_1");
 }
 
 TEST_F(SpirvWriterTest, Builtin_Saturate_Vec4h) {
-    auto* arg = b.FunctionParam("arg", ty.vec4<f16>());
-    auto* func = b.Function("foo", ty.vec4<f16>());
+    auto* arg = b.FunctionParam("arg", ty.vec4h());
+    auto* func = b.Function("foo", ty.vec4h());
     func->SetParams({arg});
     b.Append(func->Block(), [&] {
-        auto* result = b.Call(ty.vec4<f16>(), core::BuiltinFn::kSaturate, arg);
+        auto* result = b.Call(ty.vec4h(), core::BuiltinFn::kSaturate, arg);
         b.Return(func, result);
         mod.SetName(result, "result");
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func, b.Zero(ty.vec4h())));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST("%9 = OpConstantNull %v4half");
     EXPECT_INST(
         "%10 = OpConstantComposite %v4half %half_0x1p_0 %half_0x1p_0 %half_0x1p_0 %half_0x1p_0");
@@ -1175,36 +1524,38 @@ using Builtin_2arg = SpirvWriterTestWithParam<BuiltinTestCase>;
 TEST_P(Builtin_2arg, Scalar) {
     auto params = GetParam();
 
-    auto* func = b.Function("foo", ty.void_());
+    auto* func = b.ComputeFunction("main");
     b.Append(func->Block(), [&] {
         b.Call(MakeScalarType(params.type), params.function, MakeScalarValue(params.type),
                MakeScalarValue(params.type));
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST(params.spirv_inst);
 }
 TEST_P(Builtin_2arg, Vector) {
     auto params = GetParam();
 
-    auto* func = b.Function("foo", ty.void_());
+    auto* func = b.ComputeFunction("main");
     b.Append(func->Block(), [&] {
         b.Call(MakeVectorType(params.type), params.function, MakeVectorValue(params.type),
                MakeVectorValue(params.type));
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST(params.spirv_inst);
 }
 INSTANTIATE_TEST_SUITE_P(SpirvWriterTest,
                          Builtin_2arg,
                          testing::Values(BuiltinTestCase{kF32, core::BuiltinFn::kAtan2, "Atan2"},
-                                         BuiltinTestCase{kF32, core::BuiltinFn::kMax, "FMax"},
+                                         BuiltinTestCase{kF32, core::BuiltinFn::kMax, "NMax"},
                                          BuiltinTestCase{kI32, core::BuiltinFn::kMax, "SMax"},
                                          BuiltinTestCase{kU32, core::BuiltinFn::kMax, "UMax"},
-                                         BuiltinTestCase{kF32, core::BuiltinFn::kMin, "FMin"},
+                                         BuiltinTestCase{kF32, core::BuiltinFn::kMin, "NMin"},
                                          BuiltinTestCase{kI32, core::BuiltinFn::kMin, "SMin"},
                                          BuiltinTestCase{kU32, core::BuiltinFn::kMin, "UMin"},
                                          BuiltinTestCase{kF32, core::BuiltinFn::kPow, "Pow"},
@@ -1213,17 +1564,24 @@ INSTANTIATE_TEST_SUITE_P(SpirvWriterTest,
                                          BuiltinTestCase{kF16, core::BuiltinFn::kStep, "Step"}));
 
 TEST_F(SpirvWriterTest, Builtin_Cross_vec3f) {
-    auto* arg1 = b.FunctionParam("arg1", ty.vec3<f32>());
-    auto* arg2 = b.FunctionParam("arg2", ty.vec3<f32>());
-    auto* func = b.Function("foo", ty.vec3<f32>());
+    auto* arg1 = b.FunctionParam("arg1", ty.vec3f());
+    auto* arg2 = b.FunctionParam("arg2", ty.vec3f());
+    auto* func = b.Function("foo", ty.vec3f());
     func->SetParams({arg1, arg2});
     b.Append(func->Block(), [&] {
-        auto* result = b.Call(ty.vec3<f32>(), core::BuiltinFn::kCross, arg1, arg2);
+        auto* result = b.Call(ty.vec3f(), core::BuiltinFn::kCross, arg1, arg2);
         b.Return(func, result);
         mod.SetName(result, "result");
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func, b.Zero(ty.vec3f()), b.Zero(ty.vec3f())));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST("%result = OpExtInst %v3float %9 Cross %arg1 %arg2");
 }
 
@@ -1238,7 +1596,14 @@ TEST_F(SpirvWriterTest, Builtin_Distance_vec2f) {
         mod.SetName(result, "result");
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func, b.Zero(MakeVectorType(kF32)), b.Zero(MakeVectorType(kF32))));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST("%result = OpExtInst %float %9 Distance %arg1 %arg2");
 }
 
@@ -1253,13 +1618,20 @@ TEST_F(SpirvWriterTest, Builtin_Distance_vec3h) {
         mod.SetName(result, "result");
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func, b.Zero(MakeVectorType(kF16)), b.Zero(MakeVectorType(kF16))));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST("%result = OpExtInst %half %9 Distance %arg1 %arg2");
 }
 
 TEST_F(SpirvWriterTest, Builtin_Dot_vec4f) {
-    auto* arg1 = b.FunctionParam("arg1", ty.vec4<f32>());
-    auto* arg2 = b.FunctionParam("arg2", ty.vec4<f32>());
+    auto* arg1 = b.FunctionParam("arg1", ty.vec4f());
+    auto* arg2 = b.FunctionParam("arg2", ty.vec4f());
     auto* func = b.Function("foo", ty.f32());
     func->SetParams({arg1, arg2});
     b.Append(func->Block(), [&] {
@@ -1268,13 +1640,20 @@ TEST_F(SpirvWriterTest, Builtin_Dot_vec4f) {
         mod.SetName(result, "result");
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func, b.Zero(ty.vec4f()), b.Zero(ty.vec4f())));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST("%result = OpDot %float %arg1 %arg2");
 }
 
 TEST_F(SpirvWriterTest, Builtin_Dot_vec2i) {
-    auto* arg1 = b.FunctionParam("arg1", ty.vec2<i32>());
-    auto* arg2 = b.FunctionParam("arg2", ty.vec2<i32>());
+    auto* arg1 = b.FunctionParam("arg1", ty.vec2i());
+    auto* arg2 = b.FunctionParam("arg2", ty.vec2i());
     auto* func = b.Function("foo", ty.i32());
     func->SetParams({arg1, arg2});
     b.Append(func->Block(), [&] {
@@ -1283,21 +1662,37 @@ TEST_F(SpirvWriterTest, Builtin_Dot_vec2i) {
         mod.SetName(result, "result");
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func, b.Zero(ty.vec2i()), b.Zero(ty.vec2i())));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST(R"(
           %8 = OpCompositeExtract %int %arg1 0
           %9 = OpCompositeExtract %int %arg2 0
-         %10 = OpIMul %int %8 %9
-         %11 = OpCompositeExtract %int %arg1 1
-         %12 = OpCompositeExtract %int %arg2 1
-         %13 = OpIMul %int %11 %12
-     %result = OpIAdd %int %10 %13
+         %11 = OpBitcast %uint %8
+         %12 = OpBitcast %uint %9
+         %13 = OpIMul %uint %11 %12
+         %14 = OpBitcast %int %13
+         %15 = OpCompositeExtract %int %arg1 1
+         %16 = OpCompositeExtract %int %arg2 1
+         %17 = OpBitcast %uint %15
+         %18 = OpBitcast %uint %16
+         %19 = OpIMul %uint %17 %18
+         %20 = OpBitcast %int %19
+         %21 = OpBitcast %uint %14
+         %22 = OpBitcast %uint %20
+         %23 = OpIAdd %uint %21 %22
+         %24 = OpBitcast %int %23
 )");
 }
 
 TEST_F(SpirvWriterTest, Builtin_Dot_vec4u) {
-    auto* arg1 = b.FunctionParam("arg1", ty.vec4<u32>());
-    auto* arg2 = b.FunctionParam("arg2", ty.vec4<u32>());
+    auto* arg1 = b.FunctionParam("arg1", ty.vec4u());
+    auto* arg2 = b.FunctionParam("arg2", ty.vec4u());
     auto* func = b.Function("foo", ty.u32());
     func->SetParams({arg1, arg2});
     b.Append(func->Block(), [&] {
@@ -1306,7 +1701,14 @@ TEST_F(SpirvWriterTest, Builtin_Dot_vec4u) {
         mod.SetName(result, "result");
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func, b.Zero(ty.vec4u()), b.Zero(ty.vec4u())));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST(R"(
           %8 = OpCompositeExtract %uint %arg1 0
           %9 = OpCompositeExtract %uint %arg2 0
@@ -1337,7 +1739,14 @@ TEST_F(SpirvWriterTest, Builtin_Ldexp_F32) {
         mod.SetName(result, "result");
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func, b.Zero(ty.f32()), b.Zero(ty.i32())));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST("%result = OpExtInst %float %9 Ldexp %arg1 %arg2");
 }
 
@@ -1352,67 +1761,102 @@ TEST_F(SpirvWriterTest, Builtin_Ldexp_F16) {
         mod.SetName(result, "result");
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func, b.Zero(ty.f16()), b.Zero(ty.i32())));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST("%result = OpExtInst %half %9 Ldexp %arg1 %arg2");
 }
 
 TEST_F(SpirvWriterTest, Builtin_Ldexp_Vec2_F32) {
-    auto* arg1 = b.FunctionParam("arg1", ty.vec2<f32>());
-    auto* arg2 = b.FunctionParam("arg2", ty.vec2<i32>());
-    auto* func = b.Function("foo", ty.vec2<f32>());
+    auto* arg1 = b.FunctionParam("arg1", ty.vec2f());
+    auto* arg2 = b.FunctionParam("arg2", ty.vec2i());
+    auto* func = b.Function("foo", ty.vec2f());
     func->SetParams({arg1, arg2});
     b.Append(func->Block(), [&] {
-        auto* result = b.Call(ty.vec2<f32>(), core::BuiltinFn::kLdexp, arg1, arg2);
+        auto* result = b.Call(ty.vec2f(), core::BuiltinFn::kLdexp, arg1, arg2);
         b.Return(func, result);
         mod.SetName(result, "result");
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func, b.Zero(ty.vec2f()), b.Zero(ty.vec2i())));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST("%result = OpExtInst %v2float %11 Ldexp %arg1 %arg2");
 }
 
 TEST_F(SpirvWriterTest, Builtin_Ldexp_Vec3_F16) {
-    auto* arg1 = b.FunctionParam("arg1", ty.vec3<f16>());
-    auto* arg2 = b.FunctionParam("arg2", ty.vec3<i32>());
-    auto* func = b.Function("foo", ty.vec3<f16>());
+    auto* arg1 = b.FunctionParam("arg1", ty.vec3h());
+    auto* arg2 = b.FunctionParam("arg2", ty.vec3i());
+    auto* func = b.Function("foo", ty.vec3h());
     func->SetParams({arg1, arg2});
     b.Append(func->Block(), [&] {
-        auto* result = b.Call(ty.vec3<f16>(), core::BuiltinFn::kLdexp, arg1, arg2);
+        auto* result = b.Call(ty.vec3h(), core::BuiltinFn::kLdexp, arg1, arg2);
         b.Return(func, result);
         mod.SetName(result, "result");
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func, b.Zero(ty.vec3h()), b.Zero(ty.vec3i())));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST("%result = OpExtInst %v3half %11 Ldexp %arg1 %arg2");
 }
 
 TEST_F(SpirvWriterTest, Builtin_Reflect_F32) {
-    auto* arg1 = b.FunctionParam("arg1", ty.vec3<f32>());
-    auto* arg2 = b.FunctionParam("arg2", ty.vec3<f32>());
-    auto* func = b.Function("foo", ty.vec3<f32>());
+    auto* arg1 = b.FunctionParam("arg1", ty.vec3f());
+    auto* arg2 = b.FunctionParam("arg2", ty.vec3f());
+    auto* func = b.Function("foo", ty.vec3f());
     func->SetParams({arg1, arg2});
     b.Append(func->Block(), [&] {
-        auto* result = b.Call(ty.vec3<f32>(), core::BuiltinFn::kReflect, arg1, arg2);
+        auto* result = b.Call(ty.vec3f(), core::BuiltinFn::kReflect, arg1, arg2);
         b.Return(func, result);
         mod.SetName(result, "result");
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func, b.Zero(ty.vec3f()), b.Zero(ty.vec3f())));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST("%result = OpExtInst %v3float %9 Reflect %arg1 %arg2");
 }
 
 TEST_F(SpirvWriterTest, Builtin_Reflect_F16) {
-    auto* arg1 = b.FunctionParam("arg1", ty.vec4<f16>());
-    auto* arg2 = b.FunctionParam("arg2", ty.vec4<f16>());
-    auto* func = b.Function("foo", ty.vec4<f16>());
+    auto* arg1 = b.FunctionParam("arg1", ty.vec4h());
+    auto* arg2 = b.FunctionParam("arg2", ty.vec4h());
+    auto* func = b.Function("foo", ty.vec4h());
     func->SetParams({arg1, arg2});
     b.Append(func->Block(), [&] {
-        auto* result = b.Call(ty.vec4<f16>(), core::BuiltinFn::kReflect, arg1, arg2);
+        auto* result = b.Call(ty.vec4h(), core::BuiltinFn::kReflect, arg1, arg2);
         b.Return(func, result);
         mod.SetName(result, "result");
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func, b.Zero(ty.vec4h()), b.Zero(ty.vec4h())));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST("%result = OpExtInst %v4half %9 Reflect %arg1 %arg2");
 }
 
@@ -1421,39 +1865,38 @@ using Builtin_3arg = SpirvWriterTestWithParam<BuiltinTestCase>;
 TEST_P(Builtin_3arg, Scalar) {
     auto params = GetParam();
 
-    auto* func = b.Function("foo", ty.void_());
+    auto* func = b.ComputeFunction("main");
     b.Append(func->Block(), [&] {
         b.Call(MakeScalarType(params.type), params.function, MakeScalarValue(params.type),
                MakeScalarValue(params.type), MakeScalarValue(params.type));
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST(params.spirv_inst);
 }
 TEST_P(Builtin_3arg, Vector) {
     auto params = GetParam();
 
-    auto* func = b.Function("foo", ty.void_());
+    auto* func = b.ComputeFunction("main");
     b.Append(func->Block(), [&] {
         b.Call(MakeVectorType(params.type), params.function, MakeVectorValue(params.type),
                MakeVectorValue(params.type), MakeVectorValue(params.type));
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST(params.spirv_inst);
 }
-INSTANTIATE_TEST_SUITE_P(
-    SpirvWriterTest,
-    Builtin_3arg,
-    testing::Values(BuiltinTestCase{kF32, core::BuiltinFn::kClamp, "NClamp"},
-                    BuiltinTestCase{kF32, core::BuiltinFn::kFma, "Fma"},
-                    BuiltinTestCase{kF16, core::BuiltinFn::kFma, "Fma"},
-                    BuiltinTestCase{kF32, core::BuiltinFn::kMix, "Mix"},
-                    BuiltinTestCase{kF16, core::BuiltinFn::kMix, "Mix"},
-                    BuiltinTestCase{kF32, core::BuiltinFn::kSmoothstep, "SmoothStep"},
-                    BuiltinTestCase{kF16, core::BuiltinFn::kSmoothstep, "SmoothStep"}));
+INSTANTIATE_TEST_SUITE_P(SpirvWriterTest,
+                         Builtin_3arg,
+                         testing::Values(BuiltinTestCase{kF32, core::BuiltinFn::kClamp, "NClamp"},
+                                         BuiltinTestCase{kF32, core::BuiltinFn::kFma, "Fma"},
+                                         BuiltinTestCase{kF16, core::BuiltinFn::kFma, "Fma"},
+                                         BuiltinTestCase{kF32, core::BuiltinFn::kMix, "Mix"},
+                                         BuiltinTestCase{kF16, core::BuiltinFn::kMix, "Mix"}));
 
 TEST_F(SpirvWriterTest, Builtin_Clamp_Scalar_I32) {
     auto* value = b.FunctionParam("value", ty.i32());
@@ -1468,7 +1911,14 @@ TEST_F(SpirvWriterTest, Builtin_Clamp_Scalar_I32) {
         mod.SetName(result, "result");
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func, b.Zero(ty.i32()), b.Zero(ty.i32()), b.Zero(ty.i32())));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST(R"(
           %8 = OpExtInst %int %9 SMax %value %low
      %result = OpExtInst %int %9 SMin %8 %high
@@ -1488,7 +1938,14 @@ TEST_F(SpirvWriterTest, Builtin_Clamp_Scalar_U32) {
         mod.SetName(result, "result");
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func, b.Zero(ty.u32()), b.Zero(ty.u32()), b.Zero(ty.u32())));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST(R"(
           %8 = OpExtInst %uint %9 UMax %value %low
      %result = OpExtInst %uint %9 UMin %8 %high
@@ -1496,19 +1953,26 @@ TEST_F(SpirvWriterTest, Builtin_Clamp_Scalar_U32) {
 }
 
 TEST_F(SpirvWriterTest, Builtin_Clamp_Vector_I32) {
-    auto* value = b.FunctionParam("value", ty.vec4<i32>());
-    auto* low = b.FunctionParam("low", ty.vec4<i32>());
-    auto* high = b.FunctionParam("high", ty.vec4<i32>());
-    auto* func = b.Function("foo", ty.vec4<i32>());
+    auto* value = b.FunctionParam("value", ty.vec4i());
+    auto* low = b.FunctionParam("low", ty.vec4i());
+    auto* high = b.FunctionParam("high", ty.vec4i());
+    auto* func = b.Function("foo", ty.vec4i());
     func->SetParams({value, low, high});
 
     b.Append(func->Block(), [&] {
-        auto* result = b.Call(ty.vec4<i32>(), core::BuiltinFn::kClamp, value, low, high);
+        auto* result = b.Call(ty.vec4i(), core::BuiltinFn::kClamp, value, low, high);
         b.Return(func, result);
         mod.SetName(result, "result");
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func, b.Zero(ty.vec4i()), b.Zero(ty.vec4i()), b.Zero(ty.vec4i())));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST(R"(
           %9 = OpExtInst %v4int %10 SMax %value %low
      %result = OpExtInst %v4int %10 SMin %9 %high
@@ -1516,19 +1980,26 @@ TEST_F(SpirvWriterTest, Builtin_Clamp_Vector_I32) {
 }
 
 TEST_F(SpirvWriterTest, Builtin_Clamp_Vector_U32) {
-    auto* value = b.FunctionParam("value", ty.vec2<u32>());
-    auto* low = b.FunctionParam("low", ty.vec2<u32>());
-    auto* high = b.FunctionParam("high", ty.vec2<u32>());
-    auto* func = b.Function("foo", ty.vec2<u32>());
+    auto* value = b.FunctionParam("value", ty.vec2u());
+    auto* low = b.FunctionParam("low", ty.vec2u());
+    auto* high = b.FunctionParam("high", ty.vec2u());
+    auto* func = b.Function("foo", ty.vec2u());
     func->SetParams({value, low, high});
 
     b.Append(func->Block(), [&] {
-        auto* result = b.Call(ty.vec2<u32>(), core::BuiltinFn::kClamp, value, low, high);
+        auto* result = b.Call(ty.vec2u(), core::BuiltinFn::kClamp, value, low, high);
         b.Return(func, result);
         mod.SetName(result, "result");
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func, b.Zero(ty.vec2u()), b.Zero(ty.vec2u()), b.Zero(ty.vec2u())));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST(R"(
           %9 = OpExtInst %v2uint %10 UMax %value %low
      %result = OpExtInst %v2uint %10 UMin %9 %high
@@ -1548,7 +2019,14 @@ TEST_F(SpirvWriterTest, Builtin_ExtractBits_Scalar_I32) {
         mod.SetName(result, "result");
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func, b.Zero(ty.i32()), b.Zero(ty.u32()), b.Zero(ty.u32())));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST(R"(
           %9 = OpExtInst %uint %10 UMin %offset %uint_32
          %12 = OpISub %uint %uint_32 %9
@@ -1557,6 +2035,71 @@ TEST_F(SpirvWriterTest, Builtin_ExtractBits_Scalar_I32) {
 )");
 }
 
+TEST_F(SpirvWriterTest, Builtin_Smoothstep_F32) {
+    auto* value = b.FunctionParam("value", ty.f32());
+    auto* low = b.FunctionParam("low", ty.f32());
+    auto* high = b.FunctionParam("high", ty.f32());
+    auto* func = b.Function("foo", ty.f32());
+    func->SetParams({value, low, high});
+
+    b.Append(func->Block(), [&] {
+        auto* result = b.Call(ty.f32(), core::BuiltinFn::kSmoothstep, value, low, high);
+        b.Return(func, result);
+        mod.SetName(result, "result");
+    });
+
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func, b.Zero(ty.f32()), b.Zero(ty.f32()), b.Zero(ty.f32())));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
+    EXPECT_INST(R"(
+          %8 = OpFSub %float %high %value
+          %9 = OpFSub %float %low %value
+         %10 = OpFDiv %float %8 %9
+         %11 = OpExtInst %float %12 NClamp %10 %float_0 %float_1
+         %15 = OpFMul %float %float_2 %11
+         %17 = OpFSub %float %float_3 %15
+         %19 = OpFMul %float %11 %17
+     %result = OpFMul %float %11 %19
+)");
+}
+
+TEST_F(SpirvWriterTest, Builtin_Smoothstep_F16) {
+    auto* value = b.FunctionParam("value", ty.f16());
+    auto* low = b.FunctionParam("low", ty.f16());
+    auto* high = b.FunctionParam("high", ty.f16());
+    auto* func = b.Function("foo", ty.f16());
+    func->SetParams({value, low, high});
+
+    b.Append(func->Block(), [&] {
+        auto* result = b.Call(ty.f16(), core::BuiltinFn::kSmoothstep, value, low, high);
+        b.Return(func, result);
+        mod.SetName(result, "result");
+    });
+
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func, b.Zero(ty.f16()), b.Zero(ty.f16()), b.Zero(ty.f16())));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
+    EXPECT_INST(R"(
+          %8 = OpFSub %half %high %value
+          %9 = OpFSub %half %low %value
+         %10 = OpFDiv %half %8 %9
+         %11 = OpExtInst %half %12 NClamp %10 %half_0x0p_0 %half_0x1p_0
+         %15 = OpFMul %half %half_0x1p_1 %11
+         %17 = OpFSub %half %half_0x1_8p_1 %15
+         %19 = OpFMul %half %11 %17
+     %result = OpFMul %half %11 %19
+)");
+}
 TEST_F(SpirvWriterTest, Builtin_ExtractBits_Scalar_U32) {
     auto* arg = b.FunctionParam("arg", ty.u32());
     auto* offset = b.FunctionParam("offset", ty.u32());
@@ -1570,7 +2113,14 @@ TEST_F(SpirvWriterTest, Builtin_ExtractBits_Scalar_U32) {
         mod.SetName(result, "result");
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func, b.Zero(ty.u32()), b.Zero(ty.u32()), b.Zero(ty.u32())));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST(R"(
           %8 = OpExtInst %uint %9 UMin %offset %uint_32
          %11 = OpISub %uint %uint_32 %8
@@ -1580,19 +2130,26 @@ TEST_F(SpirvWriterTest, Builtin_ExtractBits_Scalar_U32) {
 }
 
 TEST_F(SpirvWriterTest, Builtin_ExtractBits_Vector_I32) {
-    auto* arg = b.FunctionParam("arg", ty.vec4<i32>());
+    auto* arg = b.FunctionParam("arg", ty.vec4i());
     auto* offset = b.FunctionParam("offset", ty.u32());
     auto* count = b.FunctionParam("count", ty.u32());
-    auto* func = b.Function("foo", ty.vec4<i32>());
+    auto* func = b.Function("foo", ty.vec4i());
     func->SetParams({arg, offset, count});
 
     b.Append(func->Block(), [&] {
-        auto* result = b.Call(ty.vec4<i32>(), core::BuiltinFn::kExtractBits, arg, offset, count);
+        auto* result = b.Call(ty.vec4i(), core::BuiltinFn::kExtractBits, arg, offset, count);
         b.Return(func, result);
         mod.SetName(result, "result");
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func, b.Zero(ty.vec4i()), b.Zero(ty.u32()), b.Zero(ty.u32())));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST(R"(
          %10 = OpExtInst %uint %11 UMin %offset %uint_32
          %13 = OpISub %uint %uint_32 %10
@@ -1602,19 +2159,26 @@ TEST_F(SpirvWriterTest, Builtin_ExtractBits_Vector_I32) {
 }
 
 TEST_F(SpirvWriterTest, Builtin_ExtractBits_Vector_U32) {
-    auto* arg = b.FunctionParam("arg", ty.vec2<u32>());
+    auto* arg = b.FunctionParam("arg", ty.vec2u());
     auto* offset = b.FunctionParam("offset", ty.u32());
     auto* count = b.FunctionParam("count", ty.u32());
-    auto* func = b.Function("foo", ty.vec2<u32>());
+    auto* func = b.Function("foo", ty.vec2u());
     func->SetParams({arg, offset, count});
 
     b.Append(func->Block(), [&] {
-        auto* result = b.Call(ty.vec2<u32>(), core::BuiltinFn::kExtractBits, arg, offset, count);
+        auto* result = b.Call(ty.vec2u(), core::BuiltinFn::kExtractBits, arg, offset, count);
         b.Return(func, result);
         mod.SetName(result, "result");
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func, b.Zero(ty.vec2u()), b.Zero(ty.u32()), b.Zero(ty.u32())));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST(R"(
           %9 = OpExtInst %uint %10 UMin %offset %uint_32
          %12 = OpISub %uint %uint_32 %9
@@ -1637,7 +2201,15 @@ TEST_F(SpirvWriterTest, Builtin_InsertBits_Scalar_I32) {
         mod.SetName(result, "result");
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x",
+              b.Call(func, b.Zero(ty.i32()), b.Zero(ty.i32()), b.Zero(ty.u32()), b.Zero(ty.u32())));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST(R"(
          %10 = OpExtInst %uint %11 UMin %offset %uint_32
          %13 = OpISub %uint %uint_32 %10
@@ -1660,7 +2232,15 @@ TEST_F(SpirvWriterTest, Builtin_InsertBits_Scalar_U32) {
         mod.SetName(result, "result");
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x",
+              b.Call(func, b.Zero(ty.u32()), b.Zero(ty.u32()), b.Zero(ty.u32()), b.Zero(ty.u32())));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST(R"(
           %9 = OpExtInst %uint %10 UMin %offset %uint_32
          %12 = OpISub %uint %uint_32 %9
@@ -1670,21 +2250,29 @@ TEST_F(SpirvWriterTest, Builtin_InsertBits_Scalar_U32) {
 }
 
 TEST_F(SpirvWriterTest, Builtin_InsertBits_Vector_I32) {
-    auto* arg = b.FunctionParam("arg", ty.vec4<i32>());
-    auto* newbits = b.FunctionParam("newbits", ty.vec4<i32>());
+    auto* arg = b.FunctionParam("arg", ty.vec4i());
+    auto* newbits = b.FunctionParam("newbits", ty.vec4i());
     auto* offset = b.FunctionParam("offset", ty.u32());
     auto* count = b.FunctionParam("count", ty.u32());
-    auto* func = b.Function("foo", ty.vec4<i32>());
+    auto* func = b.Function("foo", ty.vec4i());
     func->SetParams({arg, newbits, offset, count});
 
     b.Append(func->Block(), [&] {
         auto* result =
-            b.Call(ty.vec4<i32>(), core::BuiltinFn::kInsertBits, arg, newbits, offset, count);
+            b.Call(ty.vec4i(), core::BuiltinFn::kInsertBits, arg, newbits, offset, count);
         b.Return(func, result);
         mod.SetName(result, "result");
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func, b.Zero(ty.vec4i()), b.Zero(ty.vec4i()), b.Zero(ty.u32()),
+                          b.Zero(ty.u32())));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST(R"(
          %11 = OpExtInst %uint %12 UMin %offset %uint_32
          %14 = OpISub %uint %uint_32 %11
@@ -1694,21 +2282,29 @@ TEST_F(SpirvWriterTest, Builtin_InsertBits_Vector_I32) {
 }
 
 TEST_F(SpirvWriterTest, Builtin_InsertBits_Vector_U32) {
-    auto* arg = b.FunctionParam("arg", ty.vec2<u32>());
-    auto* newbits = b.FunctionParam("newbits", ty.vec2<u32>());
+    auto* arg = b.FunctionParam("arg", ty.vec2u());
+    auto* newbits = b.FunctionParam("newbits", ty.vec2u());
     auto* offset = b.FunctionParam("offset", ty.u32());
     auto* count = b.FunctionParam("count", ty.u32());
-    auto* func = b.Function("foo", ty.vec2<u32>());
+    auto* func = b.Function("foo", ty.vec2u());
     func->SetParams({arg, newbits, offset, count});
 
     b.Append(func->Block(), [&] {
         auto* result =
-            b.Call(ty.vec2<u32>(), core::BuiltinFn::kInsertBits, arg, newbits, offset, count);
+            b.Call(ty.vec2u(), core::BuiltinFn::kInsertBits, arg, newbits, offset, count);
         b.Return(func, result);
         mod.SetName(result, "result");
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func, b.Zero(ty.vec2u()), b.Zero(ty.vec2u()), b.Zero(ty.u32()),
+                          b.Zero(ty.u32())));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST(R"(
          %10 = OpExtInst %uint %11 UMin %offset %uint_32
          %13 = OpISub %uint %uint_32 %10
@@ -1718,103 +2314,145 @@ TEST_F(SpirvWriterTest, Builtin_InsertBits_Vector_U32) {
 }
 
 TEST_F(SpirvWriterTest, Builtin_FaceForward_F32) {
-    auto* arg1 = b.FunctionParam("arg1", ty.vec3<f32>());
-    auto* arg2 = b.FunctionParam("arg2", ty.vec3<f32>());
-    auto* arg3 = b.FunctionParam("arg3", ty.vec3<f32>());
-    auto* func = b.Function("foo", ty.vec3<f32>());
+    auto* arg1 = b.FunctionParam("arg1", ty.vec3f());
+    auto* arg2 = b.FunctionParam("arg2", ty.vec3f());
+    auto* arg3 = b.FunctionParam("arg3", ty.vec3f());
+    auto* func = b.Function("foo", ty.vec3f());
     func->SetParams({arg1, arg2, arg3});
     b.Append(func->Block(), [&] {
-        auto* result = b.Call(ty.vec3<f32>(), core::BuiltinFn::kFaceForward, arg1, arg2, arg3);
+        auto* result = b.Call(ty.vec3f(), core::BuiltinFn::kFaceForward, arg1, arg2, arg3);
         b.Return(func, result);
         mod.SetName(result, "result");
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func, b.Zero(ty.vec3f()), b.Zero(ty.vec3f()), b.Zero(ty.vec3f())));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST("%result = OpExtInst %v3float %10 FaceForward %arg1 %arg2 %arg3");
 }
 
 TEST_F(SpirvWriterTest, Builtin_FaceForward_F16) {
-    auto* arg1 = b.FunctionParam("arg1", ty.vec4<f16>());
-    auto* arg2 = b.FunctionParam("arg2", ty.vec4<f16>());
-    auto* arg3 = b.FunctionParam("arg3", ty.vec4<f16>());
-    auto* func = b.Function("foo", ty.vec4<f16>());
+    auto* arg1 = b.FunctionParam("arg1", ty.vec4h());
+    auto* arg2 = b.FunctionParam("arg2", ty.vec4h());
+    auto* arg3 = b.FunctionParam("arg3", ty.vec4h());
+    auto* func = b.Function("foo", ty.vec4h());
     func->SetParams({arg1, arg2, arg3});
     b.Append(func->Block(), [&] {
-        auto* result = b.Call(ty.vec4<f16>(), core::BuiltinFn::kFaceForward, arg1, arg2, arg3);
+        auto* result = b.Call(ty.vec4h(), core::BuiltinFn::kFaceForward, arg1, arg2, arg3);
         b.Return(func, result);
         mod.SetName(result, "result");
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func, b.Zero(ty.vec4h()), b.Zero(ty.vec4h()), b.Zero(ty.vec4h())));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST("%result = OpExtInst %v4half %10 FaceForward %arg1 %arg2 %arg3");
 }
 
 TEST_F(SpirvWriterTest, Builtin_Mix_VectorOperands_ScalarFactor) {
-    auto* arg1 = b.FunctionParam("arg1", ty.vec4<f32>());
-    auto* arg2 = b.FunctionParam("arg2", ty.vec4<f32>());
+    auto* arg1 = b.FunctionParam("arg1", ty.vec4f());
+    auto* arg2 = b.FunctionParam("arg2", ty.vec4f());
     auto* factor = b.FunctionParam("factor", ty.f32());
-    auto* func = b.Function("foo", ty.vec4<f32>());
+    auto* func = b.Function("foo", ty.vec4f());
     func->SetParams({arg1, arg2, factor});
 
     b.Append(func->Block(), [&] {
-        auto* result = b.Call(ty.vec4<f32>(), core::BuiltinFn::kMix, arg1, arg2, factor);
+        auto* result = b.Call(ty.vec4f(), core::BuiltinFn::kMix, arg1, arg2, factor);
         b.Return(func, result);
         mod.SetName(result, "result");
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func, b.Zero(ty.vec4f()), b.Zero(ty.vec4f()), b.Zero(ty.f32())));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST("%9 = OpCompositeConstruct %v4float %factor %factor %factor %factor");
     EXPECT_INST("%result = OpExtInst %v4float %11 FMix %arg1 %arg2 %9");
 }
 
 TEST_F(SpirvWriterTest, Builtin_Mix_VectorOperands_VectorFactor) {
-    auto* arg1 = b.FunctionParam("arg1", ty.vec4<f32>());
-    auto* arg2 = b.FunctionParam("arg2", ty.vec4<f32>());
-    auto* factor = b.FunctionParam("factor", ty.vec4<f32>());
-    auto* func = b.Function("foo", ty.vec4<f32>());
+    auto* arg1 = b.FunctionParam("arg1", ty.vec4f());
+    auto* arg2 = b.FunctionParam("arg2", ty.vec4f());
+    auto* factor = b.FunctionParam("factor", ty.vec4f());
+    auto* func = b.Function("foo", ty.vec4f());
     func->SetParams({arg1, arg2, factor});
 
     b.Append(func->Block(), [&] {
-        auto* result = b.Call(ty.vec4<f32>(), core::BuiltinFn::kMix, arg1, arg2, factor);
+        auto* result = b.Call(ty.vec4f(), core::BuiltinFn::kMix, arg1, arg2, factor);
         b.Return(func, result);
         mod.SetName(result, "result");
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func, b.Zero(ty.vec4f()), b.Zero(ty.vec4f()), b.Zero(ty.vec4f())));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST("%result = OpExtInst %v4float %10 FMix %arg1 %arg2 %factor");
 }
 
 TEST_F(SpirvWriterTest, Builtin_Refract_F32) {
-    auto* arg1 = b.FunctionParam("arg1", ty.vec4<f32>());
-    auto* arg2 = b.FunctionParam("arg2", ty.vec4<f32>());
+    auto* arg1 = b.FunctionParam("arg1", ty.vec4f());
+    auto* arg2 = b.FunctionParam("arg2", ty.vec4f());
     auto* i = b.FunctionParam("i", ty.f32());
-    auto* func = b.Function("foo", ty.vec4<f32>());
+    auto* func = b.Function("foo", ty.vec4f());
     func->SetParams({arg1, arg2, i});
 
     b.Append(func->Block(), [&] {
-        auto* result = b.Call(ty.vec4<f32>(), core::BuiltinFn::kRefract, arg1, arg2, i);
+        auto* result = b.Call(ty.vec4f(), core::BuiltinFn::kRefract, arg1, arg2, i);
         b.Return(func, result);
         mod.SetName(result, "result");
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func, b.Zero(ty.vec4f()), b.Zero(ty.vec4f()), b.Zero(ty.f32())));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST("%result = OpExtInst %v4float %10 Refract %arg1 %arg2 %i");
 }
 
 TEST_F(SpirvWriterTest, Builtin_Refract_F16) {
-    auto* arg1 = b.FunctionParam("arg1", ty.vec4<f16>());
-    auto* arg2 = b.FunctionParam("arg2", ty.vec4<f16>());
+    auto* arg1 = b.FunctionParam("arg1", ty.vec4h());
+    auto* arg2 = b.FunctionParam("arg2", ty.vec4h());
     auto* i = b.FunctionParam("i", ty.f16());
-    auto* func = b.Function("foo", ty.vec4<f16>());
+    auto* func = b.Function("foo", ty.vec4h());
     func->SetParams({arg1, arg2, i});
 
     b.Append(func->Block(), [&] {
-        auto* result = b.Call(ty.vec4<f16>(), core::BuiltinFn::kRefract, arg1, arg2, i);
+        auto* result = b.Call(ty.vec4h(), core::BuiltinFn::kRefract, arg1, arg2, i);
         b.Return(func, result);
         mod.SetName(result, "result");
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func, b.Zero(ty.vec4h()), b.Zero(ty.vec4h()), b.Zero(ty.f16())));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST("%result = OpExtInst %v4half %10 Refract %arg1 %arg2 %i");
 }
 
@@ -1831,126 +2469,160 @@ TEST_F(SpirvWriterTest, Builtin_Select_ScalarCondition_ScalarOperands) {
         mod.SetName(result, "result");
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func, b.Zero(ty.i32()), b.Zero(ty.i32()), b.Zero(ty.bool_())));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST("%result = OpSelect %int %cond %argt %argf");
 }
 
 TEST_F(SpirvWriterTest, Builtin_Select_VectorCondition_VectorOperands) {
-    auto* argf = b.FunctionParam("argf", ty.vec4<i32>());
-    auto* argt = b.FunctionParam("argt", ty.vec4<i32>());
+    auto* argf = b.FunctionParam("argf", ty.vec4i());
+    auto* argt = b.FunctionParam("argt", ty.vec4i());
     auto* cond = b.FunctionParam("cond", ty.vec4<bool>());
-    auto* func = b.Function("foo", ty.vec4<i32>());
+    auto* func = b.Function("foo", ty.vec4i());
     func->SetParams({argf, argt, cond});
 
     b.Append(func->Block(), [&] {
-        auto* result = b.Call(ty.vec4<i32>(), core::BuiltinFn::kSelect, argf, argt, cond);
+        auto* result = b.Call(ty.vec4i(), core::BuiltinFn::kSelect, argf, argt, cond);
         b.Return(func, result);
         mod.SetName(result, "result");
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func, b.Zero(ty.vec4i()), b.Zero(ty.vec4i()), b.Zero(ty.vec4<bool>())));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST("%result = OpSelect %v4int %cond %argt %argf");
 }
 
 TEST_F(SpirvWriterTest, Builtin_Select_ScalarCondition_VectorOperands) {
-    auto* argf = b.FunctionParam("argf", ty.vec4<i32>());
-    auto* argt = b.FunctionParam("argt", ty.vec4<i32>());
+    auto* argf = b.FunctionParam("argf", ty.vec4i());
+    auto* argt = b.FunctionParam("argt", ty.vec4i());
     auto* cond = b.FunctionParam("cond", ty.bool_());
-    auto* func = b.Function("foo", ty.vec4<i32>());
+    auto* func = b.Function("foo", ty.vec4i());
     func->SetParams({argf, argt, cond});
 
     b.Append(func->Block(), [&] {
-        auto* result = b.Call(ty.vec4<i32>(), core::BuiltinFn::kSelect, argf, argt, cond);
+        auto* result = b.Call(ty.vec4i(), core::BuiltinFn::kSelect, argf, argt, cond);
         b.Return(func, result);
         mod.SetName(result, "result");
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func, b.Zero(ty.vec4i()), b.Zero(ty.vec4i()), b.Zero(ty.bool_())));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST("%11 = OpCompositeConstruct %v4bool %cond %cond %cond %cond");
     EXPECT_INST("%result = OpSelect %v4int %11 %argt %argf");
 }
 
 TEST_F(SpirvWriterTest, Builtin_StorageBarrier) {
-    auto* func = b.Function("foo", ty.void_());
+    auto* func = b.ComputeFunction("main");
     b.Append(func->Block(), [&] {
         b.Call(ty.void_(), core::BuiltinFn::kStorageBarrier);
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST("OpControlBarrier %uint_2 %uint_2 %uint_72");
 }
 
 TEST_F(SpirvWriterTest, Builtin_StorageBarrier_VulkanMemoryModel) {
-    auto* func = b.Function("foo", ty.void_());
+    auto* func = b.ComputeFunction("main");
     b.Append(func->Block(), [&] {
         b.Call(ty.void_(), core::BuiltinFn::kStorageBarrier);
         b.Return(func);
     });
 
     Options opts{};
-    opts.use_vulkan_memory_model = true;
-    ASSERT_TRUE(Generate(opts)) << Error() << output_;
+    opts.extensions.use_vulkan_memory_model = true;
+    auto result = Generate(opts);
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST("OpControlBarrier %uint_2 %uint_2 %uint_24648");
 }
 
 TEST_F(SpirvWriterTest, Builtin_TextureBarrier) {
-    auto* func = b.Function("foo", ty.void_());
+    auto* func = b.ComputeFunction("main");
     b.Append(func->Block(), [&] {
         b.Call(ty.void_(), core::BuiltinFn::kTextureBarrier);
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST("OpControlBarrier %uint_2 %uint_2 %uint_2056");
 }
 
 TEST_F(SpirvWriterTest, Builtin_TextureBarrier_Vulkan) {
-    auto* func = b.Function("foo", ty.void_());
+    auto* func = b.ComputeFunction("main");
     b.Append(func->Block(), [&] {
         b.Call(ty.void_(), core::BuiltinFn::kTextureBarrier);
         b.Return(func);
     });
 
     Options opts{};
-    opts.use_vulkan_memory_model = true;
-    ASSERT_TRUE(Generate(opts)) << Error() << output_;
+    opts.extensions.use_vulkan_memory_model = true;
+    auto result = Generate(opts);
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST("OpControlBarrier %uint_2 %uint_2 %uint_26632");
 }
 
 TEST_F(SpirvWriterTest, Builtin_WorkgroupBarrier) {
-    auto* func = b.Function("foo", ty.void_());
+    auto* func = b.ComputeFunction("main");
     b.Append(func->Block(), [&] {
         b.Call(ty.void_(), core::BuiltinFn::kWorkgroupBarrier);
         b.Return(func);
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST("OpControlBarrier %uint_2 %uint_2 %uint_264");
 }
 
 TEST_F(SpirvWriterTest, Builtin_WorkgroupBarrier_VulkanMemoryModel) {
-    auto* func = b.Function("foo", ty.void_());
+    auto* func = b.ComputeFunction("main");
     b.Append(func->Block(), [&] {
         b.Call(ty.void_(), core::BuiltinFn::kWorkgroupBarrier);
         b.Return(func);
     });
 
     Options opts{};
-    opts.use_vulkan_memory_model = true;
-    ASSERT_TRUE(Generate(opts)) << Error() << output_;
+    opts.extensions.use_vulkan_memory_model = true;
+    auto result = Generate(opts);
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST("OpControlBarrier %uint_2 %uint_2 %uint_24840");
 }
 
 TEST_F(SpirvWriterTest, Builtin_SubgroupBallot) {
-    auto* func = b.Function("foo", ty.vec4<u32>());
+    auto* func = b.Function("foo", ty.vec4u());
     b.Append(func->Block(), [&] {
-        auto* result = b.Call(ty.vec4<u32>(), core::BuiltinFn::kSubgroupBallot, true);
+        auto* result = b.Call(ty.vec4u(), core::BuiltinFn::kSubgroupBallot, true);
         mod.SetName(result, "result");
         b.Return(func, result);
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST("OpCapability GroupNonUniformBallot");
     EXPECT_INST("%result = OpGroupNonUniformBallot %v4uint %uint_3 %true");
 }
@@ -1963,7 +2635,14 @@ TEST_F(SpirvWriterTest, Builtin_SubgroupBroadcastValueF32) {
         b.Return(func, result);
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST("OpCapability GroupNonUniformBallot");
     EXPECT_INST("%result = OpGroupNonUniformBroadcast %float %uint_3 %float_1 %uint_0");
 }
@@ -1976,7 +2655,14 @@ TEST_F(SpirvWriterTest, Builtin_SubgroupBroadcastValueI32) {
         b.Return(func, result);
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST("OpCapability GroupNonUniformBallot");
     EXPECT_INST("%result = OpGroupNonUniformBroadcast %int %uint_3 %int_1 %uint_0");
 }
@@ -1989,7 +2675,14 @@ TEST_F(SpirvWriterTest, Builtin_SubgroupBroadcastValueU32) {
         b.Return(func, result);
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST("OpCapability GroupNonUniformBallot");
     EXPECT_INST("%result = OpGroupNonUniformBroadcast %uint %uint_3 %uint_1 %uint_0");
 }
@@ -2007,8 +2700,15 @@ TEST_F(SpirvWriterTest, Builtin_ArrayLength) {
         mod.SetName(result, "result");
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
-    EXPECT_INST("%1 = OpVariable %_ptr_StorageBuffer_var_block StorageBuffer");
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
+    EXPECT_INST("%1 = OpVariable %_ptr_StorageBuffer_var_block_tint_explicit_layout StorageBuffer");
     EXPECT_INST("%result = OpArrayLength %uint %1 0");
 }
 
@@ -2031,8 +2731,15 @@ TEST_F(SpirvWriterTest, Builtin_ArrayLength_WithStruct) {
         mod.SetName(result, "result");
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
-    EXPECT_INST("%var = OpVariable %_ptr_StorageBuffer_Buffer StorageBuffer");
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
+    EXPECT_INST("%var = OpVariable %_ptr_StorageBuffer_Buffer_tint_explicit_layout StorageBuffer");
     EXPECT_INST("%result = OpArrayLength %uint %var 2");
 }
 
@@ -2051,21 +2758,29 @@ TEST_F(SpirvWriterTest, Builtin_Dot4I8Packed) {
         mod.SetName(result, "result");
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func, b.Zero(ty.u32()), b.Zero(ty.u32())));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST(R"(
                OpCapability DotProduct
                OpCapability DotProductInput4x8BitPacked
                OpExtension "SPV_KHR_integer_dot_product"
                OpMemoryModel Logical GLSL450
-               OpEntryPoint GLCompute %unused_entry_point "unused_entry_point"
-               OpExecutionMode %unused_entry_point LocalSize 1 1 1
+               OpEntryPoint GLCompute %main "main"
+               OpExecutionMode %main LocalSize 1 1 1
 
                ; Debug Information
                OpName %foo "foo"                    ; id %1
                OpName %arg1 "arg1"                  ; id %4
                OpName %arg2 "arg2"                  ; id %5
                OpName %result "result"              ; id %8
-               OpName %unused_entry_point "unused_entry_point"  ; id %9
+               OpName %main "main"                  ; id %9
+               OpName %x "x"                        ; id %13
 
                ; Types, variables and constants
         %int = OpTypeInt 32 1
@@ -2073,6 +2788,7 @@ TEST_F(SpirvWriterTest, Builtin_Dot4I8Packed) {
           %6 = OpTypeFunction %int %uint %uint
        %void = OpTypeVoid
          %11 = OpTypeFunction %void
+     %uint_0 = OpConstant %uint 0
 
                ; Function foo
         %foo = OpFunction %int None %6
@@ -2081,6 +2797,13 @@ TEST_F(SpirvWriterTest, Builtin_Dot4I8Packed) {
           %7 = OpLabel
      %result = OpSDot %int %arg1 %arg2 PackedVectorFormat4x8Bit
                OpReturnValue %result
+               OpFunctionEnd
+
+               ; Function main
+       %main = OpFunction %void None %11
+         %12 = OpLabel
+          %x = OpFunctionCall %int %foo %uint_0 %uint_0
+               OpReturn
                OpFunctionEnd
 )");
 }
@@ -2096,27 +2819,36 @@ TEST_F(SpirvWriterTest, Builtin_Dot4U8Packed) {
         mod.SetName(result, "result");
     });
 
-    ASSERT_TRUE(Generate()) << Error() << output_;
+    auto* eb = b.ComputeFunction("main");
+    b.Append(eb->Block(), [&] {
+        b.Let("x", b.Call(func, b.Zero(ty.u32()), b.Zero(ty.u32())));
+        b.Return(eb);
+    });
+
+    auto result = Generate();
+    ASSERT_EQ(result, Success) << result.Failure() << output_;
     EXPECT_INST(R"(
                OpCapability DotProduct
                OpCapability DotProductInput4x8BitPacked
                OpExtension "SPV_KHR_integer_dot_product"
                OpMemoryModel Logical GLSL450
-               OpEntryPoint GLCompute %unused_entry_point "unused_entry_point"
-               OpExecutionMode %unused_entry_point LocalSize 1 1 1
+               OpEntryPoint GLCompute %main "main"
+               OpExecutionMode %main LocalSize 1 1 1
 
                ; Debug Information
                OpName %foo "foo"                    ; id %1
                OpName %arg1 "arg1"                  ; id %3
                OpName %arg2 "arg2"                  ; id %4
                OpName %result "result"              ; id %7
-               OpName %unused_entry_point "unused_entry_point"  ; id %8
+               OpName %main "main"                  ; id %8
+               OpName %x "x"                        ; id %12
 
                ; Types, variables and constants
        %uint = OpTypeInt 32 0
           %5 = OpTypeFunction %uint %uint %uint
        %void = OpTypeVoid
          %10 = OpTypeFunction %void
+     %uint_0 = OpConstant %uint 0
 
                ; Function foo
         %foo = OpFunction %uint None %5
@@ -2125,6 +2857,13 @@ TEST_F(SpirvWriterTest, Builtin_Dot4U8Packed) {
           %6 = OpLabel
      %result = OpUDot %uint %arg1 %arg2 PackedVectorFormat4x8Bit
                OpReturnValue %result
+               OpFunctionEnd
+
+               ; Function main
+       %main = OpFunction %void None %10
+         %11 = OpLabel
+          %x = OpFunctionCall %uint %foo %uint_0 %uint_0
+               OpReturn
                OpFunctionEnd
 )");
 }

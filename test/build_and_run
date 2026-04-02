@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 
-cmake -B build &&
-cmake --build build -j 8 &&
+set -euo pipefail
+cmake -B build 
+cmake --build build -j 8 
 ./build/Example

@@ -104,7 +104,7 @@ struct render_wrapper::pimpl : private shader_base {
     void compile_shader(std::string script, std::string entryPoint)
     {
         m_shader = dawn_utils::make_shader(m_device, script, entryPoint.c_str());
-        m_shader.GetCompilationInfo(CallbackMode::AllowProcessEvents, &shader_base::compilation_callback, (void*) this);
+        m_shader.GetCompilationInfo(CallbackMode::AllowSpontaneous, &shader_base::compilation_callback, (void*) this);
         m_entryPoint = entryPoint;
     }
 

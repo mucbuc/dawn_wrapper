@@ -71,6 +71,10 @@ void run_compute(dawn_plugin plugin)
         for (auto i = 0; i < size / sizeof(vector_type::value_type); ++i) {
             cout << p[i] << endl;
         }
+
+    #ifdef __EMSCRIPTEN__
+        emscripten_force_exit(0);
+    #endif 
     });
 
 #ifndef __EMSCRIPTEN__
@@ -78,6 +82,7 @@ void run_compute(dawn_plugin plugin)
         plugin.run();
     }
 #endif
+
 }
 
 int main()

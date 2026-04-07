@@ -44,7 +44,6 @@
 #include "dawn/native/Error.h"
 #include "dawn/native/Forward.h"
 #include "dawn/native/IntegerTypes.h"
-#include "dawn/native/SystemEvent.h"
 #include "dawn/native/WaitListEvent.h"
 #include "partition_alloc/pointers/raw_ptr.h"
 
@@ -67,8 +66,6 @@ class EventManager final : NonMovable {
     explicit EventManager(InstanceBase* instance);
     ~EventManager();
 
-    MaybeError Initialize(const UnpackedPtr<InstanceDescriptor>& descriptor);
-
     class TrackedEvent;
     // Track a TrackedEvent and give it a FutureID.
     FutureID TrackEvent(Ref<TrackedEvent>&&);
@@ -90,9 +87,6 @@ class EventManager final : NonMovable {
     // Raw pointer to the Instance to allow for logging. The Instance owns the EventManager, so a
     // raw pointer here is always safe.
     raw_ptr<const InstanceBase> mInstance;
-
-    bool mTimedWaitAnyEnable = false;
-    size_t mTimedWaitAnyMaxCount = kTimedWaitAnyMaxCountDefault;
     std::atomic<FutureID> mNextFutureID = 1;
 
     // Freed once the user has dropped their last ref to the Instance, so can't call WaitAny or
@@ -148,13 +142,6 @@ class EventManager::TrackedEvent : public RefCounted {
         return std::get_if<QueueAndSerial>(&mCompletionData);
     }
 
-    Ref<SystemEvent> GetIfSystemEvent() const {
-        if (auto* event = std::get_if<Ref<SystemEvent>>(&mCompletionData)) {
-            return *event;
-        }
-        return nullptr;
-    }
-
     Ref<WaitListEvent> GetIfWaitListEvent() const {
         if (auto* event = std::get_if<Ref<WaitListEvent>>(&mCompletionData)) {
             return *event;
@@ -162,12 +149,9 @@ class EventManager::TrackedEvent : public RefCounted {
         return nullptr;
     }
 
-    // Events may be one of three types:
+    // Events may be one of two types:
     // - A queue and the ExecutionSerial after which the event will be completed.
     //   Used for queue completion.
-    // - A SystemEvent which will be signaled usually by the OS / GPU driver. It stores a boolean
-    //   that we can check instead of polling with the OS, or it can be transformed lazily into a
-    //   SystemEventReceiver.
     // - A WaitListEvent which will be signaled from our code, usually on a separate thread. It also
     //   stores an atomic boolean that we can check instead of waiting synchronously, or it can be
     //   transformed into a SystemEventReceiver for asynchronous waits.
@@ -178,16 +162,12 @@ class EventManager::TrackedEvent : public RefCounted {
   protected:
     friend class EventManager;
 
-    using CompletionData = std::variant<QueueAndSerial, Ref<SystemEvent>, Ref<WaitListEvent>>;
+    using CompletionData = std::variant<QueueAndSerial, Ref<WaitListEvent>>;
 
     // Create an event from a WaitListEvent that can be signaled and waited-on in user-space only in
     // the current process. Note that events like RequestAdapter and RequestDevice complete
     // immediately in dawn native, and may use an already-completed event.
     TrackedEvent(wgpu::CallbackMode callbackMode, Ref<WaitListEvent> completionEvent);
-
-    // Create an event from a SystemEvent. Note that events like RequestAdapter and
-    // RequestDevice complete immediately in dawn native, and may use an already-completed event.
-    TrackedEvent(wgpu::CallbackMode callbackMode, Ref<SystemEvent> completionEvent);
 
     // Create a TrackedEvent from a queue completion serial.
     TrackedEvent(wgpu::CallbackMode callbackMode,
@@ -198,7 +178,7 @@ class EventManager::TrackedEvent : public RefCounted {
     struct Completed {};
     TrackedEvent(wgpu::CallbackMode callbackMode, Completed tag);
 
-    // Some SystemEvents may be non-progressing, i.e. DeviceLost. We tag these events so that we can
+    // Some events may be non-progressing, i.e. DeviceLost. We tag these events so that we can
     // correctly return whether there is progressing work when users are polling.
     struct NonProgressing {};
     TrackedEvent(wgpu::CallbackMode callbackMode, NonProgressing tag);

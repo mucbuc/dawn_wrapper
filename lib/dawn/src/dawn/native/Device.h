@@ -40,6 +40,7 @@
 #include "dawn/common/ContentLessObjectCache.h"
 #include "dawn/common/Defer.h"
 #include "dawn/common/Mutex.h"
+#include "dawn/common/MutexProtected.h"
 #include "dawn/common/NonMovable.h"
 #include "dawn/common/RefCountedWithExternalCount.h"
 #include "dawn/common/StackAllocated.h"
@@ -307,7 +308,7 @@ class DeviceBase : public ErrorSink,
     void APIGetFeatures(wgpu::SupportedFeatures* features) const;
     void APIGetFeatures(SupportedFeatures* features) const;
     wgpu::Status APIGetAdapterInfo(AdapterInfo* adapterInfo) const;
-    Future APIGetLostFuture();
+    Future APIGetLostFuture() const;
     void APIInjectError(wgpu::ErrorType type, StringView message);
     bool APITick();
     void APIValidateTextureDescriptor(const TextureDescriptor* desc);
@@ -489,7 +490,15 @@ class DeviceBase : public ErrorSink,
 
     tint::InternalCompilerErrorCallbackInfo GetTintInternalCompilerErrorCallback();
 
+    // During adapter's creation of devices, if device initialization fails, adapter will trigger
+    // the device lost event. After that, adapter should reset the lost event to avoid double
+    // triggering it when the device object get destructed.
+    void ResetLostEvent();
+
   protected:
+    // Constructor used only for mocking and testing.
+    DeviceBase();
+
     void ForceEnableFeatureForTesting(Feature feature);
 
     MaybeError Initialize(const UnpackedPtr<DeviceDescriptor>& descriptor,
@@ -502,6 +511,12 @@ class DeviceBase : public ErrorSink,
         AHardwareBufferProperties* properties) const {
         DAWN_UNREACHABLE();
     }
+
+    // Device lost event needs to be protected for now because mock device needs it.
+    // TODO(dawn:1702) Make this private and move the class in the implementation file when we mock
+    // the adapter.
+    Ref<DeviceLostEvent> mLostEvent = nullptr;
+    Future mLostFuture = {kNullFutureID};
 
     // Returns a pair of a filename and a boolean indicating whether to start tracing
     // and if so, what filename to save the trace under.
@@ -618,9 +633,6 @@ class DeviceBase : public ErrorSink,
                                                     const TextureCopy& dst,
                                                     const Extent3D& copySizePixels) = 0;
 
-    Ref<DeviceLostEvent> mLostEvent = nullptr;
-    Future mLostFuture = {kNullFutureID};
-
     WGPUDeviceCallbackInfos mCallbackInfos;
 
     // Error scopes need to be thread local, but also need to be cleaned up when the device is
@@ -628,7 +640,8 @@ class DeviceBase : public ErrorSink,
     // clean up stacks on threads aside from the thread that dropped the last reference. By using a
     // unique ThreadUniqueId here, and tracking the stacks as a member, we can reclaim all memory
     // when the Device is destroyed.
-    absl::flat_hash_map<ThreadUniqueId, std::unique_ptr<ErrorScopeStack>> mErrorScopeStacks;
+    MutexProtected<absl::flat_hash_map<ThreadUniqueId, std::unique_ptr<ErrorScopeStack>>>
+        mErrorScopeStacks;
 
     Ref<AdapterBase> mAdapter;
 

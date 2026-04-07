@@ -25,31 +25,34 @@
 // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#ifndef SRC_TINT_API_COMMON_WORKGROUP_INFO_H_
-#define SRC_TINT_API_COMMON_WORKGROUP_INFO_H_
+#ifndef SRC_DAWN_COMMON_EXTERNALTEXTUREPARAMS_H_
+#define SRC_DAWN_COMMON_EXTERNALTEXTUREPARAMS_H_
 
-#include <cstddef>
-#include <cstdint>
-#include <optional>
+#include <webgpu/webgpu_cpp.h>
 
-namespace tint {
+#include <array>
 
-/// Workgroup size information, which is part of the output of shader generation.
-struct WorkgroupInfo {
-    /// The x-component
-    uint32_t x = 0;
-    /// The y-component
-    uint32_t y = 0;
-    /// The z-component
-    uint32_t z = 0;
+namespace dawn {
 
-    /// The needed workgroup storage size
-    uint64_t storage_size = 0;
-
-    /// The `@subgroup_size` attribute
-    std::optional<uint32_t> subgroup_size;
+// Color space parameters that can be passed to an ExternalTexture.
+struct ExternalTextureColorSpaceParams {
+    // Stored row-major to save uniform buffer space. (so one full row after another)
+    // TODO(https://crbug.com/496604550): That's an implementation detail that should not be exposed
+    // in the API, Dawn can transpose internally.
+    std::array<float, 12> yuvToRgbConversionMatrix;
+    std::array<float, 7> srcTransferFunction = {};
+    std::array<float, 7> dstTransferFunction = {};  // Really the inverse transfer function.
+    // Stored column major to match WGSL. (so one full column after another)
+    std::array<float, 9> gamutConversionMatrix;
 };
 
-}  // namespace tint
+// Helper function to make parameters for an ExternalTextureDescriptor
+wgpu::Status ComputeExternalTextureParams(const wgpu::ColorSpaceDawn& srcColorSpace,
+                                          wgpu::PredefinedColorSpace dstColorSpace,
+                                          ExternalTextureColorSpaceParams* out);
 
-#endif  // SRC_TINT_API_COMMON_WORKGROUP_INFO_H_
+ExternalTextureColorSpaceParams GetNoopColorSpaceParams();
+
+}  // namespace dawn
+
+#endif  // SRC_DAWN_COMMON_EXTERNALTEXTUREPARAMS_H_

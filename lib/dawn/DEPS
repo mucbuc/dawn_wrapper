@@ -66,7 +66,7 @@ vars = {
 
   # Version of Chromium the DEPS entries synced by scripts/roll_chromium_deps.py
   # were last synced to.
-  'chromium_revision': '6d828adb0f1f7ff2cc8498c22adfca5df041bbaf',
+  'chromium_revision': '47906c246b2ddfe08122f3279667548676a723db',
   # We never want to actually checkout Chromium, but we need a fake DEPS entry
   # in order for the Chromium -> Dawn DEPS autoroller to work.
   'checkout_placeholder_chromium': False,
@@ -116,7 +116,7 @@ deps = {
   },
 
   'third_party/depot_tools': {
-    'url': '{chromium_git}/chromium/tools/depot_tools.git@316bb1e1c28d221ed92419622304704c21d50196',
+    'url': '{chromium_git}/chromium/tools/depot_tools.git@41c40cfaec7ee3bf0423c59925d8b23982a601f1',
     'condition': 'dawn_standalone',
   },
 
@@ -132,7 +132,7 @@ deps = {
 
   # Required by libc++
   'third_party/llvm-libc/src': {
-    'url': '{chromium_git}/external/github.com/llvm/llvm-project/libc.git@408555ae3fe0e47e384fd0b2ad487cc01b68d922',
+    'url': '{chromium_git}/external/github.com/llvm/llvm-project/libc.git@2a826f2fda3cf8d75b47cbc3bb1d9b244f13a6ab',
     'condition': 'dawn_standalone',
   },
 
@@ -147,11 +147,11 @@ deps = {
   # The //build and //tools/* deps should all be updated in unison, as
   #  there are dependencies between them.
   'build': {
-  'url': '{chromium_git}/chromium/src/build@3a93baf94f12d0e7ced2a7d862cd68cf0a02d2f8',
+  'url': '{chromium_git}/chromium/src/build@1c67f214543274169eed417872db391e92d59b17',
     'condition': 'dawn_standalone',
   },
   'tools/clang': {
-  'url': '{chromium_git}/chromium/src/tools/clang@276a21d670c8b64f2716011c00b53035b91f9065',
+  'url': '{chromium_git}/chromium/src/tools/clang@956f5b673f981d317e4c5d2d01a43a7f56259557',
     'condition': 'dawn_standalone',
   },
   'tools/memory': {
@@ -261,7 +261,7 @@ deps = {
 
   # Testing, GTest and GMock
   'testing': {
-    'url': '{chromium_git}/chromium/src/testing@b7e607ddc89b547036848aa714e800026f6d69a4',
+    'url': '{chromium_git}/chromium/src/testing@140a52e6058e9c8618b8fec5884acfa1e4e50cc7',
     'condition': 'dawn_standalone',
   },
   'third_party/libFuzzer/src': {
@@ -274,7 +274,7 @@ deps = {
   },
   # This is a dependency of //testing
   'third_party/catapult': {
-    'url': '{chromium_git}/catapult.git@5a34891efa6e41c8aca8842386b8ee528963ffdf',
+    'url': '{chromium_git}/catapult.git@4f1d71f6841d210b3a06ab3ef2e2ed679af0ee56',
     'condition': 'dawn_standalone',
   },
   'third_party/google_benchmark/src': {
@@ -313,7 +313,7 @@ deps = {
   },
 
   'third_party/angle': {
-    'url': '{chromium_git}/angle/angle@35e17fe6e81abde684eeabe3071c167b6e683849',
+    'url': '{chromium_git}/angle/angle@0fe2ac00168e8116a4d2f909326ab54bf1032ec4',
     'condition': 'dawn_standalone',
   },
 
@@ -323,12 +323,12 @@ deps = {
   },
 
   'third_party/vulkan-deps': {
-    'url': '{chromium_git}/vulkan-deps@7814bc90b17cf88824d5786ab725620710cbcd68',
+    'url': '{chromium_git}/vulkan-deps@1a22843be2c15b0b9c27e07d7280ee90f74c1b4c',
     'condition': 'dawn_standalone',
   },
 
   'third_party/glslang/src': {
-    'url': '{chromium_git}/external/github.com/KhronosGroup/glslang@32a3a77b0dc87832e8f0c38b581812562252f3b3',
+    'url': '{chromium_git}/external/github.com/KhronosGroup/glslang@715c8500e7cd67f2eba9e60e98852a1ed49d2f15',
     'condition': 'dawn_standalone',
   },
 
@@ -338,17 +338,17 @@ deps = {
   },
 
   'third_party/spirv-tools/src': {
-    'url': '{chromium_git}/external/github.com/KhronosGroup/SPIRV-Tools@d7ba8c9fc218830544008cb71e4618adb1c56e12',
+    'url': '{chromium_git}/external/github.com/KhronosGroup/SPIRV-Tools@2d14d2e76aa7de72404b17078eda15c20a6a0389',
     'condition': 'dawn_standalone',
   },
 
   'third_party/vulkan-headers/src': {
-    'url': '{chromium_git}/external/github.com/KhronosGroup/Vulkan-Headers@f07ffc2cf2cd356927dee964fc0a35b5cfaeb789',
+    'url': '{chromium_git}/external/github.com/KhronosGroup/Vulkan-Headers@afe9eb980aa928a66d1c9c06f38c55dd59868720',
     'condition': 'dawn_standalone',
   },
 
   'third_party/vulkan-loader/src': {
-    'url': '{chromium_git}/external/github.com/KhronosGroup/Vulkan-Loader@385d337b64b09884a450c053b70beb1d7cc1ad57',
+    'url': '{chromium_git}/external/github.com/KhronosGroup/Vulkan-Loader@df84d2be47457a8dfd7eb66f8c2b031683bd1ba5',
     'condition': 'dawn_standalone',
   },
 
@@ -358,12 +358,12 @@ deps = {
   },
 
   'third_party/vulkan-utility-libraries/src': {
-    'url': '{chromium_git}/external/github.com/KhronosGroup/Vulkan-Utility-Libraries@5cbca997c1f916026670ffc8d6890ef9f1cd788d',
+    'url': '{chromium_git}/external/github.com/KhronosGroup/Vulkan-Utility-Libraries@48b1fd1a65e436bae806cb6180c9338846b9de97',
     'condition': 'dawn_standalone',
   },
 
   'third_party/vulkan-validation-layers/src': {
-    'url': '{chromium_git}/external/github.com/KhronosGroup/Vulkan-ValidationLayers@e322daf444f214127a3341ae3ce5165a880548dc',
+    'url': '{chromium_git}/external/github.com/KhronosGroup/Vulkan-ValidationLayers@50360eab918effdc8b4cf4d13a3eb6ed394c81c5',
     'condition': 'dawn_standalone',
   },
 
@@ -378,7 +378,7 @@ deps = {
   },
 
   'third_party/dxc': {
-    'url': '{chromium_git}/external/github.com/microsoft/DirectXShaderCompiler@811bf1f1993e620b1292c52f41aeb43f2529855f',
+    'url': '{chromium_git}/external/github.com/microsoft/DirectXShaderCompiler@0131a62667f6cabcccacd23f3c5b29339c6ecd44',
   },
 
   # The third_party/dxheaders entry will be removed after we've rolled and
@@ -623,7 +623,7 @@ deps = {
   # Dependencies for PartitionAlloc.
   # Doc: https://docs.google.com/document/d/1wz45t0alQthsIU9P7_rQcfQyqnrBMXzrOjSzdQo-V-A
   'third_party/partition_alloc': {
-    'url': '{chromium_git}/chromium/src/base/allocator/partition_allocator.git@b707a2ca5567b06f4b886fbcd888dfa7e8044718',
+    'url': '{chromium_git}/chromium/src/base/allocator/partition_allocator.git@b5258e200dc8fc3ea0a3c02730258fda7633a9e4',
     'condition': 'dawn_standalone',
   },
 

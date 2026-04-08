@@ -80,8 +80,6 @@ struct Bindings {
     BindingMap texture{};
     /// Storage texture bindings
     BindingMap storage_texture{};
-    /// Texel buffer bindings
-    BindingMap texel_buffer{};
     /// Sampler bindings
     BindingMap sampler{};
     /// External bindings
@@ -95,7 +93,6 @@ struct Bindings {
                  storage,
                  texture,
                  storage_texture,
-                 texel_buffer,
                  sampler,
                  external_texture,
                  input_attachment);

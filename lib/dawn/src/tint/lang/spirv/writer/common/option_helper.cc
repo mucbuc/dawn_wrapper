@@ -108,10 +108,6 @@ Result<SuccessType> ValidateBindingOptions(const Options& options) {
         diagnostics.AddNote(Source{}) << "when processing storage_texture";
         return Failure{diagnostics.Str()};
     }
-    if (!valid(options.bindings.texel_buffer)) {
-        diagnostics.AddNote(Source{}) << "when processing texel_buffer";
-        return Failure{diagnostics.Str()};
-    }
     if (!valid(options.bindings.sampler)) {
         diagnostics.AddNote(Source{}) << "when processing sampler";
         return Failure{diagnostics.Str()};
@@ -228,7 +224,6 @@ void PopulateRemapperAndMultiplanarOptions(
     create_remappings(options.bindings.storage);
     create_remappings(options.bindings.texture);
     create_remappings(options.bindings.storage_texture);
-    create_remappings(options.bindings.texel_buffer);
     create_remappings(options.bindings.sampler);
     create_remappings(options.bindings.input_attachment);
 

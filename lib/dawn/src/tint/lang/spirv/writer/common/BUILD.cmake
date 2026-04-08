@@ -95,7 +95,6 @@ tint_add_target(tint_lang_spirv_writer_common_test test
   lang/spirv/writer/common/instruction_test.cc
   lang/spirv/writer/common/module_test.cc
   lang/spirv/writer/common/operand_test.cc
-  lang/spirv/writer/common/option_helpers_test.cc
   lang/spirv/writer/common/options_test.cc
   lang/spirv/writer/common/spv_dump_test.cc
   lang/spirv/writer/common/spv_dump_test.h
@@ -107,7 +106,6 @@ tint_target_add_dependencies(tint_lang_spirv_writer_common_test test
   tint_lang_core_constant
   tint_lang_core_intrinsic
   tint_lang_core_ir
-  tint_lang_core_ir_transform
   tint_lang_core_type
   tint_utils
   tint_utils_containers

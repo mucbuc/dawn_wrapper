@@ -160,7 +160,15 @@ tint::Bindings GenerateBindingRemapping(const PipelineLayoutBase* layout,
                         BindingPointFor(group, bgl->AsBindingIndex(apiBindingIndex)));
                 },
                 [&](const TexelBufferBindingInfo&) {
-                    bindings.texel_buffer.emplace(
+                    // TODO(crbug.com/382544164): Inject through storage_texture as a workaround
+                    // until tint::Bindings gains a dedicated texel_buffer sub-map. The
+                    // BindingRemapper transform is type-agnostic and will correctly remap any
+                    // variable whose binding_point appears in the map, regardless of descriptor
+                    // type. Without this remapping, texel buffers keep their original WGSL
+                    // @binding numbers in SPIR-V, which diverges from their BindingIndex in the
+                    // VkDescriptorSetLayout whenever a binding type that sorts before TexelBuffer
+                    // (e.g. StorageTexture) occupies an earlier BindingIndex.
+                    bindings.storage_texture.emplace(
                         srcBindingPoint,
                         BindingPointFor(group, bgl->AsBindingIndex(apiBindingIndex)));
                 },

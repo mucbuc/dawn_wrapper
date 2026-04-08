@@ -482,14 +482,9 @@ const std::string& AdapterBase::GetName() const {
 
 std::vector<Ref<AdapterBase>> SortAdapters(std::vector<Ref<AdapterBase>> adapters,
                                            const UnpackedPtr<RequestAdapterOptions>& options) {
-    const bool noPowerPreference = options->powerPreference == wgpu::PowerPreference::Undefined;
     const bool highPerformance = options->powerPreference == wgpu::PowerPreference::HighPerformance;
 
     const auto ComputeAdapterTypeRank = [&](const Ref<AdapterBase>& a) {
-        if (noPowerPreference) {
-            return 0;
-        }
-
         switch (a->GetPhysicalDevice()->GetAdapterType()) {
             case wgpu::AdapterType::DiscreteGPU:
                 return highPerformance ? 0 : 1;
@@ -528,11 +523,11 @@ std::vector<Ref<AdapterBase>> SortAdapters(std::vector<Ref<AdapterBase>> adapter
         DAWN_UNREACHABLE();
     };
 
-    std::stable_sort(adapters.begin(), adapters.end(),
-                     [&](const Ref<AdapterBase>& a, const Ref<AdapterBase>& b) -> bool {
-                         return std::tuple(ComputeAdapterTypeRank(a), ComputeBackendTypeRank(a)) <
-                                std::tuple(ComputeAdapterTypeRank(b), ComputeBackendTypeRank(b));
-                     });
+    std::sort(adapters.begin(), adapters.end(),
+              [&](const Ref<AdapterBase>& a, const Ref<AdapterBase>& b) -> bool {
+                  return std::tuple(ComputeAdapterTypeRank(a), ComputeBackendTypeRank(a)) <
+                         std::tuple(ComputeAdapterTypeRank(b), ComputeBackendTypeRank(b));
+              });
 
     return adapters;
 }

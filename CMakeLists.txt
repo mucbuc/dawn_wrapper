@@ -2,6 +2,12 @@ cmake_minimum_required(VERSION 3.27)
 
 project(dawn_wrapper_lib)
 
+execute_process(
+    COMMAND bash "fetch_dawn.sh"
+    WORKING_DIRECTORY "${CMAKE_CURRENT_LIST_DIR}/lib"
+    RESULT_VARIABLE script_res
+)
+
 add_library(dawn_wrapper STATIC src/dawn_wrapper.hpp)
 
 set_target_properties(dawn_wrapper PROPERTIES

@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 
 set -euo pipefail
+
+pushd ../lib
+./fetch_dawn.sh
+popd
+
 cmake -B build 
 cmake --build build -j 8 
 ./build/Example

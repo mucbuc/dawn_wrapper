@@ -1,0 +1,3 @@
+Remote: https://github.com/google/dawn.git
+Commit: 96e9e61f3706591f9ae1fa6b47dc352be7978f0a
+Branch: main

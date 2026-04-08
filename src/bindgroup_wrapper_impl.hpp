@@ -11,6 +11,8 @@ namespace dawn_wrapper {
 struct bindgroup_wrapper::pimpl {
     void add_buffer(unsigned binding, buffer_wrapper buffer)
     {
+        ASSERT(!m_bindgroup);
+        
         if (buffer.is_valid()) {
             m_bindgroup_entries.push_back(dawn_utils::make_bindGroupBufferEntry(binding, buffer.m_pimpl->m_buffer));
         }
@@ -18,6 +20,8 @@ struct bindgroup_wrapper::pimpl {
 
     void add_texture(unsigned binding, texture_wrapper texture)
     {
+        ASSERT(!m_bindgroup);
+
         if (texture.is_valid()) {
             m_bindgroup_entries.push_back(dawn_utils::make_bind_group_entry(binding, texture.m_pimpl->get_view()));
         }
@@ -25,6 +29,8 @@ struct bindgroup_wrapper::pimpl {
 
     void add_texture(unsigned binding, texture_output_wrapper texture)
     {
+        ASSERT(!m_bindgroup);
+
         if (texture.is_valid()) {
             m_bindgroup_entries.push_back(dawn_utils::make_bind_group_entry(binding, texture.m_pimpl->get_view()));
         }
@@ -32,6 +38,8 @@ struct bindgroup_wrapper::pimpl {
 
     void add_sampler(unsigned binding, texture_wrapper texture)
     {
+        ASSERT(!m_bindgroup);
+
         if (texture.is_valid()) {
             m_bindgroup_entries.push_back(dawn_utils::make_bind_group_entry(binding, texture.m_pimpl->get_sampler()));
         }
@@ -39,6 +47,8 @@ struct bindgroup_wrapper::pimpl {
 
     void add_sampler(unsigned binding, texture_output_wrapper texture)
     {
+        ASSERT(!m_bindgroup);
+
         if (texture.is_valid()) {
             m_bindgroup_entries.push_back(dawn_utils::make_bind_group_entry(binding, texture.m_pimpl->get_sampler()));
         }
@@ -46,18 +56,23 @@ struct bindgroup_wrapper::pimpl {
 
     BindGroup make_bindgroup(Device device, BindGroupLayout layout)
     {
-        return dawn_utils::make_bindGroup(device, layout, m_bindgroup_entries, m_context_name.c_str());
+        if (!m_bindgroup) {
+            m_bindgroup = dawn_utils::make_bindGroup(device, layout, m_bindgroup_entries, m_context_name.c_str());
+        }
+        return m_bindgroup;
     }
 
     pimpl(std::string context_name)
         : m_bindgroup_entries()
         , m_context_name(context_name)
+        , m_bindgroup()
     {
     }
 
 private:
     std::vector<BindGroupEntry> m_bindgroup_entries;
     std::string m_context_name;
+    BindGroup m_bindgroup;
 };
 
 }

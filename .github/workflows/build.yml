@@ -29,6 +29,5 @@ jobs:
       - name: Build and run
         run: |
           cd test
-          rm -rf build
           ./build_and_run
 

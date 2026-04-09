@@ -19,7 +19,9 @@ jobs:
       - name: Cache Build Folder
         uses: actions/cache@v4
         with:
-          path: lib/dawn  # The folder you want to cache (e.g., build, dist, bin)
+          path: |
+            lib/dawn  
+            test/build/lib/dawn_wrapper/lib/dawn
           key: ${{ runner.os }}-build-${{ hashFiles('lib/fetch_dawn.sh') }}
           restore-keys: |
             ${{ runner.os }}-build-

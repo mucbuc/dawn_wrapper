@@ -3,5 +3,5 @@
 set -euo pipefail
 
 emcmake cmake -B web-build
-cmake --build web-build
+cmake --build web-build -j $(nproc)
 emrun --browser_args="--headless=new" --browser chrome --kill_exit web-build/Example.html

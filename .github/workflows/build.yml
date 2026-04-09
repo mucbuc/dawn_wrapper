@@ -19,8 +19,8 @@ jobs:
       - name: Cache Build Folder
         uses: actions/cache@v4
         with:
-          path: test/build  # The folder you want to cache (e.g., build, dist, bin)
-          key: ${{ runner.os }}-build-${{ hashFiles('src/**', 'test/src/**') }}
+          path: lib/dawn  # The folder you want to cache (e.g., build, dist, bin)
+          key: ${{ runner.os }}-build-${{ hashFiles('lib/fetch_dawn.sh') }}
           restore-keys: |
             ${{ runner.os }}-build-
 

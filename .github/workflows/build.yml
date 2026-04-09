@@ -16,6 +16,14 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Cache Build Folder
+        uses: actions/cache@v4
+        with:
+          path: test/build  # The folder you want to cache (e.g., build, dist, bin)
+          key: ${{ runner.os }}-build-${{ hashFiles('src/**', 'test/src/**') }}
+          restore-keys: |
+            ${{ runner.os }}-build-
+
       - name: Build and run
         run: |
           cd test

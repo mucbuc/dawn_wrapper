@@ -3,6 +3,7 @@
 #include <memory>
 
 #include "bindgroup_layout_wrapper_impl.hpp"
+#include "bindgroup_wrapper_impl.hpp"
 
 struct GLFWwindow;
 
@@ -52,6 +53,11 @@ bindgroup_layout_wrapper& bindgroup_layout_wrapper::add_sampler(unsigned binding
 {
     m_pimpl->add_sampler(binding, enable);
     return *this;
+}
+
+bindgroup_wrapper bindgroup_layout_wrapper::make_bindgroup()
+{
+    return std::make_shared<bindgroup_wrapper::pimpl>(* this, m_pimpl->m_context_name);
 }
 
 } // dawn_wrapper

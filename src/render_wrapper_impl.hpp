@@ -61,7 +61,7 @@ struct render_wrapper::pimpl : private shader_base {
         auto pass = dawn_utils::begin_render_pass(encoder.m_pimpl->m_encoder, textureView);
         pass.SetPipeline(get_pipeline());
 
-        auto bindGroupImpl = bindGroup.m_pimpl->make_bindgroup(m_device, m_bindGroupLayout);
+        auto bindGroupImpl = bindGroup.m_pimpl->make_bindgroup(m_device);
         pass.SetBindGroup(0, bindGroupImpl);
 
         pass.SetVertexBuffer(0, get_bufferVertex(), 0, get_bufferVertex().GetSize());
@@ -93,12 +93,7 @@ struct render_wrapper::pimpl : private shader_base {
 
     bindgroup_layout_wrapper make_bindgroup_layout()
     {
-        return std::make_shared<bindgroup_layout_wrapper::pimpl>(ShaderStage::Fragment);
-    }
-
-    bindgroup_wrapper make_bindgroup()
-    {
-        return std::make_shared<bindgroup_wrapper::pimpl>(m_entryPoint);
+        return std::make_shared<bindgroup_layout_wrapper::pimpl>(ShaderStage::Fragment, m_entryPoint);
     }
 
     void compile_shader(std::string script, std::string entryPoint)
@@ -112,7 +107,7 @@ struct render_wrapper::pimpl : private shader_base {
     {
         ASSERT(m_shader);
 
-        m_bindGroupLayout = dawn_utils::make_bindGroupLayout(m_device, layout.m_pimpl->m_layoutEntries, m_entryPoint.c_str());
+        m_bindGroupLayout = layout.m_pimpl->make_bindGroupLayout(m_device, m_entryPoint.c_str());
         m_pipeline = dawn_utils::make_render_pipeline(m_device, m_bindGroupLayout, m_shader, m_vertexShader, m_entryPoint.c_str());
     }
 

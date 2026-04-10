@@ -1,3 +1,0 @@
-Remote: https://dawn.googlesource.com/dawn
-Commit: fa93dacdf3931ec29ff8f42facf51db632c45308
-Branch: chromium/7780

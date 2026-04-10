@@ -48,6 +48,7 @@ struct compute_wrapper::pimpl : private shader_base {
 
         for (auto entry : set.m_pimpl->m_bindgroups)
         {
+            ASSERT(entry.second.m_pimpl);
             computePass.SetBindGroup(entry.first, entry.second.m_pimpl->make_bindgroup(m_device));
         }
 
@@ -72,11 +73,6 @@ struct compute_wrapper::pimpl : private shader_base {
     ComputePipeline get_pipeline()
     {
         return m_pipeline;
-    }
-
-    BindGroupLayout get_bindGroupLayout()
-    {
-        return m_bindGroupLayout;
     }
 
     bindgroup_layout_wrapper make_bindgroup_layout()

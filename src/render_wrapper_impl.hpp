@@ -53,8 +53,6 @@ struct render_wrapper::pimpl : private shader_base {
 
     void render(bindgroup_set set, encoder_wrapper encoder)
     {
-        ASSERT(m_bindGroupLayout);
-    
         auto textureView = getCurrentTextureView();
         ASSERT(textureView);
 
@@ -63,6 +61,8 @@ struct render_wrapper::pimpl : private shader_base {
    
         for (auto entry : set.m_pimpl->m_bindgroups)
         {
+            ASSERT(entry.second.m_pimpl); 
+
             pass.SetBindGroup(entry.first, entry.second.m_pimpl->make_bindgroup(m_device));
         }
 
@@ -148,11 +148,6 @@ struct render_wrapper::pimpl : private shader_base {
     RenderPipeline get_pipeline()
     {
         return m_pipeline;
-    }
-
-    BindGroupLayout get_bindGroupLayout()
-    {
-        return m_bindGroupLayout;
     }
 
     Buffer get_bufferVertex()

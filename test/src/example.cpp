@@ -48,7 +48,7 @@ void run_compute(dawn_plugin plugin)
     buffer_wrapper mapped = plugin.make_dst_buffer(size_bytes, buffer_type::map_read);
 
     // compute
-    auto bindgroup = comp.make_bindgroup().add_buffer(binding_in, input).add_buffer(binding_out, output);
+    auto bindgroup = layout.make_bindgroup().add_buffer(binding_in, input).add_buffer(binding_out, output);
     auto encoder = plugin.make_encoder();
     comp.compute(bindgroup, unsigned(data.size()), 1, encoder);
 #ifndef __EMSCRIPTEN__

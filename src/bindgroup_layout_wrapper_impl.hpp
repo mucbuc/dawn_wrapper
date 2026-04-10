@@ -7,8 +7,11 @@ using namespace wgpu;
 namespace dawn_wrapper {
 
 struct bindgroup_layout_wrapper::pimpl {
-    pimpl(ShaderStage stage)
+    pimpl(ShaderStage stage, std::string context_name)
         : m_stage(stage)
+        , m_layoutEntries()
+        , m_bindGroupLayout()
+        , m_context_name(context_name)
     {
     }
 
@@ -61,6 +64,15 @@ struct bindgroup_layout_wrapper::pimpl {
         }
     }
 
+    BindGroupLayout make_bindGroupLayout(Device device, std::string label)
+    {
+        if (!m_bindGroupLayout) {
+            m_bindGroupLayout = dawn_utils::make_bindGroupLayout(device, m_layoutEntries, label.c_str());
+        }
+        return m_bindGroupLayout;
+    }
+
+
     BindGroupLayoutEntry make_texture_layout_entry(unsigned binding, TextureSampleType type = TextureSampleType::Float, TextureViewDimension dimension = TextureViewDimension::e1D)
     {
 
@@ -96,6 +108,8 @@ struct bindgroup_layout_wrapper::pimpl {
 
     ShaderStage m_stage;
     std::vector<BindGroupLayoutEntry> m_layoutEntries;
+    BindGroupLayout m_bindGroupLayout;
+    std::string m_context_name;
 };
 
 }

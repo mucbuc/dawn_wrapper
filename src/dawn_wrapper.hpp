@@ -60,6 +60,7 @@ struct texture_output_wrapper {
     DAWN_WRAPPER_PIMPL_DEC(texture_output_wrapper);
 };
 
+struct bindgroup_wrapper;
 struct bindgroup_layout_wrapper {
     bindgroup_layout_wrapper() = default;
     bindgroup_layout_wrapper& add_buffer(unsigned binding, bool enable = true);
@@ -69,11 +70,13 @@ struct bindgroup_layout_wrapper {
     bindgroup_layout_wrapper& add_texture_2d(unsigned binding, bool enable = true);
     bindgroup_layout_wrapper& add_storage_texture_2d(unsigned binding, bool enable = true);
     bindgroup_layout_wrapper& add_sampler(unsigned binding, bool enable = true);
+    bindgroup_wrapper make_bindgroup();
     DAWN_WRAPPER_PIMPL_DEC(bindgroup_layout_wrapper);
 };
 
 struct bindgroup_wrapper {
-    bindgroup_wrapper() = default;
+    bindgroup_wrapper() = delete;//default;
+    bindgroup_wrapper(bindgroup_layout_wrapper);
     bindgroup_wrapper& add_buffer(unsigned binding, buffer_wrapper);
     bindgroup_wrapper& add_texture(unsigned binding, texture_wrapper);
     bindgroup_wrapper& add_texture(unsigned binding, texture_output_wrapper);
@@ -91,7 +94,6 @@ struct compute_wrapper {
     bool compute(bindgroup_wrapper, unsigned width, unsigned height, encoder_wrapper encoder);
     void setup_compute(unsigned width, unsigned height);
     bindgroup_layout_wrapper make_bindgroup_layout();
-    bindgroup_wrapper make_bindgroup();
     bool is_valid() const;
     DAWN_WRAPPER_PIMPL_DEC(compute_wrapper);
 };
@@ -116,7 +118,6 @@ struct render_wrapper {
     void render(bindgroup_wrapper, encoder_wrapper);
     void render(encoder_wrapper);
     bindgroup_layout_wrapper make_bindgroup_layout();
-    bindgroup_wrapper make_bindgroup();
     void init_pipeline(bindgroup_layout_wrapper);
     void init_pipeline();
     bool is_valid() const;

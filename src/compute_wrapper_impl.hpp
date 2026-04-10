@@ -32,7 +32,7 @@ struct compute_wrapper::pimpl : private shader_base {
 
     void init_pipeline(bindgroup_layout_wrapper layout)
     {
-        m_bindGroupLayout = dawn_utils::make_bindGroupLayout(m_device, layout.m_pimpl->m_layoutEntries, m_entryPoint.c_str());
+        m_bindGroupLayout = layout.m_pimpl->make_bindGroupLayout(m_device, m_entryPoint.c_str());
         m_pipeline = dawn_utils::make_compute_pipeline(m_device, m_shader, m_bindGroupLayout, m_entryPoint.c_str());
     }
 
@@ -44,7 +44,7 @@ struct compute_wrapper::pimpl : private shader_base {
 
         auto computePass = dawn_utils::begin_compute_pass(encoder.m_pimpl->m_encoder);
         computePass.SetPipeline(get_pipeline());
-        computePass.SetBindGroup(0, bindGroup.m_pimpl->make_bindgroup(m_device, m_bindGroupLayout), 0, nullptr);
+        computePass.SetBindGroup(0, bindGroup.m_pimpl->make_bindgroup(m_device), 0, nullptr);
         computePass.DispatchWorkgroups(width, height, 1);
         computePass.End();
 
@@ -63,12 +63,7 @@ struct compute_wrapper::pimpl : private shader_base {
 
     bindgroup_layout_wrapper make_bindgroup_layout()
     {
-        return std::make_shared<bindgroup_layout_wrapper::pimpl>(ShaderStage::Compute);
-    }
-
-    bindgroup_wrapper make_bindgroup()
-    {
-        return std::make_shared<bindgroup_wrapper::pimpl>(m_entryPoint);
+        return std::make_shared<bindgroup_layout_wrapper::pimpl>(ShaderStage::Compute, m_entryPoint);
     }
 
     Device m_device;

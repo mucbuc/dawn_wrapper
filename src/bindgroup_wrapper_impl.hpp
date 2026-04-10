@@ -3,6 +3,7 @@
 #include "buffer_wrapper_impl.hpp"
 #include "texture_output_wrapper_impl.hpp"
 #include "texture_wrapper_impl.hpp"
+#include "bindgroup_layout_wrapper_impl.hpp"
 
 using namespace wgpu;
 
@@ -54,18 +55,20 @@ struct bindgroup_wrapper::pimpl {
         }
     }
 
-    BindGroup make_bindgroup(Device device, BindGroupLayout layout)
+    BindGroup make_bindgroup(Device device)
     {
         if (!m_bindgroup) {
+            auto layout = m_layout.m_pimpl->make_bindGroupLayout(device, m_context_name.c_str());
             m_bindgroup = dawn_utils::make_bindGroup(device, layout, m_bindgroup_entries, m_context_name.c_str());
         }
         return m_bindgroup;
     }
 
-    pimpl(std::string context_name)
+    pimpl(bindgroup_layout_wrapper layout, std::string context_name)
         : m_bindgroup_entries()
         , m_context_name(context_name)
         , m_bindgroup()
+        , m_layout(layout)
     {
     }
 
@@ -73,6 +76,7 @@ private:
     std::vector<BindGroupEntry> m_bindgroup_entries;
     std::string m_context_name;
     BindGroup m_bindgroup;
+    bindgroup_layout_wrapper m_layout;
 };
 
 }

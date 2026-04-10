@@ -18,14 +18,12 @@ struct bindgroup_set::pimpl {
         m_bindgroups[group] = bg;
     }
 
-    pimpl(std::string context_name)
+    pimpl()
         : m_bindgroups()
-        , m_context_name(context_name)
     {
     }
 
     std::map<unsigned, bindgroup_wrapper> m_bindgroups;
-    std::string m_context_name;
 };
 
 }

@@ -89,7 +89,7 @@ struct bindgroup_wrapper {
 };
 
 struct bindgroup_set {
-    bindgroup_set() = default;
+    bindgroup_set();
     bindgroup_set& add_bindgroup(bindgroup_wrapper bg, unsigned group);
 
     DAWN_WRAPPER_PIMPL_DEC(bindgroup_set);

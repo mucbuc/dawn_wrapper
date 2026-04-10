@@ -5,8 +5,8 @@
 #include "bindgroup_set_impl.hpp"
 
 namespace dawn_wrapper {
-bindgroup_set::bindgroup_set(ptr_type ptr)
-    : m_pimpl(ptr)
+bindgroup_set::bindgroup_set()
+    : m_pimpl(std::make_shared<bindgroup_set::pimpl>())
 {
 }
 

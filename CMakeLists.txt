@@ -2,12 +2,6 @@ cmake_minimum_required(VERSION 3.27)
 
 project(dawn_wrapper_lib)
 
-execute_process(
-    COMMAND bash "fetch_dawn.sh"
-    WORKING_DIRECTORY "${CMAKE_CURRENT_LIST_DIR}/lib"
-    RESULT_VARIABLE script_res
-)
-
 add_library(dawn_wrapper STATIC src/dawn_wrapper.hpp)
 
 set_target_properties(dawn_wrapper PROPERTIES
@@ -40,7 +34,7 @@ target_sources(dawn_wrapper PRIVATE
 )
 
 if (NOT EMSCRIPTEN)
-    set(DAWN_FETCH_DEPENDENCIES ON)
+    set(DAWN_FETCH_DEPENDENCIES OFF)
     set(TINT_BUILD_TESTS FALSE)
     set(BUILD_SAMPLES OFF)
     set(TINT_BUILD_SPV_READER OFF)

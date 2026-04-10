@@ -22,14 +22,14 @@ void compute_wrapper::init_pipeline(bindgroup_layout_wrapper layout)
     m_pimpl->init_pipeline(layout);
 }
 
-bool compute_wrapper::compute(bindgroup_set set, unsigned width, unsigned height, encoder_wrapper encoder)
+void compute_wrapper::compute(bindgroup_set set, unsigned width, unsigned height, encoder_wrapper encoder)
 {
-    return m_pimpl->compute(set, width, height, encoder);
+    m_pimpl->compute(set, width, height, encoder);
 }
 
-bool compute_wrapper::compute(bindgroup_wrapper bindGroup, unsigned width, unsigned height, encoder_wrapper encoder)
+void compute_wrapper::compute(bindgroup_wrapper bindGroup, unsigned width, unsigned height, encoder_wrapper encoder)
 {
-    return m_pimpl->compute(bindGroup, width, height, encoder);
+    m_pimpl->compute(bindGroup, width, height, encoder);
 }
 
 bindgroup_layout_wrapper compute_wrapper::make_bindgroup_layout()

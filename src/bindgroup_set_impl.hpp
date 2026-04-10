@@ -4,6 +4,9 @@
 #include "texture_output_wrapper_impl.hpp"
 #include "texture_wrapper_impl.hpp"
 
+#include <map>
+#include <string>
+
 using namespace wgpu;
 
 namespace dawn_wrapper {
@@ -21,7 +24,6 @@ struct bindgroup_set::pimpl {
     {
     }
 
-private:
     std::map<unsigned, bindgroup_wrapper> m_bindgroups;
     std::string m_context_name;
 };

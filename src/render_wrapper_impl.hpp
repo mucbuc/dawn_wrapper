@@ -50,6 +50,12 @@ struct render_wrapper::pimpl : private shader_base {
         return m_surface.m_pimpl->getCurrentTextureView();
     }
 
+    void render(bindgroup_set set, encoder_wrapper encoder)
+    {
+
+
+    }
+
     void render(bindgroup_wrapper bindGroup, encoder_wrapper encoder)
     {
         ASSERT(m_bindGroupLayout);

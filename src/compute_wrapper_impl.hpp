@@ -36,6 +36,14 @@ struct compute_wrapper::pimpl : private shader_base {
         m_pipeline = dawn_utils::make_compute_pipeline(m_device, m_shader, m_bindGroupLayout, m_entryPoint.c_str());
     }
 
+    bool compute(bindgroup_set set, unsigned width, unsigned height, encoder_wrapper encoder)
+    {
+
+
+        return false;
+    }
+
+
     bool compute(bindgroup_wrapper bindGroup, unsigned width, unsigned height, encoder_wrapper encoder)
     {
         ASSERT(get_pipeline());

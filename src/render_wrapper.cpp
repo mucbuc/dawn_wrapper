@@ -38,6 +38,11 @@ void render_wrapper::init_pipeline()
     m_pimpl->init_pipeline();
 }
 
+void render_wrapper::render(bindgroup_set set, encoder_wrapper encoder)
+{
+    m_pimpl->render(set, encoder);
+}
+
 void render_wrapper::render(bindgroup_wrapper bindGroup, encoder_wrapper encoder)
 {
     m_pimpl->render(bindGroup, encoder);

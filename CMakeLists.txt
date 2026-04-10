@@ -14,6 +14,8 @@ set_target_properties(dawn_wrapper PROPERTIES
 target_sources(dawn_wrapper PRIVATE
     src/bindgroup_layout_wrapper.cpp
     src/bindgroup_layout_wrapper_impl.hpp
+    src/bindgroup_set.cpp
+    src/bindgroup_set_impl.hpp
     src/bindgroup_wrapper.cpp
     src/bindgroup_wrapper_impl.hpp
     src/buffer_wrapper.cpp

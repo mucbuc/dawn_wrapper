@@ -1,6 +1,7 @@
 #pragma once
 
 #include "bindgroup_layout_wrapper_impl.hpp"
+#include "bindgroup_set_impl.hpp"
 #include "bindgroup_wrapper_impl.hpp"
 #include "buffer_wrapper_impl.hpp"
 #include "dawn_utils.hpp"
@@ -36,7 +37,27 @@ struct compute_wrapper::pimpl : private shader_base {
         m_pipeline = dawn_utils::make_compute_pipeline(m_device, m_shader, m_bindGroupLayout, m_entryPoint.c_str());
     }
 
-    bool compute(bindgroup_wrapper bindGroup, unsigned width, unsigned height, encoder_wrapper encoder)
+    void compute(bindgroup_set set, unsigned width, unsigned height, encoder_wrapper encoder)
+    {
+        ASSERT(get_pipeline());
+        ASSERT(width < 65535);
+        ASSERT(height < 65535);
+
+        auto computePass = dawn_utils::begin_compute_pass(encoder.m_pimpl->m_encoder);
+        computePass.SetPipeline(get_pipeline());
+
+        for (auto entry : set.m_pimpl->m_bindgroups)
+        {
+            ASSERT(entry.second.m_pimpl);
+            computePass.SetBindGroup(entry.first, entry.second.m_pimpl->make_bindgroup(m_device));
+        }
+
+        computePass.DispatchWorkgroups(width, height, 1);
+        computePass.End();
+    }
+
+
+    void compute(bindgroup_wrapper bindGroup, unsigned width, unsigned height, encoder_wrapper encoder)
     {
         ASSERT(get_pipeline());
         ASSERT(width < 65535);
@@ -47,18 +68,11 @@ struct compute_wrapper::pimpl : private shader_base {
         computePass.SetBindGroup(0, bindGroup.m_pimpl->make_bindgroup(m_device), 0, nullptr);
         computePass.DispatchWorkgroups(width, height, 1);
         computePass.End();
-
-        return false;
     }
 
     ComputePipeline get_pipeline()
     {
         return m_pipeline;
-    }
-
-    BindGroupLayout get_bindGroupLayout()
-    {
-        return m_bindGroupLayout;
     }
 
     bindgroup_layout_wrapper make_bindgroup_layout()

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "bindgroup_layout_wrapper_impl.hpp"
+#include "bindgroup_set_impl.hpp"
 #include "bindgroup_wrapper_impl.hpp"
 #include "encoder_wrapper_impl.hpp"
 #include "shader_base.hpp"
@@ -48,6 +49,32 @@ struct render_wrapper::pimpl : private shader_base {
     TextureView getCurrentTextureView()
     {
         return m_surface.m_pimpl->getCurrentTextureView();
+    }
+
+    void render(bindgroup_set set, encoder_wrapper encoder)
+    {
+        auto textureView = getCurrentTextureView();
+        ASSERT(textureView);
+
+        auto pass = dawn_utils::begin_render_pass(encoder.m_pimpl->m_encoder, textureView);
+        pass.SetPipeline(get_pipeline());
+   
+        for (auto entry : set.m_pimpl->m_bindgroups)
+        {
+            ASSERT(entry.second.m_pimpl); 
+
+            pass.SetBindGroup(entry.first, entry.second.m_pimpl->make_bindgroup(m_device));
+        }
+
+        pass.SetVertexBuffer(0, get_bufferVertex(), 0, get_bufferVertex().GetSize());
+        pass.SetIndexBuffer(get_bufferIndex(), IndexFormat::Uint16, 0, get_bufferIndex().GetSize());
+        pass.DrawIndexed(3, 1, 0, 0, 0);
+        pass.End();
+
+        encoder.submit_command_buffer();
+#ifndef __EMSCRIPTEN__
+        m_surface.present();
+#endif
     }
 
     void render(bindgroup_wrapper bindGroup, encoder_wrapper encoder)
@@ -121,11 +148,6 @@ struct render_wrapper::pimpl : private shader_base {
     RenderPipeline get_pipeline()
     {
         return m_pipeline;
-    }
-
-    BindGroupLayout get_bindGroupLayout()
-    {
-        return m_bindGroupLayout;
     }
 
     Buffer get_bufferVertex()

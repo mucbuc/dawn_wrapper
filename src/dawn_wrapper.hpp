@@ -9,16 +9,17 @@ namespace dawn_wrapper {
 
 #define DAWN_WRAPPER_PIMPL_DEC(class_name)   \
 private:                                     \
-    friend class render_wrapper;             \
-    friend class compute_wrapper;            \
-    friend class dawn_plugin;                \
-    friend class texture_wrapper;            \
-    friend class texture_output_wrapper;     \
+    friend class bindgroup_layout_wrapper;   \
+    friend class bindgroup_set;              \
     friend class bindgroup_wrapper;          \
     friend class buffer_wrapper;             \
-    friend class bindgroup_layout_wrapper;   \
+    friend class compute_wrapper;            \
+    friend class dawn_plugin;                \
     friend class encoder_wrapper;            \
+    friend class render_wrapper;             \
     friend class surface_wrapper;            \
+    friend class texture_output_wrapper;     \
+    friend class texture_wrapper;            \
     struct pimpl;                            \
     using ptr_type = std::shared_ptr<pimpl>; \
     class_name(ptr_type);                    \
@@ -87,11 +88,19 @@ struct bindgroup_wrapper {
     DAWN_WRAPPER_PIMPL_DEC(bindgroup_wrapper);
 };
 
+struct bindgroup_set {
+    bindgroup_set();
+    bindgroup_set& add_bindgroup(bindgroup_wrapper bg, unsigned group);
+
+    DAWN_WRAPPER_PIMPL_DEC(bindgroup_set);
+};
+
 struct compute_wrapper {
     compute_wrapper() = default;
     void init_pipeline(bindgroup_layout_wrapper layout);
     void compile_shader(std::string script, std::string entryPoint);
-    bool compute(bindgroup_wrapper, unsigned width, unsigned height, encoder_wrapper encoder);
+    void compute(bindgroup_wrapper, unsigned width, unsigned height, encoder_wrapper encoder);
+    void compute(bindgroup_set, unsigned width, unsigned height, encoder_wrapper encoder);
     void setup_compute(unsigned width, unsigned height);
     bindgroup_layout_wrapper make_bindgroup_layout();
     bool is_valid() const;
@@ -115,6 +124,7 @@ struct render_wrapper {
     void compile_shader(std::string script, std::string entryPoint);
     void set_surface(surface_wrapper);
 
+    void render(bindgroup_set, encoder_wrapper);
     void render(bindgroup_wrapper, encoder_wrapper);
     void render(encoder_wrapper);
     bindgroup_layout_wrapper make_bindgroup_layout();

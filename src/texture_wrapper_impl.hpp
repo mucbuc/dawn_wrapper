@@ -6,8 +6,6 @@ using namespace wgpu;
 
 namespace dawn_wrapper {
 struct texture_wrapper::pimpl {
-    friend class render_wrapper::pimpl;
-
     pimpl() = default;
 
     pimpl(Device device, const std::vector<uint8_t>& colors)

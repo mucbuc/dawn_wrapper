@@ -9,19 +9,9 @@ struct GLFWwindow;
 
 namespace dawn_wrapper {
 
-#define DAWN_WRAPPER_PIMPL_DEC(class_name)   \
-private:                                     \
-    friend class bindgroup_layout_wrapper;   \
-    friend class bindgroup_set;              \
-    friend class bindgroup_wrapper;          \
-    friend class buffer_wrapper;             \
-    friend class compute_wrapper;            \
-    friend class dawn_plugin;                \
-    friend class encoder_wrapper;            \
-    friend class render_wrapper;             \
-    friend class surface_wrapper;            \
-    friend class texture_output_wrapper;     \
-    friend class texture_wrapper;            \
+// Shared pimpl boilerplate — only the struct/type/constructor declarations.
+// Friend declarations are listed explicitly per class below.
+#define DAWN_WRAPPER_PIMPL_CORE(class_name)  \
     struct pimpl;                            \
     using ptr_type = std::shared_ptr<pimpl>; \
     class_name(ptr_type);                    \
@@ -36,14 +26,30 @@ struct buffer_wrapper {
     size_t get_size() const;
 
     bool is_valid() const;
-    DAWN_WRAPPER_PIMPL_DEC(buffer_wrapper);
+
+private:
+    // dawn_plugin: constructs via ptr_type constructor
+    // encoder_wrapper: accesses m_pimpl->m_buffer in copy_buffer_to_buffer
+    // bindgroup_wrapper: accesses m_pimpl->m_buffer in add_buffer
+    friend class dawn_plugin;
+    friend class encoder_wrapper;
+    friend class bindgroup_wrapper;
+    DAWN_WRAPPER_PIMPL_CORE(buffer_wrapper);
 };
 
 struct encoder_wrapper {
     encoder_wrapper() = default;
     encoder_wrapper& submit_command_buffer();
     encoder_wrapper& copy_buffer_to_buffer(buffer_wrapper, buffer_wrapper, size_t offset = 0);
-    DAWN_WRAPPER_PIMPL_DEC(encoder_wrapper);
+
+private:
+    // dawn_plugin: constructs via ptr_type constructor
+    // compute_wrapper: accesses m_pimpl->m_encoder in compute()
+    // render_wrapper: accesses m_pimpl->m_encoder in render()
+    friend class dawn_plugin;
+    friend class compute_wrapper;
+    friend class render_wrapper;
+    DAWN_WRAPPER_PIMPL_CORE(encoder_wrapper);
 };
 
 struct texture_wrapper {
@@ -52,7 +58,13 @@ struct texture_wrapper {
     void make_sampler(bool clamp_to_edge);
 
     bool is_valid() const;
-    DAWN_WRAPPER_PIMPL_DEC(texture_wrapper);
+
+private:
+    // dawn_plugin: constructs via ptr_type constructor
+    // bindgroup_wrapper: accesses m_pimpl->get_view() and get_sampler() in add_texture/add_sampler
+    friend class dawn_plugin;
+    friend class bindgroup_wrapper;
+    DAWN_WRAPPER_PIMPL_CORE(texture_wrapper);
 };
 
 struct texture_output_wrapper {
@@ -60,7 +72,13 @@ struct texture_output_wrapper {
     void make_sampler(bool clamp_to_edge);
 
     bool is_valid() const;
-    DAWN_WRAPPER_PIMPL_DEC(texture_output_wrapper);
+
+private:
+    // dawn_plugin: constructs via ptr_type constructor
+    // bindgroup_wrapper: accesses m_pimpl->get_view() and get_sampler() in add_texture/add_sampler
+    friend class dawn_plugin;
+    friend class bindgroup_wrapper;
+    DAWN_WRAPPER_PIMPL_CORE(texture_output_wrapper);
 };
 
 struct bindgroup_wrapper;
@@ -74,7 +92,15 @@ struct bindgroup_layout_wrapper {
     bindgroup_layout_wrapper& add_storage_texture_2d(unsigned binding, bool enable = true);
     bindgroup_layout_wrapper& add_sampler(unsigned binding, bool enable = true);
     bindgroup_wrapper make_bindgroup();
-    DAWN_WRAPPER_PIMPL_DEC(bindgroup_layout_wrapper);
+
+private:
+    // bindgroup_wrapper: accesses m_pimpl->make_bindGroupLayout() and constructs via ptr_type
+    // compute_wrapper: accesses m_pimpl->make_bindGroupLayout() and constructs via ptr_type
+    // render_wrapper: accesses m_pimpl->make_bindGroupLayout() and constructs via ptr_type
+    friend class bindgroup_wrapper;
+    friend class compute_wrapper;
+    friend class render_wrapper;
+    DAWN_WRAPPER_PIMPL_CORE(bindgroup_layout_wrapper);
 };
 
 struct bindgroup_wrapper {
@@ -87,14 +113,27 @@ struct bindgroup_wrapper {
     bindgroup_wrapper& add_sampler(unsigned binding, texture_output_wrapper);
 
     bool is_valid() const;
-    DAWN_WRAPPER_PIMPL_DEC(bindgroup_wrapper);
+
+private:
+    // bindgroup_layout_wrapper: constructs via ptr_type in make_bindgroup()
+    // compute_wrapper: accesses m_pimpl->make_bindgroup() in compute()
+    // render_wrapper: accesses m_pimpl->make_bindgroup() and m_pimpl in render()
+    friend class bindgroup_layout_wrapper;
+    friend class compute_wrapper;
+    friend class render_wrapper;
+    DAWN_WRAPPER_PIMPL_CORE(bindgroup_wrapper);
 };
 
 struct bindgroup_set {
     bindgroup_set();
     bindgroup_set& add_bindgroup(bindgroup_wrapper bg, unsigned group);
 
-    DAWN_WRAPPER_PIMPL_DEC(bindgroup_set);
+private:
+    // compute_wrapper: accesses m_pimpl->m_bindgroups in compute()
+    // render_wrapper: accesses m_pimpl->m_bindgroups in render()
+    friend class compute_wrapper;
+    friend class render_wrapper;
+    DAWN_WRAPPER_PIMPL_CORE(bindgroup_set);
 };
 
 struct compute_wrapper {
@@ -106,11 +145,14 @@ struct compute_wrapper {
     void setup_compute(unsigned width, unsigned height);
     bindgroup_layout_wrapper make_bindgroup_layout();
     bool is_valid() const;
-    DAWN_WRAPPER_PIMPL_DEC(compute_wrapper);
+
+private:
+    // dawn_plugin: constructs via ptr_type constructor
+    friend class dawn_plugin;
+    DAWN_WRAPPER_PIMPL_CORE(compute_wrapper);
 };
 
 struct surface_wrapper {
-
     surface_wrapper() = default;
     void setup(GLFWwindow*, unsigned width, unsigned height, bool opaque);
     void setup(std::string html_canvas_selector, unsigned width, unsigned height);
@@ -118,7 +160,13 @@ struct surface_wrapper {
     std::pair<unsigned, unsigned> get_width_and_height() const;
 
     bool is_valid() const;
-    DAWN_WRAPPER_PIMPL_DEC(surface_wrapper);
+
+private:
+    // dawn_plugin: constructs via ptr_type constructor
+    // render_wrapper: accesses m_pimpl->getCurrentTextureView() in render()
+    friend class dawn_plugin;
+    friend class render_wrapper;
+    DAWN_WRAPPER_PIMPL_CORE(surface_wrapper);
 };
 
 struct render_wrapper {
@@ -133,9 +181,13 @@ struct render_wrapper {
     void init_pipeline(bindgroup_layout_wrapper);
     void init_pipeline();
     bool is_valid() const;
-    DAWN_WRAPPER_PIMPL_DEC(render_wrapper);
+
+private:
+    // dawn_plugin: constructs via ptr_type constructor
+    friend class dawn_plugin;
+    DAWN_WRAPPER_PIMPL_CORE(render_wrapper);
 };
-#undef DAWN_WRAPPER_PIMPL_DEC
+#undef DAWN_WRAPPER_PIMPL_CORE
 
 enum class buffer_type {
     storage,

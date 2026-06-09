@@ -6,8 +6,6 @@ using namespace wgpu;
 
 namespace dawn_wrapper {
 struct texture_output_wrapper::pimpl {
-    friend class render_wrapper::pimpl;
-
     pimpl() = default;
 
     pimpl(Device device, unsigned width, unsigned height)

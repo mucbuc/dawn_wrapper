@@ -7,8 +7,6 @@ using namespace wgpu;
 namespace dawn_wrapper {
 struct buffer_wrapper::pimpl
     : public std::enable_shared_from_this<pimpl> {
-    friend class compute_wrapper::pimpl;
-
     pimpl() = default;
 
     pimpl(Device device, size_t size, buffer_type flags, bool isDest)

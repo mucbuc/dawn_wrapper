@@ -1,7 +1,9 @@
 #pragma once
 
+#include <cstdint>
 #include <functional>
 #include <iostream>
+#include <memory>
 
 struct GLFWwindow;
 

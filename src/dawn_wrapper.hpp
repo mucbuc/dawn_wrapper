@@ -201,7 +201,7 @@ enum class buffer_type {
 struct dawn_plugin {
     dawn_plugin();
     ~dawn_plugin();
-    void on_load(std::function<void()>);
+    void on_load(std::function<void(std::string error)>);
     surface_wrapper make_surface();
     render_wrapper make_render();
     compute_wrapper make_compute();

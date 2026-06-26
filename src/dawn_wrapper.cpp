@@ -30,7 +30,7 @@ struct dawn_plugin::dawn_pimpl {
     {
     }
 
-    void on_load(std::function<void()> load_callback)
+    void on_load(std::function<void(std::string error)> load_callback)
     {
         ASSERT(!m_loaded_callback);
 
@@ -47,8 +47,9 @@ struct dawn_plugin::dawn_pimpl {
             [](RequestAdapterStatus status, Adapter adapter, const char* message, void* userdata) {
                 auto pimpl = reinterpret_cast<dawn_pimpl*>(userdata);
                 if (status != RequestAdapterStatus::Success) {
-                    pimpl->log_error("error requesting webgpu device adapter");
-                    pimpl->m_loaded_callback();
+                    std::string error = "error requiesting webgpu device adapter";
+                    pimpl->log_error(error.c_str());
+                    pimpl->m_loaded_callback(error);
                     return;
                 }
 
@@ -119,7 +120,7 @@ struct dawn_plugin::dawn_pimpl {
                     (void*)pimpl);
 #endif
 
-                pimpl->m_loaded_callback();
+                pimpl->m_loaded_callback("");
             },
             (void*)this);
     }
@@ -197,7 +198,7 @@ struct dawn_plugin::dawn_pimpl {
     Adapter m_adapter;
     Instance m_instance;
     const string m_label;
-    std::function<void()> m_loaded_callback;
+    std::function<void(std::string error)> m_loaded_callback;
 };
 
 dawn_plugin::dawn_plugin(/*ostream& o*/)
@@ -207,7 +208,7 @@ dawn_plugin::dawn_plugin(/*ostream& o*/)
 
 dawn_plugin::~dawn_plugin() = default;
 
-void dawn_plugin::on_load(std::function<void()> load_callback)
+void dawn_plugin::on_load(std::function<void(std::string error)> load_callback)
 {
     m_pimpl->on_load(load_callback);
 }

@@ -89,7 +89,8 @@ int main()
 
     dawn_plugin plugin;
 
-    plugin.on_load([plugin]() {
+    plugin.on_load([plugin](std::string error) {
+        ASSERT(error.empty());
         run_compute(plugin);
     });
 

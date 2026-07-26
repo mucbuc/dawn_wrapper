@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <initializer_list>
 #include <iostream>
 #include <memory>
 
@@ -139,6 +140,7 @@ private:
 struct compute_wrapper {
     compute_wrapper() = default;
     void init_pipeline(bindgroup_layout_wrapper layout);
+    void init_pipeline(std::initializer_list<bindgroup_layout_wrapper> layouts);
     void compile_shader(std::string script, std::string entryPoint);
     void compute(bindgroup_wrapper, unsigned width, unsigned height, encoder_wrapper encoder);
     void compute(bindgroup_set, unsigned width, unsigned height, encoder_wrapper encoder);
@@ -179,6 +181,7 @@ struct render_wrapper {
     void render(encoder_wrapper);
     bindgroup_layout_wrapper make_bindgroup_layout();
     void init_pipeline(bindgroup_layout_wrapper);
+    void init_pipeline(std::initializer_list<bindgroup_layout_wrapper>);
     void init_pipeline();
     bool is_valid() const;
 

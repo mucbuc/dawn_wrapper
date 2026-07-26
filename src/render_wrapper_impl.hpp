@@ -135,6 +135,14 @@ struct render_wrapper::pimpl : private shader_base {
         m_pipeline = dawn_utils::make_render_pipeline(m_device, bindGroupLayout, m_shader, m_vertexShader, m_entryPoint.c_str());
     }
 
+    void init_pipeline(std::initializer_list<bindgroup_layout_wrapper> layouts)
+    {
+        ASSERT(m_shader);
+
+        // auto bindGroupLayout = layout.m_pimpl->make_bindGroupLayout(m_device, m_entryPoint.c_str());
+        // m_pipeline = dawn_utils::make_render_pipeline(m_device, bindGroupLayout, m_shader, m_vertexShader, m_entryPoint.c_str());
+    }
+
     void init_pipeline()
     {
         ASSERT(m_shader);

@@ -3,6 +3,7 @@
 #include "bindgroup_layout_wrapper_impl.hpp"
 #include "bindgroup_set_impl.hpp"
 #include "bindgroup_wrapper_impl.hpp"
+#include "dawn_utils.hpp"
 #include "encoder_wrapper_impl.hpp"
 #include "shader_base.hpp"
 #include "surface_wrapper_impl.hpp"
@@ -16,7 +17,6 @@ struct render_wrapper::pimpl : private shader_base {
     pimpl(Device device, Instance wgpuInstance)
         : m_device(device)
         , m_wgpuInstance(wgpuInstance)
-        , m_bindGroupLayout()
         , m_shader()
         , m_vertexShader(dawn_utils::make_shader(m_device,
               R"(@vertex fn vertexMain(@location(0) p: vec2f) -> @builtin(position) vec4f {
@@ -58,10 +58,9 @@ struct render_wrapper::pimpl : private shader_base {
 
         auto pass = dawn_utils::begin_render_pass(encoder.m_pimpl->m_encoder, textureView);
         pass.SetPipeline(get_pipeline());
-   
-        for (auto entry : set.m_pimpl->m_bindgroups)
-        {
-            ASSERT(entry.second.m_pimpl); 
+
+        for (auto entry : set.m_pimpl->m_bindgroups) {
+            ASSERT(entry.second.m_pimpl);
 
             pass.SetBindGroup(entry.first, entry.second.m_pimpl->make_bindgroup(m_device));
         }
@@ -79,7 +78,6 @@ struct render_wrapper::pimpl : private shader_base {
 
     void render(bindgroup_wrapper bindGroup, encoder_wrapper encoder)
     {
-        ASSERT(m_bindGroupLayout);
         ASSERT(bindGroup.is_valid());
 
         auto textureView = getCurrentTextureView();
@@ -134,8 +132,20 @@ struct render_wrapper::pimpl : private shader_base {
     {
         ASSERT(m_shader);
 
-        m_bindGroupLayout = layout.m_pimpl->make_bindGroupLayout(m_device, m_entryPoint.c_str());
-        m_pipeline = dawn_utils::make_render_pipeline(m_device, m_bindGroupLayout, m_shader, m_vertexShader, m_entryPoint.c_str());
+        auto bindGroupLayout = layout.m_pimpl->make_bindGroupLayout(m_device, m_entryPoint.c_str());
+        m_pipeline = dawn_utils::make_render_pipeline(m_device, { bindGroupLayout }, m_shader, m_vertexShader, m_entryPoint.c_str());
+    }
+
+    void init_pipeline(std::initializer_list<bindgroup_layout_wrapper> layouts)
+    {
+        ASSERT(m_shader);
+
+        std::vector<BindGroupLayout> bgl;
+        bgl.reserve(layouts.size());
+        for (auto layout : layouts) {
+            bgl.push_back(layout.m_pimpl->make_bindGroupLayout(m_device, m_entryPoint.c_str()));
+        }
+        m_pipeline = dawn_utils::make_render_pipeline(m_device, bgl, m_shader, m_vertexShader, m_entryPoint.c_str());
     }
 
     void init_pipeline()
@@ -163,7 +173,6 @@ struct render_wrapper::pimpl : private shader_base {
 private:
     Device m_device;
     Instance m_wgpuInstance;
-    BindGroupLayout m_bindGroupLayout;
     ShaderModule m_shader;
     ShaderModule m_vertexShader;
     RenderPipeline m_pipeline;

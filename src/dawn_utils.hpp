@@ -229,7 +229,7 @@ static RenderPassEncoder begin_render_pass(CommandEncoder& encoder, TextureView 
     return encoder.BeginRenderPass(&renderpass);
 }
 
-static ComputePipeline make_compute_pipeline(Device& device, ShaderModule& shaderMod, BindGroupLayout& bindGroupLayout, const char* entryPoint, const char* label = "")
+static ComputePipeline make_compute_pipeline(Device& device, ShaderModule& shaderMod, const std::vector<BindGroupLayout>& bindGroupLayouts, const char* entryPoint, const char* label = "")
 {
     ComputePipelineDescriptor computePipelineDesc = {};
     computePipelineDesc.compute.entryPoint = entryPoint;
@@ -237,15 +237,15 @@ static ComputePipeline make_compute_pipeline(Device& device, ShaderModule& shade
     computePipelineDesc.label = label;
 
     PipelineLayoutDescriptor pipelineLayoutDesc = {};
-    pipelineLayoutDesc.bindGroupLayoutCount = 1;
-    pipelineLayoutDesc.bindGroupLayouts = &bindGroupLayout;
+    pipelineLayoutDesc.bindGroupLayoutCount = bindGroupLayouts.size();
+    pipelineLayoutDesc.bindGroupLayouts = bindGroupLayouts.data();
     pipelineLayoutDesc.label = label;
     computePipelineDesc.layout = device.CreatePipelineLayout(&pipelineLayoutDesc);
 
     return device.CreateComputePipeline(&computePipelineDesc);
 }
 
-static RenderPipeline make_render_pipeline(Device& device, BindGroupLayout& bindGroupLayout, ShaderModule& fragmentModule, ShaderModule& vertexModule, const char* entryPoint, const char* label = "")
+static RenderPipeline make_render_pipeline(Device& device, const std::vector<BindGroupLayout>& bindGroupLayouts, ShaderModule& fragmentModule, ShaderModule& vertexModule, const char* entryPoint, const char* label = "")
 {
     ColorTargetState colorTargetState {};
     colorTargetState.format = TextureFormat::BGRA8Unorm;
@@ -272,9 +272,8 @@ static RenderPipeline make_render_pipeline(Device& device, BindGroupLayout& bind
     vertexState.entryPoint = "vertexMain";
 
     PipelineLayoutDescriptor pipelineLayoutDesc = {};
-    pipelineLayoutDesc.bindGroupLayoutCount = 1;
-    BindGroupLayout layouts[] = { bindGroupLayout };
-    pipelineLayoutDesc.bindGroupLayouts = layouts;
+    pipelineLayoutDesc.bindGroupLayoutCount = bindGroupLayouts.size();
+    pipelineLayoutDesc.bindGroupLayouts = bindGroupLayouts.data();
     pipelineLayoutDesc.label = label;
 
     RenderPipelineDescriptor descriptor {};

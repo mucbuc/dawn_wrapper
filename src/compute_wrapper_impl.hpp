@@ -33,13 +33,17 @@ struct compute_wrapper::pimpl : private shader_base {
     void init_pipeline(bindgroup_layout_wrapper layout)
     {
         auto bindGroupLayout = layout.m_pimpl->make_bindGroupLayout(m_device, m_entryPoint.c_str());
-        m_pipeline = dawn_utils::make_compute_pipeline(m_device, m_shader, bindGroupLayout, m_entryPoint.c_str());
+        m_pipeline = dawn_utils::make_compute_pipeline(m_device, m_shader, { bindGroupLayout }, m_entryPoint.c_str());
     }
 
     void init_pipeline(std::initializer_list<bindgroup_layout_wrapper> layouts)
     {
-        // auto bindGroupLayout = layout.m_pimpl->make_bindGroupLayout(m_device, m_entryPoint.c_str());
-        // m_pipeline = dawn_utils::make_compute_pipeline(m_device, m_shader, bindGroupLayout, m_entryPoint.c_str());
+        std::vector<BindGroupLayout> bgl;
+        bgl.reserve(layouts.size());
+        for (auto layout : layouts) {
+            bgl.push_back(layout.m_pimpl->make_bindGroupLayout(m_device, m_entryPoint.c_str()));
+        }
+        m_pipeline = dawn_utils::make_compute_pipeline(m_device, m_shader, bgl, m_entryPoint.c_str());
     }
 
     void compute(bindgroup_set set, unsigned width, unsigned height, encoder_wrapper encoder)

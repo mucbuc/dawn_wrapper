@@ -18,9 +18,9 @@ void render_wrapper::set_surface(surface_wrapper s)
     m_pimpl->set_surface(s);
 }
 
-void render_wrapper::compile_shader(std::string script, std::string entryPoint)
+std::string render_wrapper::compile_shader(std::string script, std::string entryPoint)
 {
-    m_pimpl->compile_shader(script, entryPoint);
+    return m_pimpl->compile_shader(script, entryPoint);
 }
 
 bindgroup_layout_wrapper render_wrapper::make_bindgroup_layout()

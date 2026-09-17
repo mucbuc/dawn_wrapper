@@ -59,11 +59,16 @@ struct surface_wrapper::pimpl {
         SurfaceDescriptor surfaceDesc { .nextInChain = &canvasDesc };
         m_surface = m_wgpuInstance.CreateSurface(&surfaceDesc);
 
+        // Premultiplied rather than the default Auto, which resolves to opaque
+        // for a canvas. This alone changes nothing: a fragment that returns
+        // alpha 1 composites identically either way. It is what lets a fragment
+        // return anything else.
         SurfaceConfiguration config {
             .device = m_device,
             .format = TextureFormat::BGRA8Unorm,
             .width = width,
             .height = height,
+            .alphaMode = CompositeAlphaMode::Premultiplied,
         };
         m_surface.Configure(&config);
     }

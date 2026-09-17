@@ -19,6 +19,32 @@ using namespace std;
 using namespace dawn_utils;
 using namespace literals;
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten/emscripten.h>
+
+// The device callbacks below need a way out to the page. There is no return path
+// from a spontaneous callback — nobody is awaiting it — so it calls a hook on
+// Module if the embed installed one, and does nothing if it did not.
+//
+// StringView is not necessarily null-terminated: a length of SIZE_MAX is the
+// sentinel meaning "it is". Both cases have to be handled or this reads past the
+// end of a message exactly when something has already gone wrong.
+static void notify_page(const char* hook, wgpu::StringView message)
+{
+    std::string text;
+    if (message.data != nullptr) {
+        text = (message.length == SIZE_MAX)
+            ? std::string(message.data)
+            : std::string(message.data, message.length);
+    }
+    EM_ASM({
+        var fn = Module[UTF8ToString($0)];
+        if (typeof fn === "function") fn(UTF8ToString($1));
+    },
+        hook, text.c_str());
+}
+#endif
+
 namespace dawn_wrapper {
 struct dawn_plugin::dawn_pimpl {
     dawn_pimpl(/*ostream& out*/ const char* label = "")
@@ -77,22 +103,36 @@ struct dawn_plugin::dawn_pimpl {
         //        requiredLimits.limits.maxSamplersPerShaderStage = 1;
         deviceDesc.requiredLimits = &requiredLimits;
 
-#ifndef __EMSCRIPTEN__
+        // Both of these used to be native-only, which meant the build that
+        // actually ships had NO device-lost handling at all — a GPU reset, a
+        // laptop switching graphics, or a mobile tab being evicted just stopped
+        // the frames with nothing said anywhere. The native build cannot even be
+        // compiled from this repo (the root CMakeLists refuses a non-Emscripten
+        // toolchain), so this handler had never once run.
         deviceDesc.SetDeviceLostCallback(
             CallbackMode::AllowSpontaneous, [](const wgpu::Device& device, wgpu::DeviceLostReason reason, wgpu::StringView message, void* userdata) {
                 auto pimpl = reinterpret_cast<dawn_pimpl*>(userdata);
                 pimpl->log_error("device lost: ", message);
+#ifdef __EMSCRIPTEN__
+                notify_page("onDeviceLost", message);
+#endif
             },
             (void*)this);
 
         deviceDesc.SetUncapturedErrorCallback([](const wgpu::Device& device, wgpu::ErrorType type, wgpu::StringView message, void* userdata) {
             auto pimpl = reinterpret_cast<dawn_pimpl*>(userdata);
             pimpl->log_error("error: ", message);
-
+#ifdef __EMSCRIPTEN__
+            // Deliberately NOT the assert the native path takes. An uncaptured
+            // error is often a recoverable validation complaint, and aborting the
+            // runtime over one takes down a page that driftype is a guest on.
+            // Report it and let the embed decide.
+            notify_page("onUncapturedError", message);
+#else
             ASSERT(false);
+#endif
         },
             (void*)this);
-#endif
 
 #if 1
         vector<FeatureName> features = { FeatureName::ShaderF16 };

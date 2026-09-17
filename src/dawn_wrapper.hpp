@@ -141,7 +141,7 @@ struct compute_wrapper {
     compute_wrapper() = default;
     void init_pipeline(bindgroup_layout_wrapper layout);
     void init_pipeline(std::initializer_list<bindgroup_layout_wrapper> layouts);
-    void compile_shader(std::string script, std::string entryPoint);
+    std::string compile_shader(std::string script, std::string entryPoint);
     void compute(bindgroup_wrapper, unsigned width, unsigned height, encoder_wrapper encoder);
     void compute(bindgroup_set, unsigned width, unsigned height, encoder_wrapper encoder);
     void setup_compute(unsigned width, unsigned height);
@@ -173,7 +173,7 @@ private:
 
 struct render_wrapper {
     render_wrapper() = default;
-    void compile_shader(std::string script, std::string entryPoint);
+    std::string compile_shader(std::string script, std::string entryPoint);
     void set_surface(surface_wrapper);
 
     void render(bindgroup_set, encoder_wrapper);

@@ -137,11 +137,65 @@ private:
     DAWN_WRAPPER_PIMPL_CORE(bindgroup_set);
 };
 
+// What a render pipeline draws into, and how. Named here rather than exposing
+// wgpu types, which this header keeps out on purpose.
+enum class texture_format {
+    bgra8unorm,
+    rgba8unorm,
+};
+
+enum class blend_mode {
+    replace, // no blending: the source overwrites the target
+    alpha, // src.a over the target, the usual transparency
+    additive, // src + dst, for anything that accumulates light
+};
+
+enum class topology {
+    triangle_list,
+    triangle_strip,
+    point_list,
+    line_list,
+};
+
+// How a render_wrapper builds its pipeline and issues its draw.
+//
+// Every field defaults to what this library did when it had no configuration at
+// all: a built-in full-screen triangle, one Float32x2 attribute at location 0,
+// BGRA8Unorm, no blending, and DrawIndexed(3). So a caller that sets nothing gets
+// the behaviour it had before this existed.
+//
+// The point of the struct is that those are DEFAULTS rather than decisions: a
+// vertex stage that pulls from a storage buffer, instanced drawing with no vertex
+// buffer at all, and additive blending are what it was hardcoded against, and all
+// three are now callers' business. See PIPELINE_DSL.md.
+struct render_config {
+    // Empty means the built-in full-screen triangle.
+    std::string vertex_script;
+    std::string vertex_entry = "vertexMain";
+
+    texture_format target = texture_format::bgra8unorm;
+    blend_mode blend = blend_mode::replace;
+    topology primitive = topology::triangle_list;
+
+    // With a vertex buffer the wrapper binds its own (one Float32x2 at location 0)
+    // and draws indexed. Without, nothing is bound and the vertex stage is expected
+    // to build its positions from @builtin(vertex_index) and @builtin(instance_index)
+    // — which is how a particle system reads a storage buffer.
+    bool vertex_buffer = true;
+    unsigned vertex_count = 3;
+    unsigned instance_count = 1;
+};
+
 struct compute_wrapper {
     compute_wrapper() = default;
     void init_pipeline(bindgroup_layout_wrapper layout);
     void init_pipeline(std::initializer_list<bindgroup_layout_wrapper> layouts);
-    std::string compile_shader(std::string script, std::string entryPoint);
+    // The compilation messages arrive LATE, so they come back through the
+    // callback rather than as a return value; see shader_base.hpp. Empty string
+    // means it compiled clean. Nothing is printed and nothing aborts: a caller
+    // that passes nothing hears nothing.
+    void compile_shader(std::string script, std::string entryPoint,
+        std::function<void(std::string)> on_messages = {});
     void compute(bindgroup_wrapper, unsigned width, unsigned height, encoder_wrapper encoder);
     void compute(bindgroup_set, unsigned width, unsigned height, encoder_wrapper encoder);
     void setup_compute(unsigned width, unsigned height);
@@ -173,8 +227,15 @@ private:
 
 struct render_wrapper {
     render_wrapper() = default;
-    std::string compile_shader(std::string script, std::string entryPoint);
+    // See compute_wrapper::compile_shader: the messages arrive through the
+    // callback, after this returns.
+    void compile_shader(std::string script, std::string entryPoint,
+        std::function<void(std::string)> on_messages = {});
     void set_surface(surface_wrapper);
+
+    // Applied by the next init_pipeline, and by every draw. Unset, the wrapper
+    // behaves as it always did; see render_config.
+    void configure(render_config);
 
     void render(bindgroup_set, encoder_wrapper);
     void render(bindgroup_wrapper, encoder_wrapper);

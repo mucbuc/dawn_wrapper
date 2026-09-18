@@ -245,52 +245,63 @@ static ComputePipeline make_compute_pipeline(Device& device, ShaderModule& shade
     return device.CreateComputePipeline(&computePipelineDesc);
 }
 
-static RenderPipeline make_render_pipeline(Device& device, const std::vector<BindGroupLayout>& bindGroupLayouts, ShaderModule& fragmentModule, ShaderModule& vertexModule, const char* entryPoint, const char* label = "")
+// The pipeline, from a caller's render_config. Everything the config does not
+// mention keeps the value this library used when all of it was hardcoded.
+static TextureFormat to_wgpu(dawn_wrapper::texture_format f)
 {
-    ColorTargetState colorTargetState {};
-    colorTargetState.format = TextureFormat::BGRA8Unorm;
-
-    FragmentState fragmentState {};
-    fragmentState.module = fragmentModule;
-    fragmentState.entryPoint = entryPoint;
-    fragmentState.targetCount = 1;
-    fragmentState.targets = &colorTargetState;
-
-    VertexAttribute vertexAttrib = {};
-    vertexAttrib.shaderLocation = 0;
-    vertexAttrib.format = VertexFormat::Float32x2;
-    vertexAttrib.offset = 0;
-
-    VertexBufferLayout vertexBufferLayout = {};
-    vertexBufferLayout.attributeCount = 1;
-    vertexBufferLayout.attributes = &vertexAttrib;
-    vertexBufferLayout.arrayStride = 2 * sizeof(float);
-    vertexBufferLayout.stepMode = VertexStepMode::Vertex;
-
-    VertexState vertexState {};
-    vertexState.module = vertexModule;
-    vertexState.entryPoint = "vertexMain";
-
-    PipelineLayoutDescriptor pipelineLayoutDesc = {};
-    pipelineLayoutDesc.bindGroupLayoutCount = bindGroupLayouts.size();
-    pipelineLayoutDesc.bindGroupLayouts = bindGroupLayouts.data();
-    pipelineLayoutDesc.label = label;
-
-    RenderPipelineDescriptor descriptor {};
-    descriptor.vertex = vertexState;
-    descriptor.fragment = &fragmentState;
-    descriptor.vertex.bufferCount = 1;
-    descriptor.vertex.buffers = &vertexBufferLayout;
-    descriptor.layout = device.CreatePipelineLayout(&pipelineLayoutDesc);
-    descriptor.label = label;
-
-    return device.CreateRenderPipeline(&descriptor);
+    switch (f) {
+    case dawn_wrapper::texture_format::rgba8unorm:
+        return TextureFormat::RGBA8Unorm;
+    case dawn_wrapper::texture_format::bgra8unorm:
+    default:
+        return TextureFormat::BGRA8Unorm;
+    }
 }
 
-static RenderPipeline make_render_pipeline(Device& device, ShaderModule& fragmentModule, ShaderModule& vertexModule, const char* entryPoint, const char* label = "")
+static PrimitiveTopology to_wgpu(dawn_wrapper::topology t)
 {
+    switch (t) {
+    case dawn_wrapper::topology::triangle_strip:
+        return PrimitiveTopology::TriangleStrip;
+    case dawn_wrapper::topology::point_list:
+        return PrimitiveTopology::PointList;
+    case dawn_wrapper::topology::line_list:
+        return PrimitiveTopology::LineList;
+    case dawn_wrapper::topology::triangle_list:
+    default:
+        return PrimitiveTopology::TriangleList;
+    }
+}
+
+// Premultiplied-free, straightforward source-over for `alpha`, and src + dst for
+// `additive`. `replace` leaves the target state without a blend entirely, which is
+// what a pipeline had before this was configurable.
+static BlendState to_wgpu(dawn_wrapper::blend_mode mode)
+{
+    BlendState blend {};
+    if (mode == dawn_wrapper::blend_mode::additive) {
+        blend.color = { BlendOperation::Add, BlendFactor::One, BlendFactor::One };
+        blend.alpha = { BlendOperation::Add, BlendFactor::One, BlendFactor::One };
+    } else {
+        blend.color = { BlendOperation::Add, BlendFactor::SrcAlpha, BlendFactor::OneMinusSrcAlpha };
+        blend.alpha = { BlendOperation::Add, BlendFactor::One, BlendFactor::OneMinusSrcAlpha };
+    }
+    return blend;
+}
+
+static RenderPipeline make_render_pipeline(Device& device,
+    const std::vector<BindGroupLayout>& bindGroupLayouts,
+    ShaderModule& fragmentModule, ShaderModule& vertexModule,
+    const char* entryPoint, const dawn_wrapper::render_config& config,
+    const char* label = "")
+{
+    const auto blendState = to_wgpu(config.blend);
+
     ColorTargetState colorTargetState {};
-    colorTargetState.format = TextureFormat::BGRA8Unorm;
+    colorTargetState.format = to_wgpu(config.target);
+    if (config.blend != dawn_wrapper::blend_mode::replace) {
+        colorTargetState.blend = &blendState;
+    }
 
     FragmentState fragmentState {};
     fragmentState.module = fragmentModule;
@@ -298,6 +309,9 @@ static RenderPipeline make_render_pipeline(Device& device, ShaderModule& fragmen
     fragmentState.targetCount = 1;
     fragmentState.targets = &colorTargetState;
 
+    // The built-in layout, used only when the caller wants a vertex buffer. A
+    // vertex stage that builds its own positions from @builtin(vertex_index) and a
+    // storage buffer binds nothing here.
     VertexAttribute vertexAttrib = {};
     vertexAttrib.shaderLocation = 0;
     vertexAttrib.format = VertexFormat::Float32x2;
@@ -311,19 +325,25 @@ static RenderPipeline make_render_pipeline(Device& device, ShaderModule& fragmen
 
     VertexState vertexState {};
     vertexState.module = vertexModule;
-    vertexState.entryPoint = "vertexMain";
-
-    PipelineLayoutDescriptor pipelineLayoutDesc = {};
-    pipelineLayoutDesc.bindGroupLayoutCount = 0;
-    pipelineLayoutDesc.label = label;
+    vertexState.entryPoint = config.vertex_entry.c_str();
+    if (config.vertex_buffer) {
+        vertexState.bufferCount = 1;
+        vertexState.buffers = &vertexBufferLayout;
+    }
 
     RenderPipelineDescriptor descriptor {};
     descriptor.vertex = vertexState;
     descriptor.fragment = &fragmentState;
-    descriptor.vertex.bufferCount = 1;
-    descriptor.vertex.buffers = &vertexBufferLayout;
-    descriptor.layout = device.CreatePipelineLayout(&pipelineLayoutDesc);
+    descriptor.primitive.topology = to_wgpu(config.primitive);
     descriptor.label = label;
+
+    if (!bindGroupLayouts.empty()) {
+        PipelineLayoutDescriptor pipelineLayoutDesc = {};
+        pipelineLayoutDesc.bindGroupLayoutCount = bindGroupLayouts.size();
+        pipelineLayoutDesc.bindGroupLayouts = bindGroupLayouts.data();
+        pipelineLayoutDesc.label = label;
+        descriptor.layout = device.CreatePipelineLayout(&pipelineLayoutDesc);
+    }
 
     return device.CreateRenderPipeline(&descriptor);
 }

@@ -23,14 +23,13 @@ struct compute_wrapper::pimpl : private shader_base {
     {
     }
 
-    std::string compile_shader(std::string script, std::string entryPoint)
+    void compile_shader(std::string script, std::string entryPoint,
+        compile_callback on_messages)
     {
         m_shader = dawn_utils::make_compute_shader(m_device, script, entryPoint.c_str());
-        m_messages.clear();
-        m_shader.GetCompilationInfo(CallbackMode::AllowSpontaneous, &shader_base::compilation_callback, (void*)this);
+        m_shader.GetCompilationInfo(CallbackMode::AllowSpontaneous,
+            &shader_base::compilation_callback, make_request(std::move(on_messages)));
         m_entryPoint = entryPoint;
-
-        return m_messages.str();
     }
 
     void init_pipeline(bindgroup_layout_wrapper layout)

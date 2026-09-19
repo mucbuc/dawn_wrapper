@@ -1,7 +1,9 @@
 #pragma once
 
 #include <functional>
+#include <iostream>
 #include <map>
+#include <sstream>
 #include <string>
 
 #include <dawn_wrapper/src/dawn_wrapper.hpp>
@@ -28,11 +30,85 @@ private:
     dawn_wrapper::dawn_plugin m_dawn;
 };
 
+struct Index {
+
+    Index(std::string name)
+        : m_name(name)
+    {
+    }
+
+    std::string wgsl()
+    {
+        return m_name;
+    }
+
+private:
+    std::string m_name;
+};
+
+struct Expression {
+
+    // template <typename T>
+    Expression(std::string name)
+        : m_wgsl(name)
+    {
+    }
+
+    Expression& operator[](Index i)
+    {
+        m_wgsl += "[" + i.wgsl() + "] ";
+        return *this;
+    }
+
+    Expression& operator+(Expression e)
+    {
+        m_wgsl += " + " + e.wgsl();
+        return *this;
+    }
+
+    Expression& operator+=(Expression e)
+    {
+        m_wgsl += " += " + e.wgsl();
+        return *this;
+    }
+
+    std::string wgsl()
+    {
+        return m_wgsl;
+    }
+
+private:
+    std::string m_wgsl;
+};
+
 template <typename T>
 struct Array {
+    Array(std::string name)
+        : m_name(name)
+    {
+    }
+
+private:
+    std::string m_name;
 };
 
 struct Uniform {
+};
+
+struct WGSL {
+    template <typename T>
+    WGSL(T expression)
+        : m_wgsl()
+    {
+    }
+
+    std::string wgsl()
+    {
+        return m_wgsl;
+    }
+
+private:
+    std::string m_wgsl;
 };
 
 struct Shader {
@@ -63,6 +139,11 @@ struct Shader {
         ++m_binding;
     }
 
+    std::string wgsl_bindings()
+    {
+        return "";
+    }
+
     template <typename T>
     void read(Array<T>, std::string name, unsigned group)
     {
@@ -78,9 +159,15 @@ struct Shader {
         ++m_binding;
     }
 
-    void compile(std::string script, std::string entry, std::function<void(std::string)> cb)
+    void compile(WGSL script, std::string entry, std::function<void(std::string)> cb)
     {
-        m_compute.compile_shader(script, entry, cb);
+        std::stringstream s;
+        s << wgsl_bindings();
+        s << script.wgsl();
+
+        std::cout << script.wgsl() << std::endl;
+
+        m_compute.compile_shader(s.str(), entry, cb);
     }
 
 private:
@@ -97,7 +184,11 @@ struct Pipeline {
     void compute(Shader);
 };
 
+template <typename T>
 struct Member {
+    Member(Uniform u, std::string name);
+
+    void set(T);
 };
 
 }

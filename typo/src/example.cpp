@@ -19,9 +19,16 @@ void test_typo(dawn_plugin plugin)
 {
     typo::Context c(plugin);
 
-    typo::Shader s(c);
+    typo::Index i("index");
+    typo::Expression e("variable_a");
+    typo::Expression f("variable_b");
 
-    s.compile("test", "test", [](auto error) {
+    const auto wgsl = (e[i] += f[i]).wgsl();
+
+    std::cout << wgsl << std::endl;
+
+    typo::Shader s(c);
+    s.compile(wgsl, "test", [](auto error) {
         if (!error.empty()) {
             std::cerr << error << std::endl;
         }

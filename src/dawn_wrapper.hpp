@@ -292,6 +292,12 @@ struct dawn_plugin {
     texture_wrapper make_texture_from_data(std::vector<uint8_t> data);
     texture_output_wrapper make_texture_output(size_t, size_t);
     encoder_wrapper make_encoder();
+    // Validation errors raised between a push and its pop come back through the
+    // pop's callback, in order, instead of as uncaptured errors reaching the page
+    // at some later tick; a caller can then wait for the verdict before trusting
+    // what it built. Empty string means none. Scopes nest.
+    void push_error_scope();
+    void pop_error_scope(std::function<void(std::string error)>);
     bool run();
     bool is_valid() const;
 

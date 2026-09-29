@@ -209,6 +209,29 @@ struct dawn_plugin::dawn_pimpl {
         return make_shared<encoder_wrapper::pimpl>(m_device);
     }
 
+    void push_error_scope()
+    {
+        ASSERT(m_device.Get());
+        m_device.PushErrorScope(ErrorFilter::Validation);
+    }
+
+    void pop_error_scope(std::function<void(std::string)> on_error)
+    {
+        ASSERT(m_device.Get());
+        m_device.PopErrorScope(CallbackMode::AllowSpontaneous,
+            [on_error = std::move(on_error)](PopErrorScopeStatus status, ErrorType type, StringView message) {
+                std::string text;
+                if (status != PopErrorScopeStatus::Success) {
+                    text = "the error scope did not resolve";
+                } else if (type != ErrorType::NoError) {
+                    text = std::string(message.data ? std::string_view(message) : std::string_view("unknown error"));
+                }
+                if (on_error) {
+                    on_error(text);
+                }
+            });
+    }
+
     buffer_wrapper make_buffer(size_t size, buffer_type flags, bool isDest)
     {
         return make_shared<buffer_wrapper::pimpl>(m_device, size, flags, isDest);
@@ -306,6 +329,16 @@ texture_output_wrapper dawn_plugin::make_texture_output(size_t width, size_t hei
 encoder_wrapper dawn_plugin::make_encoder()
 {
     return m_pimpl->make_encoder();
+}
+
+void dawn_plugin::push_error_scope()
+{
+    m_pimpl->push_error_scope();
+}
+
+void dawn_plugin::pop_error_scope(std::function<void(std::string)> on_error)
+{
+    m_pimpl->pop_error_scope(std::move(on_error));
 }
 
 bool dawn_plugin::is_valid() const

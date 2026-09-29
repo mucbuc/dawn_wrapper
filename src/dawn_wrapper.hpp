@@ -74,6 +74,8 @@ private:
 struct texture_wrapper {
     texture_wrapper() = default;
     void write(const std::vector<uint8_t>& colors);
+    // `width` by `height` RGBA texels at (x, y), rows unpadded; the rest keep theirs.
+    void write_region(unsigned x, unsigned y, unsigned width, unsigned height, const std::vector<uint8_t>& rgba);
     void make_sampler(bool clamp_to_edge);
 
     unsigned get_width() const;
@@ -96,6 +98,8 @@ struct texture_output_wrapper {
     // Every texel, RGBA bytes row by row, unpadded: a texture a compute pass
     // then writes into (add_storage_texture_2d) can start with data.
     void write(const std::vector<uint8_t>& colors);
+    // `width` by `height` RGBA texels at (x, y), rows unpadded; the rest keep theirs.
+    void write_region(unsigned x, unsigned y, unsigned width, unsigned height, const std::vector<uint8_t>& rgba);
     void make_sampler(bool clamp_to_edge);
 
     unsigned get_width() const;
@@ -271,6 +275,11 @@ struct render_config {
     // vertex_script is then unused.
     bool vertex_from_module = false;
 
+    // false: the pass starts from what its target already holds instead of
+    // clearing it, so render passes drawn one after another in a frame add up
+    // (layers). true is what every pass always did.
+    bool clear = true;
+
     // false: render() only records its pass into the encoder, and submitting it
     // (and, natively, presenting the surface) is the caller's. true is what
     // render() always did: submit, then present.
@@ -335,6 +344,9 @@ struct render_wrapper {
     void configure(render_config);
 
     void render(bindgroup_set, encoder_wrapper);
+    // Drawing `vertices` x `instances` instead of render_config's counts, for a
+    // count that changes each frame; the caller holds it.
+    void render(bindgroup_set, encoder_wrapper, unsigned vertices, unsigned instances);
     void render(bindgroup_wrapper, encoder_wrapper);
     void render(encoder_wrapper);
     bindgroup_layout_wrapper make_bindgroup_layout(shader_visibility = shader_visibility::fragment);

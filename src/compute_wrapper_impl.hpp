@@ -27,7 +27,7 @@ struct compute_wrapper::pimpl : private shader_base {
         compile_callback on_messages)
     {
         m_shader = dawn_utils::make_compute_shader(m_device, script, entryPoint.c_str());
-        m_shader.GetCompilationInfo(CallbackMode::AllowSpontaneous,
+        m_shader.GetCompilationInfo(dawn_utils::work_callback_mode,
             &shader_base::compilation_callback, make_request(std::move(on_messages)));
         m_entryPoint = entryPoint;
     }

@@ -278,7 +278,7 @@ struct dawn_plugin::dawn_pimpl {
         }
         // AllowSpontaneous, like every other callback here: nobody is pumping a
         // wait loop, and the page's event loop is what makes progress.
-        m_device.GetQueue().OnSubmittedWorkDone(CallbackMode::AllowSpontaneous,
+        m_device.GetQueue().OnSubmittedWorkDone(dawn_utils::work_callback_mode,
             [cb](QueueWorkDoneStatus status, StringView message) {
                 if (status == QueueWorkDoneStatus::Success) {
                     cb("");
@@ -372,7 +372,7 @@ struct dawn_plugin::dawn_pimpl {
     void pop_error_scope(std::function<void(std::string)> on_error)
     {
         ASSERT(m_device.Get());
-        m_device.PopErrorScope(CallbackMode::AllowSpontaneous,
+        m_device.PopErrorScope(dawn_utils::work_callback_mode,
             [on_error = std::move(on_error)](PopErrorScopeStatus status, ErrorType type, StringView message) {
                 std::string text;
                 if (status != PopErrorScopeStatus::Success) {

@@ -25,6 +25,14 @@ struct texture_output_wrapper::pimpl {
         write_texture(m_device, m_texture, m_desc, colors);
     }
 
+    // Part of it: `width` by `height` texels at (x, y), inside the texture.
+    void write_region(unsigned x, unsigned y, unsigned width, unsigned height, const std::vector<uint8_t>& rgba)
+    {
+        ASSERT(x + width <= m_desc.size.width && y + height <= m_desc.size.height);
+        ASSERT(rgba.size() == size_t(4) * width * height);
+        dawn_utils::write_texture_region(m_device, m_texture, x, y, width, height, rgba);
+    }
+
     TextureView get_view()
     {
         ASSERT(m_texture);

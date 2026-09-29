@@ -56,7 +56,7 @@ struct buffer_wrapper::pimpl
         m_done = false;
 
         m_self_ref = shared_from_this();
-        m_buffer.MapAsync(MapMode::Read, 0, buffer_size, CallbackMode::AllowSpontaneous, &callback2, (void*)this);
+        m_buffer.MapAsync(MapMode::Read, 0, buffer_size, dawn_utils::work_callback_mode, &callback2, (void*)this);
     }
 
     bool done() const

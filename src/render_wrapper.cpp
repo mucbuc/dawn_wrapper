@@ -64,6 +64,11 @@ void render_wrapper::render(bindgroup_set set, encoder_wrapper encoder)
     m_pimpl->render(set, encoder);
 }
 
+void render_wrapper::render(bindgroup_set set, encoder_wrapper encoder, unsigned vertices, unsigned instances)
+{
+    m_pimpl->render(set, encoder, vertices, instances);
+}
+
 void render_wrapper::render(bindgroup_wrapper bindGroup, encoder_wrapper encoder)
 {
     m_pimpl->render(bindGroup, encoder);

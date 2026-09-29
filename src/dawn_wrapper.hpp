@@ -5,6 +5,7 @@
 #include <initializer_list>
 #include <iostream>
 #include <memory>
+#include <vector>
 
 struct GLFWwindow;
 
@@ -190,6 +191,8 @@ struct compute_wrapper {
     compute_wrapper() = default;
     void init_pipeline(bindgroup_layout_wrapper layout);
     void init_pipeline(std::initializer_list<bindgroup_layout_wrapper> layouts);
+    // For a group count only known at runtime, as a loader reading a document has.
+    void init_pipeline(const std::vector<bindgroup_layout_wrapper>& layouts);
     // The compilation messages arrive LATE, so they come back through the
     // callback rather than as a return value; see shader_base.hpp. Empty string
     // means it compiled clean. Nothing is printed and nothing aborts: a caller

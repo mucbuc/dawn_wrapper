@@ -40,6 +40,11 @@ struct compute_wrapper::pimpl : private shader_base {
 
     void init_pipeline(std::initializer_list<bindgroup_layout_wrapper> layouts)
     {
+        init_pipeline(std::vector<bindgroup_layout_wrapper>(layouts));
+    }
+
+    void init_pipeline(const std::vector<bindgroup_layout_wrapper>& layouts)
+    {
         std::vector<BindGroupLayout> bgl;
         bgl.reserve(layouts.size());
         for (auto layout : layouts) {

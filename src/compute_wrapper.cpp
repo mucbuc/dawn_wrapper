@@ -28,6 +28,11 @@ void compute_wrapper::init_pipeline(std::initializer_list<bindgroup_layout_wrapp
     m_pimpl->init_pipeline(layouts);
 }
 
+void compute_wrapper::init_pipeline(const std::vector<bindgroup_layout_wrapper>& layouts)
+{
+    m_pimpl->init_pipeline(layouts);
+}
+
 void compute_wrapper::compute(bindgroup_set set, unsigned width, unsigned height, encoder_wrapper encoder)
 {
     m_pimpl->compute(set, width, height, encoder);

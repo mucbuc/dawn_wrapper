@@ -289,6 +289,8 @@ struct render_wrapper {
     bindgroup_layout_wrapper make_bindgroup_layout(shader_visibility = shader_visibility::fragment);
     void init_pipeline(bindgroup_layout_wrapper);
     void init_pipeline(std::initializer_list<bindgroup_layout_wrapper>);
+    // For a group count only known at runtime; empty means no groups.
+    void init_pipeline(const std::vector<bindgroup_layout_wrapper>&);
     void init_pipeline();
     bool is_valid() const;
 

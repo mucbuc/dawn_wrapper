@@ -49,6 +49,11 @@ void render_wrapper::init_pipeline(std::initializer_list<bindgroup_layout_wrappe
     m_pimpl->init_pipeline(layouts);
 }
 
+void render_wrapper::init_pipeline(const std::vector<bindgroup_layout_wrapper>& layouts)
+{
+    m_pimpl->init_pipeline(layouts);
+}
+
 void render_wrapper::init_pipeline()
 {
     m_pimpl->init_pipeline();

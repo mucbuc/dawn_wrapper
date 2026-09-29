@@ -27,6 +27,25 @@ using namespace wgpu;
 
 namespace dawn_utils {
 
+// How callbacks that answer submitted work arrive: compilation messages, error
+// scopes, queue work done, buffer maps.
+//
+// Natively, AllowSpontaneous lets Dawn call back while it holds its device lock,
+// so a callback that submits more work (a readback that starts the next run)
+// waits on that lock for good: dr_dawn's chained execute() hung in
+// fieldfactory's native test, inside Queue::Submit. AllowProcessEvents delivers
+// them from ProcessEvents (dawn_plugin::run) instead, outside the lock, which
+// the native host is already pumping to see them at all.
+//
+// In the browser nothing calls ProcessEvents; there they must stay spontaneous.
+// Start-up (adapter, device, device lost) stays spontaneous everywhere: on_load
+// does not pump.
+#ifdef __EMSCRIPTEN__
+inline constexpr wgpu::CallbackMode work_callback_mode = wgpu::CallbackMode::AllowSpontaneous;
+#else
+inline constexpr wgpu::CallbackMode work_callback_mode = wgpu::CallbackMode::AllowProcessEvents;
+#endif
+
 static void write_texture(Device& device, Texture& texture, TextureDescriptor& desc, std::vector<uint8_t> colorTexture)
 {
     TexelCopyTextureInfo destination {};
@@ -215,11 +234,32 @@ static ComputePassEncoder begin_compute_pass(CommandEncoder& encoder, const char
     return encoder.BeginComputePass(&computePassDesc);
 }
 
-static RenderPassEncoder begin_render_pass(CommandEncoder& encoder, TextureView textureView, const char* label = "")
+// `width` by `height` RGBA8 texels at (x, y), rows unpadded: queue writes have no
+// 256-byte row alignment, unlike buffer copies.
+static void write_texture_region(Device& device, Texture& texture, uint32_t x, uint32_t y, uint32_t width, uint32_t height, const std::vector<uint8_t>& rgba)
+{
+    TexelCopyTextureInfo destination {};
+    destination.texture = texture;
+    destination.mipLevel = 0;
+    destination.origin = { x, y, 0 };
+    destination.aspect = TextureAspect::All;
+
+    TexelCopyBufferLayout source {};
+    source.offset = 0;
+    source.bytesPerRow = 4 * width;
+    source.rowsPerImage = height;
+
+    const Extent3D size { width, height, 1 };
+    device.GetQueue().WriteTexture(&destination, rgba.data(), rgba.size(), &source, &size);
+}
+
+// `clear`: start from transparent black; otherwise from what the target holds,
+// so passes drawn one after another in a frame add up (layers).
+static RenderPassEncoder begin_render_pass(CommandEncoder& encoder, TextureView textureView, bool clear = true, const char* label = "")
 {
     RenderPassColorAttachment attachment {};
     attachment.view = textureView;
-    attachment.loadOp = LoadOp::Clear;
+    attachment.loadOp = clear ? LoadOp::Clear : LoadOp::Load;
     attachment.storeOp = StoreOp::Store;
 
     RenderPassDescriptor renderpass {};

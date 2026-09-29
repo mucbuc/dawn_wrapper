@@ -17,6 +17,11 @@ void texture_output_wrapper::write(const std::vector<uint8_t>& colors)
     m_pimpl->write(colors);
 }
 
+void texture_output_wrapper::write_region(unsigned x, unsigned y, unsigned width, unsigned height, const std::vector<uint8_t>& rgba)
+{
+    m_pimpl->write_region(x, y, width, height, rgba);
+}
+
 void texture_output_wrapper::make_sampler(bool clamp_to_edge)
 {
     m_pimpl->make_sampler(clamp_to_edge);

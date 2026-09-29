@@ -74,6 +74,14 @@ struct render_wrapper::pimpl : private shader_base {
 
     void render(bindgroup_set set, encoder_wrapper encoder)
     {
+        render(set, encoder, m_config.vertex_count, m_config.instance_count);
+    }
+
+    // The same, drawing `vertices` x `instances` rather than the config's: a
+    // count that changes each frame (the live sprites, the glyphs on a page),
+    // held by the caller, so two callers sharing this wrapper keep their own.
+    void render(bindgroup_set set, encoder_wrapper encoder, unsigned vertices, unsigned instances)
+    {
         // SKIP THE FRAME rather than assert. getCurrentTextureView returns a
         // null view when the surface has no drawable texture — lost, outdated,
         // timed out — and the assert that used to stand here was the only thing
@@ -86,7 +94,7 @@ struct render_wrapper::pimpl : private shader_base {
         auto textureView = getCurrentTextureView();
         if (!textureView) return;
 
-        auto pass = dawn_utils::begin_render_pass(encoder.m_pimpl->m_encoder, textureView);
+        auto pass = dawn_utils::begin_render_pass(encoder.m_pimpl->m_encoder, textureView, m_config.clear);
         pass.SetPipeline(get_pipeline());
 
         for (auto entry : set.m_pimpl->m_bindgroups) {
@@ -95,7 +103,7 @@ struct render_wrapper::pimpl : private shader_base {
             pass.SetBindGroup(entry.first, entry.second.m_pimpl->make_bindgroup(m_device));
         }
 
-        draw(pass);
+        draw(pass, vertices, instances);
         pass.End();
 
         finish(encoder);
@@ -109,7 +117,7 @@ struct render_wrapper::pimpl : private shader_base {
         auto textureView = getCurrentTextureView();
         if (!textureView) return;
 
-        auto pass = dawn_utils::begin_render_pass(encoder.m_pimpl->m_encoder, textureView);
+        auto pass = dawn_utils::begin_render_pass(encoder.m_pimpl->m_encoder, textureView, m_config.clear);
         pass.SetPipeline(get_pipeline());
 
         auto bindGroupImpl = bindGroup.m_pimpl->make_bindgroup(m_device);
@@ -129,7 +137,7 @@ struct render_wrapper::pimpl : private shader_base {
         auto textureView = getCurrentTextureView();
         if (!textureView) return;
 
-        auto pass = dawn_utils::begin_render_pass(encoder.m_pimpl->m_encoder, textureView);
+        auto pass = dawn_utils::begin_render_pass(encoder.m_pimpl->m_encoder, textureView, m_config.clear);
         pass.SetPipeline(get_pipeline());
         draw(pass);
         pass.End();
@@ -153,13 +161,18 @@ struct render_wrapper::pimpl : private shader_base {
     // stage builds its own positions and this is a plain instanced draw.
     void draw(RenderPassEncoder& pass)
     {
+        draw(pass, m_config.vertex_count, m_config.instance_count);
+    }
+
+    void draw(RenderPassEncoder& pass, unsigned vertices, unsigned instances)
+    {
         if (m_config.vertex_buffer) {
             pass.SetVertexBuffer(0, get_bufferVertex(), 0, get_bufferVertex().GetSize());
             pass.SetIndexBuffer(get_bufferIndex(), IndexFormat::Uint16, 0, get_bufferIndex().GetSize());
-            pass.DrawIndexed(m_config.vertex_count, m_config.instance_count, 0, 0, 0);
+            pass.DrawIndexed(vertices, instances, 0, 0, 0);
             return;
         }
-        pass.Draw(m_config.vertex_count, m_config.instance_count, 0, 0);
+        pass.Draw(vertices, instances, 0, 0);
     }
 
     bindgroup_layout_wrapper make_bindgroup_layout(shader_visibility visibility)
@@ -180,7 +193,7 @@ struct render_wrapper::pimpl : private shader_base {
         compile_callback on_messages)
     {
         m_shader = dawn_utils::make_shader(m_device, script, entryPoint.c_str());
-        m_shader.GetCompilationInfo(CallbackMode::AllowSpontaneous,
+        m_shader.GetCompilationInfo(dawn_utils::work_callback_mode,
             &shader_base::compilation_callback, make_request(std::move(on_messages)));
         m_entryPoint = entryPoint;
     }

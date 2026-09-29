@@ -270,6 +270,19 @@ struct dawn_plugin {
     render_wrapper make_render();
     compute_wrapper make_compute();
     buffer_wrapper make_src_buffer(size_t size, buffer_type type);
+    // The largest storage buffer this device will let a shader bind, in bytes.
+    // The device is created asking for whatever the adapter reports, so this is
+    // the machine's real ceiling and not WebGPU's 128 MiB guaranteed floor.
+    size_t max_storage_buffer_size() const;
+    // Resolve once every command already submitted has actually FINISHED on the
+    // GPU. Submitting is not drawing: Submit() returns as soon as the commands
+    // are queued, and on a fast backend the work lands before anyone looks. On a
+    // slow one it does not, and a reader sees a surface that has not been drawn
+    // into yet.
+    //
+    // The error string is empty on success. Callers that want a frame rather
+    // than a promise of one wait on this before reading the canvas back.
+    void on_work_done(std::function<void(std::string error)>);
     buffer_wrapper make_dst_buffer(size_t size, buffer_type type);
     texture_wrapper make_texture_1d(size_t);
     texture_wrapper make_texture_2d(size_t, size_t);

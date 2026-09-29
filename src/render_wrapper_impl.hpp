@@ -54,8 +54,17 @@ struct render_wrapper::pimpl : private shader_base {
 
     void render(bindgroup_set set, encoder_wrapper encoder)
     {
+        // SKIP THE FRAME rather than assert. getCurrentTextureView returns a
+        // null view when the surface has no drawable texture — lost, outdated,
+        // timed out — and the assert that used to stand here was the only thing
+        // stopping a render pass being built on nothing. Under NDEBUG it would
+        // have been removed and that pass built anyway.
+        //
+        // Dropping a frame is the right outcome: the next one may succeed (a
+        // resize resolves itself), and a renderer that skips is recoverable
+        // where one that aborts is not.
         auto textureView = getCurrentTextureView();
-        ASSERT(textureView);
+        if (!textureView) return;
 
         auto pass = dawn_utils::begin_render_pass(encoder.m_pimpl->m_encoder, textureView);
         pass.SetPipeline(get_pipeline());
@@ -79,8 +88,9 @@ struct render_wrapper::pimpl : private shader_base {
     {
         ASSERT(bindGroup.is_valid());
 
+        // Same skip as the overload above, and for the same reason.
         auto textureView = getCurrentTextureView();
-        ASSERT(textureView);
+        if (!textureView) return;
 
         auto pass = dawn_utils::begin_render_pass(encoder.m_pimpl->m_encoder, textureView);
         pass.SetPipeline(get_pipeline());
@@ -99,7 +109,13 @@ struct render_wrapper::pimpl : private shader_base {
 
     void render(encoder_wrapper encoder)
     {
-        auto pass = dawn_utils::begin_render_pass(encoder.m_pimpl->m_encoder, getCurrentTextureView());
+        // This overload never checked at all — it passed the view straight in,
+        // so it had neither an assert to remove nor a guard to keep. Same skip
+        // as the other two.
+        auto textureView = getCurrentTextureView();
+        if (!textureView) return;
+
+        auto pass = dawn_utils::begin_render_pass(encoder.m_pimpl->m_encoder, textureView);
         pass.SetPipeline(get_pipeline());
         draw(pass);
         pass.End();

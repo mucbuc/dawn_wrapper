@@ -1,6 +1,7 @@
 #pragma once
 
 #include "dawn_utils.hpp"
+#include <iostream>
 
 using namespace wgpu;
 
@@ -99,7 +100,20 @@ struct buffer_wrapper::pimpl
             break;
 
         default:
-            ASSERT(false);
+            // Unreachable for any declared buffer_type, and the assert that
+            // stood alone here would have vanished under NDEBUG — leaving a
+            // buffer created with whatever usage `flags` started as, which
+            // fails later as a WebGPU validation error naming neither this
+            // function nor the type that caused it.
+            //
+            // Reported unconditionally instead. The creation still fails, but
+            // now something says why, and onUncapturedError carries the
+            // validation error to the page beside it.
+            std::cerr << "[dawn_wrapper] unknown buffer_type "
+                      << static_cast<int>(type)
+                      << " — the buffer will be created with the wrong usage"
+                      << std::endl;
+            break;
         }
 
         return flags;

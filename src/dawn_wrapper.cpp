@@ -2,6 +2,12 @@
 
 #include "dawn_utils.hpp"
 
+// Readable names for FeatureName, for the adapter report below. Without it a
+// feature list prints as bare integers, which is a diagnostic only for someone
+// holding the header open.
+#include <dawn/webgpu_cpp_print.h>
+#include <sstream>
+
 using namespace wgpu;
 
 #include "bindgroup_layout_wrapper_impl.hpp"
@@ -88,19 +94,40 @@ struct dawn_plugin::dawn_pimpl {
     void request_device(Adapter adapter, const char* label = "")
     {
 
-#if 0
-        size_t featureCount = adapter.EnumerateFeatures(nullptr);
-        vector<FeatureName> supportedFeatures(featureCount);
-        adapter.EnumerateFeatures(supportedFeatures.data());
-        for (auto f : supportedFeatures) {
-            cout << (int) f << endl;
-        }
-#endif
-
         DeviceDescriptor deviceDesc = {};
+
+        // ASK FOR WHAT THE ADAPTER HAS, CLAMPED TO WHAT IT REPORTS.
+        //
+        // This used to be a zero-initialised Limits, which asks for nothing and
+        // therefore gets WebGPU's guaranteed floor: 128 MiB of storage buffer
+        // binding and a 256 MiB buffer. Those are the numbers every conforming
+        // implementation must offer, not the numbers a machine actually has —
+        // the Apple adapter this was written on reports 4096 MiB for both, 32x
+        // and 16x the floor. The glyph store was sized against the floor and had
+        // been refusing glyphs with thirty-two times the room unasked for.
+        //
+        // CLAMPED, and that word is the whole safety argument. A required limit
+        // the adapter cannot meet makes requestDevice FAIL, and a device that
+        // fails to come up is a blank canvas with no type on it. Copying the
+        // adapter's own reported values back into the request cannot be
+        // unsatisfiable, so this raises the ceiling on machines that have the
+        // room and changes nothing at all on machines that do not.
+        //
+        // It is deliberately NOT a feature request. Requiring something unused
+        // is how npm 0.0.1 shipped: ShaderF16 was required, never referenced by
+        // any shader, and broke device creation on every machine without it.
+        // Limits are the safe half of that surface precisely because they can be
+        // clamped to what is on offer; features cannot.
+        Limits supported = {};
+        const bool have_limits = (adapter.GetLimits(&supported) == Status::Success);
+
         Limits requiredLimits = {};
-        //        requiredLimits.limits.maxStorageBuffersPerShaderStage = 10;
-        //        requiredLimits.limits.maxSamplersPerShaderStage = 1;
+        if (have_limits) {
+            requiredLimits.maxBufferSize = supported.maxBufferSize;
+            requiredLimits.maxStorageBufferBindingSize
+                = supported.maxStorageBufferBindingSize;
+            m_max_storage_buffer_size = supported.maxStorageBufferBindingSize;
+        }
         deviceDesc.requiredLimits = &requiredLimits;
 
         // Both of these used to be native-only, which meant the build that
@@ -112,9 +139,46 @@ struct dawn_plugin::dawn_pimpl {
         deviceDesc.SetDeviceLostCallback(
             CallbackMode::AllowSpontaneous, [](const wgpu::Device& device, wgpu::DeviceLostReason reason, wgpu::StringView message, void* userdata) {
                 auto pimpl = reinterpret_cast<dawn_pimpl*>(userdata);
+                // THE REASON, which this callback has always received and always
+                // thrown away. It is the difference between four unrelated
+                // events wearing one sentence:
+                //
+                //   Destroyed         someone called destroy, or the page is
+                //                     tearing down — usually not a fault at all
+                //   Unknown           a genuine loss: driver reset, GPU removed,
+                //                     a tab evicted on mobile
+                //   CallbackCancelled the instance went away with futures still
+                //                     pending; the device is incidental
+                //   FailedCreation    it never came up
+                //
+                // Chasing a CI failure spent several runs unable to separate the
+                // first from the second, because the message alone cannot: the
+                // browser's own device.lost text is forwarded verbatim by the
+                // emdawnwebgpu glue, so "Device was destroyed." can arrive from
+                // Chrome rather than from Dawn's internal constant of the same
+                // wording. This matters in production too — embed.js shows a
+                // fault for any of these, and a page evicted on mobile is not a
+                // bug the way a driver reset is.
+                const char* why = "unknown";
+                switch (reason) {
+                case wgpu::DeviceLostReason::Destroyed: why = "destroyed"; break;
+                case wgpu::DeviceLostReason::CallbackCancelled:
+                    why = "callback-cancelled";
+                    break;
+                case wgpu::DeviceLostReason::FailedCreation:
+                    why = "failed-creation";
+                    break;
+                default: break;
+                }
                 pimpl->log_error("device lost: ", message);
 #ifdef __EMSCRIPTEN__
-                notify_page("onDeviceLost", message);
+                std::string text = std::string("[") + why + "] ";
+                if (message.data != nullptr) {
+                    text += (message.length == SIZE_MAX)
+                        ? std::string(message.data)
+                        : std::string(message.data, message.length);
+                }
+                notify_page("onDeviceLost", text.c_str());
 #endif
             },
             (void*)this);
@@ -134,18 +198,37 @@ struct dawn_plugin::dawn_pimpl {
         },
             (void*)this);
 
-#if 1
-        vector<FeatureName> features = { FeatureName::ShaderF16 };
-        deviceDesc.requiredFeatureCount = features.size();
-        deviceDesc.requiredFeatures = features.data();
-#endif
+        // NO required features, and ShaderF16 in particular is not one.
+        //
+        // It was required here behind an `#if 1` and never used: no shader in
+        // driftype declares `enable f16;` or names the type — not src/wgsl/, not
+        // presets/, not the WGSL the factory composes at runtime. shader-f16 is
+        // an OPTIONAL WebGPU feature, and requiring an unsupported one does not
+        // degrade, it fails RequestDevice outright.
+        //
+        // So every adapter without f16 — plenty of integrated and mobile
+        // hardware, and every software implementation — granted an adapter, let
+        // the page download 24MB, and then died at device creation, for a
+        // capability nothing asked of it. Found by CI on 2026-09-22, where
+        // SwiftShader reported exactly that: "error requesting webgpu device",
+        // then "device lost: Device creation failed."
+        //
+        // If a shader ever does need f16, this comes back as a feature that is
+        // requested WHEN THE ADAPTER HAS IT, and the editor's pre-flight check
+        // learns to ask for it before fetching the engine — not as an
+        // unconditional requirement.
 
         deviceDesc.label = label;
         adapter.RequestDevice(
             &deviceDesc, CallbackMode::AllowSpontaneous, [](RequestDeviceStatus status, Device device, const char* message, void* userdata) {
                 auto pimpl = reinterpret_cast<dawn_pimpl*>(userdata);
                 if (status != RequestDeviceStatus::Success) {
-                    pimpl->log_error("error requesting webgpu device");
+                    // `message` was being discarded, and it is the reason. Losing
+                    // it is why the f16 failure took a browser console and a CI
+                    // log to explain on 2026-09-22.
+                    pimpl->log_error("error requesting webgpu device: ",
+                        message ? message : "(no message)");
+                    pimpl->log_adapter_features();
                     return;
                 }
 
@@ -153,9 +236,13 @@ struct dawn_plugin::dawn_pimpl {
 
 #ifndef __EMSCRIPTEN__
 
+                // Was reporting "error requesting webgpu device" — copy-paste from
+                // the branch above, in a callback that fires for any device log
+                // long after the request succeeded. Native-only, so it has never
+                // run in a shipped build.
                 pimpl->m_device.SetLoggingCallback([](LoggingType type, const char* message, void* userdata) {
                     auto pimpl = reinterpret_cast<dawn_pimpl*>(userdata);
-                    pimpl->log_error("error requesting webgpu device");
+                    pimpl->log_error("device log: ", message ? message : "(no message)");
                 },
                     (void*)pimpl);
 #endif
@@ -171,9 +258,64 @@ struct dawn_plugin::dawn_pimpl {
         return false;
     }
 
+    void on_work_done(std::function<void(std::string error)> cb)
+    {
+        if (!m_device) {
+            cb("no device");
+            return;
+        }
+        // AllowSpontaneous, like every other callback here: nobody is pumping a
+        // wait loop, and the page's event loop is what makes progress.
+        m_device.GetQueue().OnSubmittedWorkDone(CallbackMode::AllowSpontaneous,
+            [cb](QueueWorkDoneStatus status, StringView message) {
+                if (status == QueueWorkDoneStatus::Success) {
+                    cb("");
+                    return;
+                }
+                std::string text = (status == QueueWorkDoneStatus::CallbackCancelled)
+                    ? "queue work cancelled"
+                    : "queue work failed";
+                if (message.data != nullptr) {
+                    text += ": ";
+                    text += (message.length == SIZE_MAX)
+                        ? std::string(message.data)
+                        : std::string(message.data, message.length);
+                }
+                cb(text);
+            });
+    }
+
     void log_error(const char* error)
     {
         cout << error << endl;
+    }
+
+    // What the adapter actually offered, printed only once device creation has
+    // already failed.
+    //
+    // This existed as dead code behind an `#if 0`, five lines above a
+    // RequestDevice that required ShaderF16 — the diagnostic for the bug, sitting
+    // switched off next to the bug. It had also rotted: EnumerateFeatures is gone
+    // from the current header, so enabling it as written would not have compiled.
+    //
+    // On the failure path only. A device that came up needs no feature dump, and
+    // printing one on every boot is noise in somebody else's console.
+    void log_adapter_features()
+    {
+        if (!m_adapter) {
+            log_error("no adapter to report features for");
+            return;
+        }
+
+        SupportedFeatures supported;
+        m_adapter.GetFeatures(&supported);
+
+        ostringstream out;
+        out << "adapter offered " << supported.featureCount << " feature(s):";
+        for (size_t i = 0; i < supported.featureCount; ++i) {
+            out << " " << supported.features[i];
+        }
+        log_error(out.str().c_str());
     }
 
     void log_error(const char* error, const char* message)
@@ -238,6 +380,9 @@ struct dawn_plugin::dawn_pimpl {
     Adapter m_adapter;
     Instance m_instance;
     const string m_label;
+    // Filled from the adapter at device creation; 0 until then. Not the spec
+    // floor — see the clamped request in request_device.
+    size_t m_max_storage_buffer_size = 0;
     std::function<void(std::string error)> m_loaded_callback;
 };
 
@@ -281,6 +426,16 @@ buffer_wrapper dawn_plugin::make_dst_buffer(size_t size, buffer_type flags)
 buffer_wrapper dawn_plugin::make_src_buffer(size_t size, buffer_type flags)
 {
     return m_pimpl->make_buffer(size, flags, false);
+}
+
+size_t dawn_plugin::max_storage_buffer_size() const
+{
+    return m_pimpl->m_max_storage_buffer_size;
+}
+
+void dawn_plugin::on_work_done(std::function<void(std::string error)> cb)
+{
+    m_pimpl->on_work_done(cb);
 }
 
 texture_wrapper dawn_plugin::make_texture_1d(size_t size)

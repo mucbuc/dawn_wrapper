@@ -27,6 +27,7 @@ struct render_wrapper::pimpl : private shader_base {
         , m_bufferIndex()
         , m_entryPoint()
         , m_surface()
+        , m_config()
     {
         std::vector<float> verts { -1, 3, -1, -1, 3, -1 };
         const auto vertBytes = verts.size() * sizeof(float);
@@ -53,8 +54,17 @@ struct render_wrapper::pimpl : private shader_base {
 
     void render(bindgroup_set set, encoder_wrapper encoder)
     {
+        // SKIP THE FRAME rather than assert. getCurrentTextureView returns a
+        // null view when the surface has no drawable texture — lost, outdated,
+        // timed out — and the assert that used to stand here was the only thing
+        // stopping a render pass being built on nothing. Under NDEBUG it would
+        // have been removed and that pass built anyway.
+        //
+        // Dropping a frame is the right outcome: the next one may succeed (a
+        // resize resolves itself), and a renderer that skips is recoverable
+        // where one that aborts is not.
         auto textureView = getCurrentTextureView();
-        ASSERT(textureView);
+        if (!textureView) return;
 
         auto pass = dawn_utils::begin_render_pass(encoder.m_pimpl->m_encoder, textureView);
         pass.SetPipeline(get_pipeline());
@@ -65,9 +75,7 @@ struct render_wrapper::pimpl : private shader_base {
             pass.SetBindGroup(entry.first, entry.second.m_pimpl->make_bindgroup(m_device));
         }
 
-        pass.SetVertexBuffer(0, get_bufferVertex(), 0, get_bufferVertex().GetSize());
-        pass.SetIndexBuffer(get_bufferIndex(), IndexFormat::Uint16, 0, get_bufferIndex().GetSize());
-        pass.DrawIndexed(3, 1, 0, 0, 0);
+        draw(pass);
         pass.End();
 
         encoder.submit_command_buffer();
@@ -80,8 +88,9 @@ struct render_wrapper::pimpl : private shader_base {
     {
         ASSERT(bindGroup.is_valid());
 
+        // Same skip as the overload above, and for the same reason.
         auto textureView = getCurrentTextureView();
-        ASSERT(textureView);
+        if (!textureView) return;
 
         auto pass = dawn_utils::begin_render_pass(encoder.m_pimpl->m_encoder, textureView);
         pass.SetPipeline(get_pipeline());
@@ -89,9 +98,7 @@ struct render_wrapper::pimpl : private shader_base {
         auto bindGroupImpl = bindGroup.m_pimpl->make_bindgroup(m_device);
         pass.SetBindGroup(0, bindGroupImpl);
 
-        pass.SetVertexBuffer(0, get_bufferVertex(), 0, get_bufferVertex().GetSize());
-        pass.SetIndexBuffer(get_bufferIndex(), IndexFormat::Uint16, 0, get_bufferIndex().GetSize());
-        pass.DrawIndexed(3, 1, 0, 0, 0);
+        draw(pass);
         pass.End();
 
         encoder.submit_command_buffer();
@@ -102,11 +109,15 @@ struct render_wrapper::pimpl : private shader_base {
 
     void render(encoder_wrapper encoder)
     {
-        auto pass = dawn_utils::begin_render_pass(encoder.m_pimpl->m_encoder, getCurrentTextureView());
+        // This overload never checked at all — it passed the view straight in,
+        // so it had neither an assert to remove nor a guard to keep. Same skip
+        // as the other two.
+        auto textureView = getCurrentTextureView();
+        if (!textureView) return;
+
+        auto pass = dawn_utils::begin_render_pass(encoder.m_pimpl->m_encoder, textureView);
         pass.SetPipeline(get_pipeline());
-        pass.SetVertexBuffer(0, get_bufferVertex(), 0, get_bufferVertex().GetSize());
-        pass.SetIndexBuffer(get_bufferIndex(), IndexFormat::Uint16, 0, get_bufferIndex().GetSize());
-        pass.DrawIndexed(3, 1, 0, 0, 0);
+        draw(pass);
         pass.End();
 
         encoder.submit_command_buffer();
@@ -116,18 +127,41 @@ struct render_wrapper::pimpl : private shader_base {
 #endif
     }
 
+    // The draw itself, from the config. With a vertex buffer it is the wrapper's
+    // own full-screen triangle, indexed, as it always was; without, the vertex
+    // stage builds its own positions and this is a plain instanced draw.
+    void draw(RenderPassEncoder& pass)
+    {
+        if (m_config.vertex_buffer) {
+            pass.SetVertexBuffer(0, get_bufferVertex(), 0, get_bufferVertex().GetSize());
+            pass.SetIndexBuffer(get_bufferIndex(), IndexFormat::Uint16, 0, get_bufferIndex().GetSize());
+            pass.DrawIndexed(m_config.vertex_count, m_config.instance_count, 0, 0, 0);
+            return;
+        }
+        pass.Draw(m_config.vertex_count, m_config.instance_count, 0, 0);
+    }
+
     bindgroup_layout_wrapper make_bindgroup_layout()
     {
         return std::make_shared<bindgroup_layout_wrapper::pimpl>(ShaderStage::Fragment, m_entryPoint);
     }
 
-    std::string compile_shader(std::string script, std::string entryPoint)
+    // Applied by the next init_pipeline and by every draw.
+    void configure(dawn_wrapper::render_config config)
     {
-        m_messages.clear();
+        m_config = std::move(config);
+        if (!m_config.vertex_script.empty()) {
+            m_vertexShader = dawn_utils::make_shader(m_device, m_config.vertex_script);
+        }
+    }
+
+    void compile_shader(std::string script, std::string entryPoint,
+        compile_callback on_messages)
+    {
         m_shader = dawn_utils::make_shader(m_device, script, entryPoint.c_str());
-        m_shader.GetCompilationInfo(CallbackMode::AllowSpontaneous, &shader_base::compilation_callback, (void*)this);
+        m_shader.GetCompilationInfo(CallbackMode::AllowSpontaneous,
+            &shader_base::compilation_callback, make_request(std::move(on_messages)));
         m_entryPoint = entryPoint;
-        return m_messages.str();
     }
 
     void init_pipeline(bindgroup_layout_wrapper layout)
@@ -135,7 +169,8 @@ struct render_wrapper::pimpl : private shader_base {
         ASSERT(m_shader);
 
         auto bindGroupLayout = layout.m_pimpl->make_bindGroupLayout(m_device, m_entryPoint.c_str());
-        m_pipeline = dawn_utils::make_render_pipeline(m_device, { bindGroupLayout }, m_shader, m_vertexShader, m_entryPoint.c_str());
+        m_pipeline = dawn_utils::make_render_pipeline(m_device, { bindGroupLayout },
+            m_shader, m_vertexShader, m_entryPoint.c_str(), m_config);
     }
 
     void init_pipeline(std::initializer_list<bindgroup_layout_wrapper> layouts)
@@ -147,14 +182,16 @@ struct render_wrapper::pimpl : private shader_base {
         for (auto layout : layouts) {
             bgl.push_back(layout.m_pimpl->make_bindGroupLayout(m_device, m_entryPoint.c_str()));
         }
-        m_pipeline = dawn_utils::make_render_pipeline(m_device, bgl, m_shader, m_vertexShader, m_entryPoint.c_str());
+        m_pipeline = dawn_utils::make_render_pipeline(m_device, bgl,
+            m_shader, m_vertexShader, m_entryPoint.c_str(), m_config);
     }
 
     void init_pipeline()
     {
         ASSERT(m_shader);
 
-        m_pipeline = dawn_utils::make_render_pipeline(m_device, m_shader, m_vertexShader, m_entryPoint.c_str());
+        m_pipeline = dawn_utils::make_render_pipeline(m_device, {},
+            m_shader, m_vertexShader, m_entryPoint.c_str(), m_config);
     }
 
     RenderPipeline get_pipeline()
@@ -182,6 +219,9 @@ private:
     Buffer m_bufferIndex;
     std::string m_entryPoint;
     dawn_wrapper::surface_wrapper m_surface;
+    // What the pipeline and the draw are built from; defaults are what this
+    // wrapper hardcoded before it was configurable.
+    dawn_wrapper::render_config m_config;
 };
 
 }

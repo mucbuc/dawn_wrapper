@@ -12,9 +12,10 @@ compute_wrapper::compute_wrapper(ptr_type ptr)
 {
 }
 
-std::string compute_wrapper::compile_shader(std::string script, std::string entryPoint)
+void compute_wrapper::compile_shader(std::string script, std::string entryPoint,
+    std::function<void(std::string)> on_messages)
 {
-    return m_pimpl->compile_shader(script, entryPoint);
+    m_pimpl->compile_shader(script, entryPoint, std::move(on_messages));
 }
 
 void compute_wrapper::init_pipeline(bindgroup_layout_wrapper layout)

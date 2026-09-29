@@ -143,7 +143,9 @@ std::string compiled(const std::string& what, std::string messages)
 
 int main()
 {
-    auto& plugin = *new dawn_plugin; // leaked, as in main.cpp
+    // Leaked on purpose: destroyed at static scope, emscripten_force_exit would run
+    // its destructor inside exitRuntime and abort.
+    auto& plugin = *new dawn_plugin;
     plugin.on_load([&plugin](std::string error) {
         if (!error.empty()) {
             std::cout << "[particles] error: no device: " << error << std::endl;

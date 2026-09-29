@@ -1,6 +1,0 @@
-#!/usr/bin/env bash
-# Builds the loader. Documents are read at runtime: editing one needs ./run, not this.
-set -euo pipefail
-cd "$(dirname "$0")"
-emcmake cmake -B web-build > /dev/null
-cmake --build web-build -j 8

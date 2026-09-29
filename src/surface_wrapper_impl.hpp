@@ -73,12 +73,39 @@ struct surface_wrapper::pimpl {
         m_surface.Configure(&config);
     }
 
+    // A null view means "no frame this time", and callers must check it.
+    //
+    // This was ASSERT(status == SuccessOptimal), which was wrong twice over.
+    // SUBOPTIMAL IS A SUCCESS — it is what a surface returns after a resize,
+    // when the swapchain still works but no longer matches the window — so the
+    // assert treated a normal event as fatal. And on the failures that are real
+    // (Lost, Outdated, Timeout, Error) st.texture is null, so compiling the
+    // assert out under NDEBUG would have called CreateView() on nothing.
+    //
+    // That second half is why this had to change before NDEBUG could be turned
+    // on at all: the assert was the only thing standing between a lost device
+    // and undefined behaviour, and asserts are precisely what a release build
+    // removes.
     TextureView getCurrentTextureView()
     {
         SurfaceTexture st;
         m_surface.GetCurrentTexture(&st);
-        ASSERT(st.status == SurfaceGetCurrentTextureStatus::SuccessOptimal);
-        return st.texture.CreateView();
+
+        if (st.status == SurfaceGetCurrentTextureStatus::SuccessOptimal
+            || st.status == SurfaceGetCurrentTextureStatus::SuccessSuboptimal) {
+            return st.texture.CreateView();
+        }
+
+        // Once per surface, not once per frame. A surface that has gone gives
+        // the same answer sixty times a second, and a log that repeats at that
+        // rate buries the first occurrence, which is the informative one.
+        if (!m_reported_bad_status) {
+            m_reported_bad_status = true;
+            std::cerr << "[dawn_wrapper] surface has no drawable texture: "
+                      << status_name(st.status)
+                      << ". Frames are being skipped." << std::endl;
+        }
+        return {};
     }
 
     void present()
@@ -96,6 +123,20 @@ struct surface_wrapper::pimpl {
     }
 
 private:
+    static const char* status_name(SurfaceGetCurrentTextureStatus s)
+    {
+        switch (s) {
+        case SurfaceGetCurrentTextureStatus::SuccessOptimal: return "optimal";
+        case SurfaceGetCurrentTextureStatus::SuccessSuboptimal: return "suboptimal";
+        case SurfaceGetCurrentTextureStatus::Timeout: return "timeout";
+        case SurfaceGetCurrentTextureStatus::Outdated: return "outdated";
+        case SurfaceGetCurrentTextureStatus::Lost: return "lost";
+        case SurfaceGetCurrentTextureStatus::Error: return "error";
+        }
+        return "unknown";
+    }
+
+    bool m_reported_bad_status = false;
     Device m_device;
     Instance m_wgpuInstance;
     ShaderModule m_vertexShader;

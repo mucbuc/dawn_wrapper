@@ -124,6 +124,46 @@ void a_configured_pipeline_builds(dawn_plugin plugin, done_callback done)
     });
 }
 
+// Both stages from compile_shader's one module (vertex_from_module), a render
+// that only records (submit = false), and the pieces a textured pass binds: a
+// sampler of its own, a texture written from the host, and bindings seen by one
+// stage only (set_visibility).
+void one_module_pipeline_builds(dawn_plugin plugin, done_callback done)
+{
+    auto render = plugin.make_render();
+
+    render_config config;
+    config.vertex_from_module = true;
+    config.vertex_entry = "vs";
+    config.target = texture_format::rgba8unorm;
+    config.vertex_buffer = false;
+    config.submit = false;
+    render.configure(config);
+
+    auto sampler = plugin.make_sampler({ filter_mode::nearest, address_mode::mirror_repeat });
+    ASSERT(sampler.is_valid());
+    auto texture = plugin.make_texture_output(2, 2);
+    texture.write(std::vector<uint8_t>(2 * 2 * 4, 255));
+    ASSERT(plugin.make_texture_2d(3, 5).get_width() == 3 && plugin.make_texture_2d(3, 5).get_height() == 5);
+
+    const std::string source = std::string(vertex_source) + fragment_source;
+    compile_then(plugin, render, source.c_str(), "fs", [plugin, render, sampler, texture, done](std::string messages) mutable {
+        ASSERT(messages.empty());
+
+        auto layout = render.make_bindgroup_layout(shader_visibility::vertex_and_fragment)
+                          .add_sampler(0)
+                          .add_texture_2d(1)
+                          .set_visibility(0, shader_visibility::fragment)
+                          .set_visibility(1, shader_visibility::fragment);
+        layout.make_bindgroup().add_sampler(0, sampler).add_texture(1, texture);
+        render.init_pipeline(layout);
+        ASSERT(render.is_valid());
+        std::cout << "  ok: one module for both stages, record-only, a nearest sampler, per-binding visibility"
+                  << std::endl;
+        done();
+    });
+}
+
 void the_default_pipeline_still_builds(dawn_plugin plugin, done_callback done)
 {
     auto render = plugin.make_render();
@@ -186,9 +226,11 @@ int main(int argc, char** argv)
         }
 
         a_configured_pipeline_builds(instance, [instance] {
-            the_default_pipeline_still_builds(instance, [] {
-                std::cout << "render_config: all checks passed" << std::endl;
-                finish(0);
+            one_module_pipeline_builds(instance, [instance] {
+                the_default_pipeline_still_builds(instance, [] {
+                    std::cout << "render_config: all checks passed" << std::endl;
+                    finish(0);
+                });
             });
         });
     });

@@ -6,10 +6,15 @@
 // topology. This covers pipeline CREATION for those, which is where a malformed
 // descriptor shows up. It does not draw: a native run has no surface.
 //
-// Not checked in. Built by the test harness beside example.cpp.
+// Built by the test harness beside example.cpp.
 
+#include <functional>
 #include <iostream>
 #include <string>
+
+#ifdef __EMSCRIPTEN__
+#include <emscripten/emscripten.h>
+#endif
 
 #include <asserter/src/asserter.hpp>
 #include <dawn_wrapper/src/dawn_wrapper.hpp>
@@ -55,12 +60,20 @@ const char* broken_fragment_source = R"(
 }
 )";
 
-// GetCompilationInfo answers late, so the caller has to keep ticking the device
-// until it does. Bounded, so a callback that never arrives fails the test rather
-// than hanging it.
-std::string compile_and_wait(dawn_plugin& plugin, render_wrapper& render,
-    const char* source, const char* entry)
+using done_callback = std::function<void()>;
+
+// GetCompilationInfo answers late. Natively the caller has to keep ticking the
+// device until it does; bounded, so a callback that never arrives fails the test
+// rather than hanging it. In the browser the answer is a promise, and it cannot
+// resolve while this code holds the thread, so there the test continues from the
+// callback instead of waiting for it (as example.cpp does with its buffer map).
+void compile_then(dawn_plugin plugin, render_wrapper render,
+    const char* source, const char* entry, std::function<void(std::string)> next)
 {
+#ifdef __EMSCRIPTEN__
+    (void)plugin;
+    render.compile_shader(source, entry, std::move(next));
+#else
     bool answered = false;
     std::string messages;
     render.compile_shader(source, entry, [&](std::string text) {
@@ -72,10 +85,20 @@ std::string compile_and_wait(dawn_plugin& plugin, render_wrapper& render,
         plugin.run();
     }
     ASSERT(answered);
-    return messages;
+    next(std::move(messages));
+#endif
 }
 
-void a_configured_pipeline_builds(dawn_plugin plugin)
+void finish(int code)
+{
+#ifdef __EMSCRIPTEN__
+    emscripten_force_exit(code);
+#else
+    (void)code;
+#endif
+}
+
+void a_configured_pipeline_builds(dawn_plugin plugin, done_callback done)
 {
     auto render = plugin.make_render();
 
@@ -90,27 +113,31 @@ void a_configured_pipeline_builds(dawn_plugin plugin)
     config.instance_count = 64;
     render.configure(config);
 
-    const auto messages = compile_and_wait(plugin, render, fragment_source, "fs");
-    ASSERT(messages.empty());
+    compile_then(plugin, render, fragment_source, "fs", [render, done](std::string messages) mutable {
+        ASSERT(messages.empty());
 
-    render.init_pipeline();
-    ASSERT(render.is_valid());
-    std::cout << "  ok: supplied vertex stage, no vertex buffer, additive, points, rgba8unorm"
-              << std::endl;
+        render.init_pipeline();
+        ASSERT(render.is_valid());
+        std::cout << "  ok: supplied vertex stage, no vertex buffer, additive, points, rgba8unorm"
+                  << std::endl;
+        done();
+    });
 }
 
-void the_default_pipeline_still_builds(dawn_plugin plugin)
+void the_default_pipeline_still_builds(dawn_plugin plugin, done_callback done)
 {
     auto render = plugin.make_render();
 
-    const auto messages
-        = compile_and_wait(plugin, render, default_fragment_source, "fragmentMain");
-    ASSERT(messages.empty());
+    compile_then(plugin, render, default_fragment_source, "fragmentMain",
+        [render, done](std::string messages) mutable {
+            ASSERT(messages.empty());
 
-    render.init_pipeline();
-    ASSERT(render.is_valid());
-    std::cout << "  ok: defaults unchanged — built-in vertex stage, indexed triangle"
-              << std::endl;
+            render.init_pipeline();
+            ASSERT(render.is_valid());
+            std::cout << "  ok: defaults unchanged — built-in vertex stage, indexed triangle"
+                      << std::endl;
+            done();
+        });
 }
 
 // Opt-in: ./RenderConfig --broken
@@ -125,18 +152,20 @@ void the_default_pipeline_still_builds(dawn_plugin plugin)
 // "[driftype] shader compile: Error(0): ..." with the offending line.
 //
 // Run it to watch what the native path does; expect the assert.
-void a_broken_shader_reports_itself(dawn_plugin plugin)
+void a_broken_shader_reports_itself(dawn_plugin plugin, done_callback done)
 {
     auto render = plugin.make_render();
 
-    const auto messages = compile_and_wait(plugin, render, broken_fragment_source, "fs");
-    ASSERT(!messages.empty());
-    ASSERT(messages.find("Error(") != std::string::npos);
-    // The message is the compiler's, not a restatement: it has to name something
-    // from the source rather than only saying that a shader failed.
-    ASSERT(messages.find("this_is_not_wgsl") != std::string::npos);
-    std::cout << "  ok: a broken shader reaches the callback, with the compiler's text"
-              << std::endl;
+    compile_then(plugin, render, broken_fragment_source, "fs", [done](std::string messages) {
+        ASSERT(!messages.empty());
+        ASSERT(messages.find("Error(") != std::string::npos);
+        // The message is the compiler's, not a restatement: it has to name something
+        // from the source rather than only saying that a shader failed.
+        ASSERT(messages.find("this_is_not_wgsl") != std::string::npos);
+        std::cout << "  ok: a broken shader reaches the callback, with the compiler's text"
+                  << std::endl;
+        done();
+    });
 }
 
 } // namespace
@@ -152,14 +181,16 @@ int main(int argc, char** argv)
 
         auto instance = plugin;
         if (broken) {
-            a_broken_shader_reports_itself(instance);
+            a_broken_shader_reports_itself(instance, [] { finish(0); });
             return;
         }
 
-        a_configured_pipeline_builds(instance);
-        the_default_pipeline_still_builds(instance);
-
-        std::cout << "render_config: all checks passed" << std::endl;
+        a_configured_pipeline_builds(instance, [instance] {
+            the_default_pipeline_still_builds(instance, [] {
+                std::cout << "render_config: all checks passed" << std::endl;
+                finish(0);
+            });
+        });
     });
 
     return 0;

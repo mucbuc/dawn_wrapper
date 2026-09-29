@@ -4,8 +4,8 @@ project(Example)
 
 add_executable(Example src/example.cpp)
 
-# NOT checked in: covers render_config and the compile callback, both of which
-# driftype never exercises.
+# Covers render_config and the compile callback, both of which driftype never
+# exercises.
 add_executable(RenderConfig src/render_config.cpp)
 set_target_properties(RenderConfig PROPERTIES
     CXX_STANDARD 20
@@ -32,6 +32,11 @@ if (EMSCRIPTEN)
     target_link_options(Example PRIVATE 
         --use-port=emdawnwebgpu
         --closure=1
+        --emrun
+    )
+    set_target_properties(RenderConfig PROPERTIES SUFFIX ".html")
+    target_link_options(RenderConfig PRIVATE
+        --use-port=emdawnwebgpu
         --emrun
     )
 endif()

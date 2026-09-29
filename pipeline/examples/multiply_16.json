@@ -1,0 +1,71 @@
+{
+  "version": 1,
+  "resources": {
+    "source": {
+      "kind": "storage",
+      "element": "f32",
+      "init": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15
+      ]
+    },
+    "dest": {
+      "kind": "storage",
+      "element": "f32",
+      "length": "source"
+    },
+    "params": {
+      "kind": "uniform",
+      "members": {
+        "multiplier": {
+          "type": "f32",
+          "value": 4
+        }
+      }
+    }
+  },
+  "groups": {
+    "data": [
+      "source",
+      "dest"
+    ],
+    "params": [
+      "params"
+    ]
+  },
+  "passes": [
+    {
+      "name": "multiply",
+      "kind": "compute",
+      "reads": [
+        "source",
+        "params"
+      ],
+      "writes": [
+        "dest"
+      ],
+      "workgroup_size": 64,
+      "dispatch": {
+        "over": "source"
+      },
+      "entry": "multiply",
+      "wgsl": [
+        "multiply.wgsl"
+      ]
+    }
+  ]
+}

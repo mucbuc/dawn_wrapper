@@ -5,3 +5,4 @@ test/web-build
 **/.ignore_git
 
 
+pipeline/web-build

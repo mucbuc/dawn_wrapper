@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# ./run [document]   — runs one document, default examples/multiply.json, in
+# headless Chrome against the last ./build. PAGE=Hatch runs the escape hatch
+# check instead of the plain runner; PAGE=Particles the hand-written particles. No rebuild: the page fetches the
+# document when it loads. Exit code is the page's (0 clean, 1 document or
+# compile error, 2 no device).
+set -euo pipefail
+cd "$(dirname "$0")"
+doc="${1:-examples/multiply.json}"
+# WebGPU in headless Chrome on macOS needs the flags driftype's test/chrome_env
+# names; without them the page never reaches main() and emrun waits forever.
+exec timeout --kill-after=5 "${TIMEOUT:-60}" \
+    emrun --serve-root . --browser chrome --kill_exit \
+    --browser_args="--headless=new --enable-unsafe-webgpu --use-angle=metal --no-first-run" \
+    web-build/${PAGE:-Pipeline}.html "doc=$doc"

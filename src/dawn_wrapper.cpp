@@ -73,7 +73,10 @@ struct dawn_plugin::dawn_pimpl {
             [](RequestAdapterStatus status, Adapter adapter, const char* message, void* userdata) {
                 auto pimpl = reinterpret_cast<dawn_pimpl*>(userdata);
                 if (status != RequestAdapterStatus::Success) {
-                    std::string error = "error requiesting webgpu device adapter";
+                    std::string error = "requesting a WebGPU adapter failed";
+                    if (message && *message) {
+                        error += std::string(": ") + message;
+                    }
                     pimpl->log_error(error.c_str());
                     pimpl->m_loaded_callback(error);
                     return;
@@ -144,8 +147,16 @@ struct dawn_plugin::dawn_pimpl {
         adapter.RequestDevice(
             &deviceDesc, CallbackMode::AllowSpontaneous, [](RequestDeviceStatus status, Device device, const char* message, void* userdata) {
                 auto pimpl = reinterpret_cast<dawn_pimpl*>(userdata);
+                // Reported to the caller as well as logged: a device that never
+                // arrives otherwise leaves on_load's callback uncalled, and the
+                // caller waits on nothing.
                 if (status != RequestDeviceStatus::Success) {
-                    pimpl->log_error("error requesting webgpu device");
+                    std::string error = "requesting a WebGPU device failed";
+                    if (message && *message) {
+                        error += std::string(": ") + message;
+                    }
+                    pimpl->log_error(error.c_str());
+                    pimpl->m_loaded_callback(error);
                     return;
                 }
 

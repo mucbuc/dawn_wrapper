@@ -98,8 +98,7 @@ struct render_wrapper::pimpl : private shader_base {
         draw(pass);
         pass.End();
 
-        encoder.submit_command_buffer();
-        present();
+        finish(encoder);
     }
 
     void render(bindgroup_wrapper bindGroup, encoder_wrapper encoder)
@@ -119,8 +118,7 @@ struct render_wrapper::pimpl : private shader_base {
         draw(pass);
         pass.End();
 
-        encoder.submit_command_buffer();
-        present();
+        finish(encoder);
     }
 
     void render(encoder_wrapper encoder)
@@ -136,8 +134,17 @@ struct render_wrapper::pimpl : private shader_base {
         draw(pass);
         pass.End();
 
-        encoder.submit_command_buffer();
+        finish(encoder);
+    }
 
+    // What render() does once its pass is recorded: submit and present, unless
+    // the caller asked to do that itself (render_config::submit).
+    void finish(encoder_wrapper encoder)
+    {
+        if (!m_config.submit) {
+            return;
+        }
+        encoder.submit_command_buffer();
         present();
     }
 
@@ -157,26 +164,14 @@ struct render_wrapper::pimpl : private shader_base {
 
     bindgroup_layout_wrapper make_bindgroup_layout(shader_visibility visibility)
     {
-        ShaderStage stage = ShaderStage::Fragment;
-        switch (visibility) {
-        case shader_visibility::vertex:
-            stage = ShaderStage::Vertex;
-            break;
-        case shader_visibility::fragment:
-            stage = ShaderStage::Fragment;
-            break;
-        case shader_visibility::vertex_and_fragment:
-            stage = ShaderStage::Vertex | ShaderStage::Fragment;
-            break;
-        }
-        return std::make_shared<bindgroup_layout_wrapper::pimpl>(stage, m_entryPoint);
+        return std::make_shared<bindgroup_layout_wrapper::pimpl>(dawn_utils::to_stage(visibility), m_entryPoint);
     }
 
     // Applied by the next init_pipeline and by every draw.
     void configure(dawn_wrapper::render_config config)
     {
         m_config = std::move(config);
-        if (!m_config.vertex_script.empty()) {
+        if (!m_config.vertex_from_module && !m_config.vertex_script.empty()) {
             m_vertexShader = dawn_utils::make_shader(m_device, m_config.vertex_script);
         }
     }
@@ -196,7 +191,7 @@ struct render_wrapper::pimpl : private shader_base {
 
         auto bindGroupLayout = layout.m_pimpl->make_bindGroupLayout(m_device, m_entryPoint.c_str());
         m_pipeline = dawn_utils::make_render_pipeline(m_device, { bindGroupLayout },
-            m_shader, m_vertexShader, m_entryPoint.c_str(), m_config);
+            m_shader, vertex_module(), m_entryPoint.c_str(), m_config);
     }
 
     void init_pipeline(std::initializer_list<bindgroup_layout_wrapper> layouts)
@@ -214,7 +209,7 @@ struct render_wrapper::pimpl : private shader_base {
             bgl.push_back(layout.m_pimpl->make_bindGroupLayout(m_device, m_entryPoint.c_str()));
         }
         m_pipeline = dawn_utils::make_render_pipeline(m_device, bgl,
-            m_shader, m_vertexShader, m_entryPoint.c_str(), m_config);
+            m_shader, vertex_module(), m_entryPoint.c_str(), m_config);
     }
 
     void init_pipeline()
@@ -222,7 +217,14 @@ struct render_wrapper::pimpl : private shader_base {
         ASSERT(m_shader);
 
         m_pipeline = dawn_utils::make_render_pipeline(m_device, {},
-            m_shader, m_vertexShader, m_entryPoint.c_str(), m_config);
+            m_shader, vertex_module(), m_entryPoint.c_str(), m_config);
+    }
+
+    // The module the vertex stage comes from: compile_shader's, or the separate
+    // one (the built-in triangle, or render_config::vertex_script).
+    ShaderModule& vertex_module()
+    {
+        return m_config.vertex_from_module ? m_shader : m_vertexShader;
     }
 
     RenderPipeline get_pipeline()

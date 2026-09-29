@@ -62,6 +62,16 @@ struct texture_wrapper::pimpl {
         return m_sampler;
     }
 
+    unsigned get_width() const
+    {
+        return m_width;
+    }
+
+    unsigned get_height() const
+    {
+        return m_height;
+    }
+
 private:
     Device m_device;
     unsigned m_width;

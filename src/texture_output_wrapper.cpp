@@ -12,6 +12,11 @@ texture_output_wrapper::texture_output_wrapper(ptr_type ptr)
 {
 }
 
+void texture_output_wrapper::write(const std::vector<uint8_t>& colors)
+{
+    m_pimpl->write(colors);
+}
+
 void texture_output_wrapper::make_sampler(bool clamp_to_edge)
 {
     m_pimpl->make_sampler(clamp_to_edge);

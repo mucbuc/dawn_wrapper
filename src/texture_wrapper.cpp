@@ -22,6 +22,16 @@ void texture_wrapper::make_sampler(bool clamp_to_edge)
     m_pimpl->make_sampler(clamp_to_edge);
 }
 
+unsigned texture_wrapper::get_width() const
+{
+    return m_pimpl->get_width();
+}
+
+unsigned texture_wrapper::get_height() const
+{
+    return m_pimpl->get_height();
+}
+
 bool texture_wrapper::is_valid() const
 {
     return m_pimpl ? true : false;

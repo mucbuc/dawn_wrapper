@@ -34,6 +34,12 @@ bindgroup_wrapper& bindgroup_wrapper::add_sampler(unsigned binding, texture_wrap
     return *this;
 }
 
+bindgroup_wrapper& bindgroup_wrapper::add_sampler(unsigned binding, sampler_wrapper sampler)
+{
+    m_pimpl->add_sampler(binding, sampler);
+    return *this;
+}
+
 bindgroup_wrapper& bindgroup_wrapper::add_sampler(unsigned binding, texture_output_wrapper texture)
 {
     m_pimpl->add_sampler(binding, texture);

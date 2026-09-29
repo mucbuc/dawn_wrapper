@@ -19,6 +19,18 @@ namespace dawn_wrapper {
     class_name(ptr_type);                    \
     ptr_type m_pimpl
 
+// What a buffer may be used for, in this library's terms rather than wgpu's: the
+// BufferUsage bits the buffer was created with. All false for an empty wrapper.
+struct buffer_usage {
+    bool copy_src = false;
+    bool copy_dst = false;
+    bool storage = false;
+    bool uniform = false;
+    bool index = false;
+    bool vertex = false;
+    bool map_read = false;
+};
+
 struct buffer_wrapper {
     buffer_wrapper() = default;
     buffer_wrapper& write(const std::vector<uint8_t>& colors);
@@ -26,6 +38,7 @@ struct buffer_wrapper {
     bool done() const;
     buffer_wrapper& get_output(std::function<void(size_t, const void*)>);
     size_t get_size() const;
+    buffer_usage get_usage() const;
 
     bool is_valid() const;
 

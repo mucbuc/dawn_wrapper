@@ -27,6 +27,7 @@ struct render_wrapper::pimpl : private shader_base {
         , m_bufferIndex()
         , m_entryPoint()
         , m_surface()
+        , m_target()
         , m_config()
     {
         std::vector<float> verts { -1, 3, -1, -1, 3, -1 };
@@ -47,9 +48,28 @@ struct render_wrapper::pimpl : private shader_base {
         m_surface = s;
     }
 
+    void set_target(texture_output_wrapper t)
+    {
+        m_target = t;
+    }
+
+    // The target when one is set, else the surface's current texture.
     TextureView getCurrentTextureView()
     {
+        if (m_target.is_valid()) {
+            return m_target.m_pimpl->get_view();
+        }
         return m_surface.m_pimpl->getCurrentTextureView();
+    }
+
+    // Presenting is the surface's; an offscreen target has nothing to present.
+    void present()
+    {
+#ifndef __EMSCRIPTEN__
+        if (!m_target.is_valid()) {
+            m_surface.present();
+        }
+#endif
     }
 
     void render(bindgroup_set set, encoder_wrapper encoder)
@@ -70,9 +90,7 @@ struct render_wrapper::pimpl : private shader_base {
         pass.End();
 
         encoder.submit_command_buffer();
-#ifndef __EMSCRIPTEN__
-        m_surface.present();
-#endif
+        present();
     }
 
     void render(bindgroup_wrapper bindGroup, encoder_wrapper encoder)
@@ -92,9 +110,7 @@ struct render_wrapper::pimpl : private shader_base {
         pass.End();
 
         encoder.submit_command_buffer();
-#ifndef __EMSCRIPTEN__
-        m_surface.present();
-#endif
+        present();
     }
 
     void render(encoder_wrapper encoder)
@@ -106,9 +122,7 @@ struct render_wrapper::pimpl : private shader_base {
 
         encoder.submit_command_buffer();
 
-#ifndef __EMSCRIPTEN__
-        m_surface.present();
-#endif
+        present();
     }
 
     // The draw itself, from the config. With a vertex buffer it is the wrapper's
@@ -125,9 +139,21 @@ struct render_wrapper::pimpl : private shader_base {
         pass.Draw(m_config.vertex_count, m_config.instance_count, 0, 0);
     }
 
-    bindgroup_layout_wrapper make_bindgroup_layout()
+    bindgroup_layout_wrapper make_bindgroup_layout(shader_visibility visibility)
     {
-        return std::make_shared<bindgroup_layout_wrapper::pimpl>(ShaderStage::Fragment, m_entryPoint);
+        ShaderStage stage = ShaderStage::Fragment;
+        switch (visibility) {
+        case shader_visibility::vertex:
+            stage = ShaderStage::Vertex;
+            break;
+        case shader_visibility::fragment:
+            stage = ShaderStage::Fragment;
+            break;
+        case shader_visibility::vertex_and_fragment:
+            stage = ShaderStage::Vertex | ShaderStage::Fragment;
+            break;
+        }
+        return std::make_shared<bindgroup_layout_wrapper::pimpl>(stage, m_entryPoint);
     }
 
     // Applied by the next init_pipeline and by every draw.
@@ -203,6 +229,7 @@ private:
     Buffer m_bufferIndex;
     std::string m_entryPoint;
     dawn_wrapper::surface_wrapper m_surface;
+    dawn_wrapper::texture_output_wrapper m_target;
     // What the pipeline and the draw are built from; defaults are what this
     // wrapper hardcoded before it was configurable.
     dawn_wrapper::render_config m_config;

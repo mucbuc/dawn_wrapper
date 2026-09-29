@@ -22,4 +22,10 @@ encoder_wrapper& encoder_wrapper::copy_buffer_to_buffer(buffer_wrapper source, b
     return *this;
 }
 
+encoder_wrapper& encoder_wrapper::copy_texture_to_buffer(texture_output_wrapper texture, buffer_wrapper destination)
+{
+    m_pimpl->copy_texture_to_buffer(texture, destination);
+    return *this;
+}
+
 } // dawn_wrapper

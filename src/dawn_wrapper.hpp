@@ -52,10 +52,14 @@ private:
     DAWN_WRAPPER_PIMPL_CORE(buffer_wrapper);
 };
 
+struct texture_output_wrapper;
 struct encoder_wrapper {
     encoder_wrapper() = default;
     encoder_wrapper& submit_command_buffer();
     encoder_wrapper& copy_buffer_to_buffer(buffer_wrapper, buffer_wrapper, size_t offset = 0);
+    // The whole texture into `destination`, row by row at the texture's
+    // bytes_per_row(), which WebGPU pads to 256; the buffer needs readback_size().
+    encoder_wrapper& copy_texture_to_buffer(texture_output_wrapper, buffer_wrapper destination);
 
 private:
     // dawn_plugin: constructs via ptr_type constructor
@@ -82,18 +86,40 @@ private:
     DAWN_WRAPPER_PIMPL_CORE(texture_wrapper);
 };
 
+// RGBA8Unorm. Usable as a storage texture, a sampled texture, and a render
+// target (render_wrapper::set_target), and copyable out (copy_texture_to_buffer).
 struct texture_output_wrapper {
     texture_output_wrapper() = default;
     void make_sampler(bool clamp_to_edge);
+
+    unsigned get_width() const;
+    unsigned get_height() const;
+    // One row as copy_texture_to_buffer lays it out: width * 4 rounded up to 256,
+    // WebGPU's bytesPerRow alignment. Pixel (x, y) starts at y * this + x * 4.
+    size_t bytes_per_row() const;
+    size_t readback_size() const;
 
     bool is_valid() const;
 
 private:
     // dawn_plugin: constructs via ptr_type constructor
     // bindgroup_wrapper: accesses m_pimpl->get_view() and get_sampler() in add_texture/add_sampler
+    // encoder_wrapper: accesses m_pimpl in copy_texture_to_buffer
+    // render_wrapper: accesses m_pimpl->get_view() when it is the render target
     friend class dawn_plugin;
     friend class bindgroup_wrapper;
+    friend class encoder_wrapper;
+    friend class render_wrapper;
     DAWN_WRAPPER_PIMPL_CORE(texture_output_wrapper);
+};
+
+// Which stages see a binding. A render pipeline's vertex stage reading a storage
+// buffer (particles[instance]) needs vertex; the default stays fragment, which
+// is all render_wrapper ever offered before.
+enum class shader_visibility {
+    vertex,
+    fragment,
+    vertex_and_fragment,
 };
 
 struct bindgroup_wrapper;
@@ -248,6 +274,10 @@ struct render_wrapper {
     void compile_shader(std::string script, std::string entryPoint,
         std::function<void(std::string)> on_messages = {});
     void set_surface(surface_wrapper);
+    // Draw into this texture instead of the surface, and present nothing. Its
+    // format is RGBA8Unorm, so render_config::target must be rgba8unorm. This is
+    // how a pipeline renders headless, to be read back and checked.
+    void set_target(texture_output_wrapper);
 
     // Applied by the next init_pipeline, and by every draw. Unset, the wrapper
     // behaves as it always did; see render_config.
@@ -256,7 +286,7 @@ struct render_wrapper {
     void render(bindgroup_set, encoder_wrapper);
     void render(bindgroup_wrapper, encoder_wrapper);
     void render(encoder_wrapper);
-    bindgroup_layout_wrapper make_bindgroup_layout();
+    bindgroup_layout_wrapper make_bindgroup_layout(shader_visibility = shader_visibility::fragment);
     void init_pipeline(bindgroup_layout_wrapper);
     void init_pipeline(std::initializer_list<bindgroup_layout_wrapper>);
     void init_pipeline();

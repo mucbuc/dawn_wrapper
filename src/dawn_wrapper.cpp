@@ -91,15 +91,6 @@ struct dawn_plugin::dawn_pimpl {
     void request_device(Adapter adapter, const char* label = "")
     {
 
-#if 0
-        size_t featureCount = adapter.EnumerateFeatures(nullptr);
-        vector<FeatureName> supportedFeatures(featureCount);
-        adapter.EnumerateFeatures(supportedFeatures.data());
-        for (auto f : supportedFeatures) {
-            cout << (int) f << endl;
-        }
-#endif
-
         DeviceDescriptor deviceDesc = {};
         Limits requiredLimits = {};
         //        requiredLimits.limits.maxStorageBuffersPerShaderStage = 10;
@@ -137,11 +128,14 @@ struct dawn_plugin::dawn_pimpl {
         },
             (void*)this);
 
-#if 1
-        vector<FeatureName> features = { FeatureName::ShaderF16 };
-        deviceDesc.requiredFeatureCount = features.size();
-        deviceDesc.requiredFeatures = features.data();
-#endif
+        // NO required features. ShaderF16 was required here and used by nothing:
+        // no shader in driftype, fieldfactory or dr_dawn says `enable f16;`. It is
+        // optional in WebGPU, and requiring one the adapter lacks does not
+        // degrade, it fails RequestDevice outright: every software adapter, and
+        // plenty of integrated hardware. driftype's vendored copy found and fixed
+        // this on 2026-09-22 (its CI, on SwiftShader); dr_dawn's CI hit it again
+        // here on 2026-09-29. If a shader ever needs f16, request it only when
+        // the adapter has it.
 
         deviceDesc.label = label;
         adapter.RequestDevice(

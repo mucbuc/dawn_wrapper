@@ -390,6 +390,36 @@ static Sampler make_sampler(Device& device, AddressMode mode, const char* label 
     return device.CreateSampler(&samplerDesc);
 }
 
+// A sampler_wrapper's: the descriptor above, with the caller's filter and
+// address mode. Nearest filters every way, mipmaps included, so the sampler is
+// non-filtering and binds where a filtering one does.
+static Sampler make_sampler(Device& device, dawn_wrapper::sampler_config config, const char* label = "")
+{
+    const auto mode = config.address == dawn_wrapper::address_mode::repeat ? AddressMode::Repeat
+        : config.address == dawn_wrapper::address_mode::mirror_repeat      ? AddressMode::MirrorRepeat
+                                                                           : AddressMode::ClampToEdge;
+    SamplerDescriptor samplerDesc = dawn_utils::make_samplerDesc(mode, label);
+    if (config.filter == dawn_wrapper::filter_mode::nearest) {
+        samplerDesc.magFilter = FilterMode::Nearest;
+        samplerDesc.minFilter = FilterMode::Nearest;
+        samplerDesc.mipmapFilter = MipmapFilterMode::Nearest;
+    }
+    return device.CreateSampler(&samplerDesc);
+}
+
+static ShaderStage to_stage(dawn_wrapper::shader_visibility visibility)
+{
+    switch (visibility) {
+    case dawn_wrapper::shader_visibility::vertex:
+        return ShaderStage::Vertex;
+    case dawn_wrapper::shader_visibility::vertex_and_fragment:
+        return ShaderStage::Vertex | ShaderStage::Fragment;
+    case dawn_wrapper::shader_visibility::fragment:
+    default:
+        return ShaderStage::Fragment;
+    }
+}
+
 static BindGroupEntry make_bind_group_entry(unsigned binding, Sampler sampler, const char* label = "")
 {
     BindGroupEntry entry = {};

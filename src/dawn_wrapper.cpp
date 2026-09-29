@@ -19,6 +19,7 @@ using namespace wgpu;
 #include "surface_wrapper_impl.hpp"
 #include "texture_output_wrapper_impl.hpp"
 #include "texture_wrapper_impl.hpp"
+#include "sampler_wrapper_impl.hpp"
 
 using namespace std;
 
@@ -405,6 +406,12 @@ struct dawn_plugin::dawn_pimpl {
         return make_shared<texture_wrapper::pimpl>(m_device, data);
     }
 
+    sampler_wrapper make_sampler(sampler_config config)
+    {
+        ASSERT(m_device.Get());
+        return make_shared<sampler_wrapper::pimpl>(m_device, config);
+    }
+
     texture_output_wrapper make_texture_output(size_t width, size_t height)
     {
         return make_shared<texture_output_wrapper::pimpl>(m_device, width, height);
@@ -490,6 +497,11 @@ texture_wrapper dawn_plugin::make_texture_from_data(vector<uint8_t> data)
 texture_output_wrapper dawn_plugin::make_texture_output(size_t width, size_t height)
 {
     return m_pimpl->make_texture_output(width, height);
+}
+
+sampler_wrapper dawn_plugin::make_sampler(sampler_config config)
+{
+    return m_pimpl->make_sampler(config);
 }
 
 encoder_wrapper dawn_plugin::make_encoder()

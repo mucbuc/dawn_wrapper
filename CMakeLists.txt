@@ -27,6 +27,8 @@ target_sources(dawn_wrapper PRIVATE
     src/encoder_wrapper_impl.hpp
     src/render_wrapper.cpp
     src/render_wrapper_impl.hpp
+    src/sampler_wrapper.cpp
+    src/sampler_wrapper_impl.hpp
     src/surface_wrapper.cpp
     src/surface_wrapper_impl.hpp
     src/texture_output_wrapper.cpp

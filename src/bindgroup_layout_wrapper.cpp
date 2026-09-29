@@ -49,6 +49,12 @@ bindgroup_layout_wrapper& bindgroup_layout_wrapper::add_storage_texture_2d(unsig
     return *this;
 }
 
+bindgroup_layout_wrapper& bindgroup_layout_wrapper::set_visibility(unsigned binding, shader_visibility visibility)
+{
+    m_pimpl->set_visibility(binding, dawn_utils::to_stage(visibility));
+    return *this;
+}
+
 bindgroup_layout_wrapper& bindgroup_layout_wrapper::add_sampler(unsigned binding, bool enable)
 {
     m_pimpl->add_sampler(binding, enable);

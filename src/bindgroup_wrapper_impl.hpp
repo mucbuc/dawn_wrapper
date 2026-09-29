@@ -3,6 +3,7 @@
 #include "buffer_wrapper_impl.hpp"
 #include "texture_output_wrapper_impl.hpp"
 #include "texture_wrapper_impl.hpp"
+#include "sampler_wrapper_impl.hpp"
 #include "bindgroup_layout_wrapper_impl.hpp"
 
 using namespace wgpu;
@@ -52,6 +53,15 @@ struct bindgroup_wrapper::pimpl {
 
         if (texture.is_valid()) {
             m_bindgroup_entries.push_back(dawn_utils::make_bind_group_entry(binding, texture.m_pimpl->get_sampler()));
+        }
+    }
+
+    void add_sampler(unsigned binding, sampler_wrapper sampler)
+    {
+        ASSERT(!m_bindgroup);
+
+        if (sampler.is_valid()) {
+            m_bindgroup_entries.push_back(dawn_utils::make_bind_group_entry(binding, sampler.m_pimpl->m_sampler));
         }
     }
 

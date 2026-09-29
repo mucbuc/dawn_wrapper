@@ -64,6 +64,18 @@ struct bindgroup_layout_wrapper::pimpl {
         }
     }
 
+    void set_visibility(unsigned binding, ShaderStage stage)
+    {
+        ASSERT(!m_bindGroupLayout);
+        for (auto& entry : m_layoutEntries) {
+            if (entry.binding == binding) {
+                entry.visibility = stage;
+                return;
+            }
+        }
+        ASSERT(false && "set_visibility: no binding by that number yet");
+    }
+
     BindGroupLayout make_bindGroupLayout(Device device, std::string label)
     {
         if (!m_bindGroupLayout) {

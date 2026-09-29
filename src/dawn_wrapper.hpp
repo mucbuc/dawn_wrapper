@@ -76,6 +76,9 @@ struct texture_wrapper {
     void write(const std::vector<uint8_t>& colors);
     void make_sampler(bool clamp_to_edge);
 
+    unsigned get_width() const;
+    unsigned get_height() const;
+
     bool is_valid() const;
 
 private:
@@ -90,6 +93,9 @@ private:
 // target (render_wrapper::set_target), and copyable out (copy_texture_to_buffer).
 struct texture_output_wrapper {
     texture_output_wrapper() = default;
+    // Every texel, RGBA bytes row by row, unpadded: a texture a compute pass
+    // then writes into (add_storage_texture_2d) can start with data.
+    void write(const std::vector<uint8_t>& colors);
     void make_sampler(bool clamp_to_edge);
 
     unsigned get_width() const;
@@ -113,6 +119,35 @@ private:
     DAWN_WRAPPER_PIMPL_CORE(texture_output_wrapper);
 };
 
+// A sampler on its own, not tied to a texture: dawn_plugin::make_sampler.
+enum class filter_mode {
+    linear,
+    nearest, // no blending between texels: pixel art, lookup tables
+};
+
+enum class address_mode {
+    clamp_to_edge,
+    repeat,
+    mirror_repeat,
+};
+
+struct sampler_config {
+    filter_mode filter = filter_mode::linear;
+    address_mode address = address_mode::clamp_to_edge;
+};
+
+struct sampler_wrapper {
+    sampler_wrapper() = default;
+    bool is_valid() const;
+
+private:
+    // dawn_plugin: constructs via ptr_type constructor
+    // bindgroup_wrapper: accesses m_pimpl->m_sampler in add_sampler
+    friend class dawn_plugin;
+    friend class bindgroup_wrapper;
+    DAWN_WRAPPER_PIMPL_CORE(sampler_wrapper);
+};
+
 // Which stages see a binding. A render pipeline's vertex stage reading a storage
 // buffer (particles[instance]) needs vertex; the default stays fragment, which
 // is all render_wrapper ever offered before.
@@ -132,6 +167,11 @@ struct bindgroup_layout_wrapper {
     bindgroup_layout_wrapper& add_texture_2d(unsigned binding, bool enable = true);
     bindgroup_layout_wrapper& add_storage_texture_2d(unsigned binding, bool enable = true);
     bindgroup_layout_wrapper& add_sampler(unsigned binding, bool enable = true);
+    // The stages that see one binding already added, overriding the layout's
+    // (render_wrapper::make_bindgroup_layout). For a binding only one stage may
+    // have: a vertex stage cannot bind writable storage, a fragment stage can.
+    // Render layouts only; a compute layout's bindings are the compute stage's.
+    bindgroup_layout_wrapper& set_visibility(unsigned binding, shader_visibility);
     bindgroup_wrapper make_bindgroup();
 
 private:
@@ -152,6 +192,7 @@ struct bindgroup_wrapper {
     bindgroup_wrapper& add_texture(unsigned binding, texture_output_wrapper);
     bindgroup_wrapper& add_sampler(unsigned binding, texture_wrapper);
     bindgroup_wrapper& add_sampler(unsigned binding, texture_output_wrapper);
+    bindgroup_wrapper& add_sampler(unsigned binding, sampler_wrapper);
 
     bool is_valid() const;
 
@@ -207,7 +248,7 @@ enum class topology {
 // The point of the struct is that those are DEFAULTS rather than decisions: a
 // vertex stage that pulls from a storage buffer, instanced drawing with no vertex
 // buffer at all, and additive blending are what it was hardcoded against, and all
-// three are now callers' business. See PIPELINE_DSL.md.
+// three are now callers' business.
 struct render_config {
     // Empty means the built-in full-screen triangle.
     std::string vertex_script;
@@ -224,6 +265,16 @@ struct render_config {
     bool vertex_buffer = true;
     unsigned vertex_count = 3;
     unsigned instance_count = 1;
+
+    // The vertex stage's entry point (vertex_entry) is in the module
+    // compile_shader compiled, beside the fragment's: one module, compiled once.
+    // vertex_script is then unused.
+    bool vertex_from_module = false;
+
+    // false: render() only records its pass into the encoder, and submitting it
+    // (and, natively, presenting the surface) is the caller's. true is what
+    // render() always did: submit, then present.
+    bool submit = true;
 };
 
 struct compute_wrapper {
@@ -336,6 +387,7 @@ struct dawn_plugin {
     texture_wrapper make_texture_2d(size_t, size_t);
     texture_wrapper make_texture_from_data(std::vector<uint8_t> data);
     texture_output_wrapper make_texture_output(size_t, size_t);
+    sampler_wrapper make_sampler(sampler_config = {});
     encoder_wrapper make_encoder();
     // Validation errors raised between a push and its pop come back through the
     // pop's callback, in order, instead of as uncaptured errors reaching the page

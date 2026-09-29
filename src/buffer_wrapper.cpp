@@ -51,4 +51,22 @@ size_t buffer_wrapper::get_size() const
     return m_pimpl ? m_pimpl->get_size() : 0;
 }
 
+buffer_usage buffer_wrapper::get_usage() const
+{
+    if (!m_pimpl) {
+        return {};
+    }
+    const auto usage = m_pimpl->m_usage;
+    const auto has = [usage](BufferUsage bit) { return (usage & bit) != BufferUsage::None; };
+    return {
+        .copy_src = has(BufferUsage::CopySrc),
+        .copy_dst = has(BufferUsage::CopyDst),
+        .storage = has(BufferUsage::Storage),
+        .uniform = has(BufferUsage::Uniform),
+        .index = has(BufferUsage::Index),
+        .vertex = has(BufferUsage::Vertex),
+        .map_read = has(BufferUsage::MapRead),
+    };
+}
+
 } // dawn_wrapper

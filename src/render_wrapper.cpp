@@ -18,6 +18,11 @@ void render_wrapper::set_surface(surface_wrapper s)
     m_pimpl->set_surface(s);
 }
 
+void render_wrapper::set_target(texture_output_wrapper t)
+{
+    m_pimpl->set_target(t);
+}
+
 void render_wrapper::configure(render_config config)
 {
     m_pimpl->configure(std::move(config));
@@ -29,9 +34,9 @@ void render_wrapper::compile_shader(std::string script, std::string entryPoint,
     m_pimpl->compile_shader(script, entryPoint, std::move(on_messages));
 }
 
-bindgroup_layout_wrapper render_wrapper::make_bindgroup_layout()
+bindgroup_layout_wrapper render_wrapper::make_bindgroup_layout(shader_visibility visibility)
 {
-    return m_pimpl->make_bindgroup_layout();
+    return m_pimpl->make_bindgroup_layout(visibility);
 }
 
 void render_wrapper::init_pipeline(bindgroup_layout_wrapper layout)
@@ -40,6 +45,11 @@ void render_wrapper::init_pipeline(bindgroup_layout_wrapper layout)
 }
 
 void render_wrapper::init_pipeline(std::initializer_list<bindgroup_layout_wrapper> layouts)
+{
+    m_pimpl->init_pipeline(layouts);
+}
+
+void render_wrapper::init_pipeline(const std::vector<bindgroup_layout_wrapper>& layouts)
 {
     m_pimpl->init_pipeline(layouts);
 }

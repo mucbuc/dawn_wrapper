@@ -41,6 +41,26 @@ struct texture_output_wrapper::pimpl {
         return m_sampler;
     }
 
+    Texture get_texture()
+    {
+        return m_texture;
+    }
+
+    unsigned get_width() const
+    {
+        return m_width;
+    }
+
+    unsigned get_height() const
+    {
+        return m_height;
+    }
+
+    size_t bytes_per_row() const
+    {
+        return (size_t(m_width) * 4 + 255) / 256 * 256;
+    }
+
 private:
     Device m_device;
     unsigned m_width;

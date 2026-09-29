@@ -162,7 +162,7 @@ static TextureDescriptor make_output_texture_descriptor(Device& device, uint32_t
     textureDesc.mipLevelCount = 1;
     textureDesc.sampleCount = 1;
     textureDesc.format = TextureFormat::RGBA8Unorm;
-    textureDesc.usage = TextureUsage::TextureBinding | TextureUsage::StorageBinding | TextureUsage::CopySrc | TextureUsage::CopyDst;
+    textureDesc.usage = TextureUsage::TextureBinding | TextureUsage::StorageBinding | TextureUsage::CopySrc | TextureUsage::CopyDst | TextureUsage::RenderAttachment;
     textureDesc.viewFormats = nullptr;
     textureDesc.viewFormatCount = 0;
     textureDesc.label = label;

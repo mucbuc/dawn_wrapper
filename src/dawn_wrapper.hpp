@@ -5,6 +5,7 @@
 #include <initializer_list>
 #include <iostream>
 #include <memory>
+#include <vector>
 
 struct GLFWwindow;
 
@@ -18,6 +19,18 @@ namespace dawn_wrapper {
     class_name(ptr_type);                    \
     ptr_type m_pimpl
 
+// What a buffer may be used for, in this library's terms rather than wgpu's: the
+// BufferUsage bits the buffer was created with. All false for an empty wrapper.
+struct buffer_usage {
+    bool copy_src = false;
+    bool copy_dst = false;
+    bool storage = false;
+    bool uniform = false;
+    bool index = false;
+    bool vertex = false;
+    bool map_read = false;
+};
+
 struct buffer_wrapper {
     buffer_wrapper() = default;
     buffer_wrapper& write(const std::vector<uint8_t>& colors);
@@ -25,6 +38,7 @@ struct buffer_wrapper {
     bool done() const;
     buffer_wrapper& get_output(std::function<void(size_t, const void*)>);
     size_t get_size() const;
+    buffer_usage get_usage() const;
 
     bool is_valid() const;
 
@@ -38,10 +52,14 @@ private:
     DAWN_WRAPPER_PIMPL_CORE(buffer_wrapper);
 };
 
+struct texture_output_wrapper;
 struct encoder_wrapper {
     encoder_wrapper() = default;
     encoder_wrapper& submit_command_buffer();
     encoder_wrapper& copy_buffer_to_buffer(buffer_wrapper, buffer_wrapper, size_t offset = 0);
+    // The whole texture into `destination`, row by row at the texture's
+    // bytes_per_row(), which WebGPU pads to 256; the buffer needs readback_size().
+    encoder_wrapper& copy_texture_to_buffer(texture_output_wrapper, buffer_wrapper destination);
 
 private:
     // dawn_plugin: constructs via ptr_type constructor
@@ -68,18 +86,40 @@ private:
     DAWN_WRAPPER_PIMPL_CORE(texture_wrapper);
 };
 
+// RGBA8Unorm. Usable as a storage texture, a sampled texture, and a render
+// target (render_wrapper::set_target), and copyable out (copy_texture_to_buffer).
 struct texture_output_wrapper {
     texture_output_wrapper() = default;
     void make_sampler(bool clamp_to_edge);
+
+    unsigned get_width() const;
+    unsigned get_height() const;
+    // One row as copy_texture_to_buffer lays it out: width * 4 rounded up to 256,
+    // WebGPU's bytesPerRow alignment. Pixel (x, y) starts at y * this + x * 4.
+    size_t bytes_per_row() const;
+    size_t readback_size() const;
 
     bool is_valid() const;
 
 private:
     // dawn_plugin: constructs via ptr_type constructor
     // bindgroup_wrapper: accesses m_pimpl->get_view() and get_sampler() in add_texture/add_sampler
+    // encoder_wrapper: accesses m_pimpl in copy_texture_to_buffer
+    // render_wrapper: accesses m_pimpl->get_view() when it is the render target
     friend class dawn_plugin;
     friend class bindgroup_wrapper;
+    friend class encoder_wrapper;
+    friend class render_wrapper;
     DAWN_WRAPPER_PIMPL_CORE(texture_output_wrapper);
+};
+
+// Which stages see a binding. A render pipeline's vertex stage reading a storage
+// buffer (particles[instance]) needs vertex; the default stays fragment, which
+// is all render_wrapper ever offered before.
+enum class shader_visibility {
+    vertex,
+    fragment,
+    vertex_and_fragment,
 };
 
 struct bindgroup_wrapper;
@@ -190,6 +230,8 @@ struct compute_wrapper {
     compute_wrapper() = default;
     void init_pipeline(bindgroup_layout_wrapper layout);
     void init_pipeline(std::initializer_list<bindgroup_layout_wrapper> layouts);
+    // For a group count only known at runtime, as a loader reading a document has.
+    void init_pipeline(const std::vector<bindgroup_layout_wrapper>& layouts);
     // The compilation messages arrive LATE, so they come back through the
     // callback rather than as a return value; see shader_base.hpp. Empty string
     // means it compiled clean. Nothing is printed and nothing aborts: a caller
@@ -232,6 +274,10 @@ struct render_wrapper {
     void compile_shader(std::string script, std::string entryPoint,
         std::function<void(std::string)> on_messages = {});
     void set_surface(surface_wrapper);
+    // Draw into this texture instead of the surface, and present nothing. Its
+    // format is RGBA8Unorm, so render_config::target must be rgba8unorm. This is
+    // how a pipeline renders headless, to be read back and checked.
+    void set_target(texture_output_wrapper);
 
     // Applied by the next init_pipeline, and by every draw. Unset, the wrapper
     // behaves as it always did; see render_config.
@@ -240,9 +286,11 @@ struct render_wrapper {
     void render(bindgroup_set, encoder_wrapper);
     void render(bindgroup_wrapper, encoder_wrapper);
     void render(encoder_wrapper);
-    bindgroup_layout_wrapper make_bindgroup_layout();
+    bindgroup_layout_wrapper make_bindgroup_layout(shader_visibility = shader_visibility::fragment);
     void init_pipeline(bindgroup_layout_wrapper);
     void init_pipeline(std::initializer_list<bindgroup_layout_wrapper>);
+    // For a group count only known at runtime; empty means no groups.
+    void init_pipeline(const std::vector<bindgroup_layout_wrapper>&);
     void init_pipeline();
     bool is_valid() const;
 
@@ -289,6 +337,12 @@ struct dawn_plugin {
     texture_wrapper make_texture_from_data(std::vector<uint8_t> data);
     texture_output_wrapper make_texture_output(size_t, size_t);
     encoder_wrapper make_encoder();
+    // Validation errors raised between a push and its pop come back through the
+    // pop's callback, in order, instead of as uncaptured errors reaching the page
+    // at some later tick; a caller can then wait for the verdict before trusting
+    // what it built. Empty string means none. Scopes nest.
+    void push_error_scope();
+    void pop_error_scope(std::function<void(std::string error)>);
     bool run();
     bool is_valid() const;
 

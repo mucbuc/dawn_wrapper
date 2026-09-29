@@ -79,7 +79,10 @@ struct dawn_plugin::dawn_pimpl {
             [](RequestAdapterStatus status, Adapter adapter, const char* message, void* userdata) {
                 auto pimpl = reinterpret_cast<dawn_pimpl*>(userdata);
                 if (status != RequestAdapterStatus::Success) {
-                    std::string error = "error requiesting webgpu device adapter";
+                    std::string error = "requesting a WebGPU adapter failed";
+                    if (message && *message) {
+                        error += std::string(": ") + message;
+                    }
                     pimpl->log_error(error.c_str());
                     pimpl->m_loaded_callback(error);
                     return;
@@ -201,17 +204,18 @@ struct dawn_plugin::dawn_pimpl {
         // NO required features, and ShaderF16 in particular is not one.
         //
         // It was required here behind an `#if 1` and never used: no shader in
-        // driftype declares `enable f16;` or names the type — not src/wgsl/, not
-        // presets/, not the WGSL the factory composes at runtime. shader-f16 is
-        // an OPTIONAL WebGPU feature, and requiring an unsupported one does not
-        // degrade, it fails RequestDevice outright.
+        // driftype, fieldfactory or dr_dawn declares `enable f16;` or names the
+        // type — not src/wgsl/, not presets/, not the WGSL the factory composes
+        // at runtime. shader-f16 is an OPTIONAL WebGPU feature, and requiring an
+        // unsupported one does not degrade, it fails RequestDevice outright.
         //
         // So every adapter without f16 — plenty of integrated and mobile
         // hardware, and every software implementation — granted an adapter, let
         // the page download 24MB, and then died at device creation, for a
-        // capability nothing asked of it. Found by CI on 2026-09-22, where
-        // SwiftShader reported exactly that: "error requesting webgpu device",
-        // then "device lost: Device creation failed."
+        // capability nothing asked of it. Found by driftype's CI on 2026-09-22,
+        // where SwiftShader reported exactly that: "error requesting webgpu
+        // device", then "device lost: Device creation failed." dr_dawn's CI hit
+        // it again on 2026-09-29.
         //
         // If a shader ever does need f16, this comes back as a feature that is
         // requested WHEN THE ADAPTER HAS IT, and the editor's pre-flight check
@@ -222,13 +226,20 @@ struct dawn_plugin::dawn_pimpl {
         adapter.RequestDevice(
             &deviceDesc, CallbackMode::AllowSpontaneous, [](RequestDeviceStatus status, Device device, const char* message, void* userdata) {
                 auto pimpl = reinterpret_cast<dawn_pimpl*>(userdata);
+                // Reported to the caller as well as logged: a device that never
+                // arrives otherwise leaves on_load's callback uncalled, and the
+                // caller waits on nothing.
                 if (status != RequestDeviceStatus::Success) {
                     // `message` was being discarded, and it is the reason. Losing
                     // it is why the f16 failure took a browser console and a CI
                     // log to explain on 2026-09-22.
-                    pimpl->log_error("error requesting webgpu device: ",
-                        message ? message : "(no message)");
+                    std::string error = "requesting a WebGPU device failed";
+                    if (message && *message) {
+                        error += std::string(": ") + message;
+                    }
+                    pimpl->log_error(error.c_str());
                     pimpl->log_adapter_features();
+                    pimpl->m_loaded_callback(error);
                     return;
                 }
 
@@ -351,6 +362,29 @@ struct dawn_plugin::dawn_pimpl {
         return make_shared<encoder_wrapper::pimpl>(m_device);
     }
 
+    void push_error_scope()
+    {
+        ASSERT(m_device.Get());
+        m_device.PushErrorScope(ErrorFilter::Validation);
+    }
+
+    void pop_error_scope(std::function<void(std::string)> on_error)
+    {
+        ASSERT(m_device.Get());
+        m_device.PopErrorScope(CallbackMode::AllowSpontaneous,
+            [on_error = std::move(on_error)](PopErrorScopeStatus status, ErrorType type, StringView message) {
+                std::string text;
+                if (status != PopErrorScopeStatus::Success) {
+                    text = "the error scope did not resolve";
+                } else if (type != ErrorType::NoError) {
+                    text = std::string(message.data ? std::string_view(message) : std::string_view("unknown error"));
+                }
+                if (on_error) {
+                    on_error(text);
+                }
+            });
+    }
+
     buffer_wrapper make_buffer(size_t size, buffer_type flags, bool isDest)
     {
         return make_shared<buffer_wrapper::pimpl>(m_device, size, flags, isDest);
@@ -461,6 +495,16 @@ texture_output_wrapper dawn_plugin::make_texture_output(size_t width, size_t hei
 encoder_wrapper dawn_plugin::make_encoder()
 {
     return m_pimpl->make_encoder();
+}
+
+void dawn_plugin::push_error_scope()
+{
+    m_pimpl->push_error_scope();
+}
+
+void dawn_plugin::pop_error_scope(std::function<void(std::string)> on_error)
+{
+    m_pimpl->pop_error_scope(std::move(on_error));
 }
 
 bool dawn_plugin::is_valid() const

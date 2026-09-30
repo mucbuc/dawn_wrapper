@@ -11,7 +11,7 @@ A C++ wrapper around [Dawn](https://dawn.googlesource.com/dawn), Google's WebGPU
 |---|---|---|
 | Chrome | ✅ Supported | Primary target |
 | Edge | ✅ Supported | Chromium-based, behaves like Chrome |
-| Safari | ⚠️ Broken | Memory misalignment in SDF output. Under investigation |
+| Safari | ✅ Supported | Safari 26 and later |
 | Firefox | ❌ Not supported | Out of scope |
 
 ## Example
@@ -21,7 +21,7 @@ A C++ wrapper around [Dawn](https://dawn.googlesource.com/dawn), Google's WebGPU
 #include <iostream>
 #include <sstream>
 
-#include <lib/dawn_wrapper/src/dawn_wrapper.h>
+#include <lib/dawn_wrapper/src/dawn_wrapper.hpp>
 
 using namespace std;
 using namespace dawn_wrapper;

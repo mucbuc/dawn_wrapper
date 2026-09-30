@@ -90,12 +90,11 @@ endif()
 |---|---|---|
 | Chrome | Supported | Primary target |
 | Edge | Supported | Chromium-based, behaves like Chrome |
-| Safari | Broken | Memory misalignment in SDF output. Dawn update did not resolve. Under investigation |
+| Safari | Supported | Safari 26 and later |
 | Firefox | Not supported | Dawn's WebGPU implementation not compatible. Out of scope |
 
 ## Known Issues
 
-- **Safari memory misalignment** — SDF buffer output is corrupted on Safari. Suspected WebGPU implementation bug on Safari's side rather than a Dawn issue. Updating Dawn to chromium/7767 did not resolve it.
 - **Headless browser test exit** — browser build does not exit cleanly without `emscripten_force_exit(0)` called explicitly after the compute callback completes.
 
 ## API Changes in chromium/7767
